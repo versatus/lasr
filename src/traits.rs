@@ -121,7 +121,7 @@ pub trait RegistryMember {
         })?.into().ok_or(
             Self::Err::default()
         )?;
-
+        
         actor.cast(
             message
         ).map_err(|_| {

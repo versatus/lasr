@@ -163,6 +163,59 @@ macro_rules! create_handler {
         }
     };
 
+    (retrieve_blob_index) => {
+        |resp| match resp {
+            EoMessage::AccountBlobIndexAcquired {
+                address, batch_header_hash, blob_index
+            } => {
+                Ok((address, batch_header_hash, blob_index))
+            },
+            EoMessage::ContractBlobIndexAcquired {
+                program_id, batch_header_hash, blob_index
+            } => {
+                Ok((program_id, batch_header_hash, blob_index))
+            },
+            EoMessage::AccountBlobIndexNotFound {
+                address
+            } => {
+                Err(
+                    Box::new(
+                        EngineError::Custom(
+                            format!(
+                                "unable to acquire blob index for account: {:?}", 
+                                address
+                            )
+                        )
+                    ) as Box<dyn std::error::Error>
+                )
+            },
+            EoMessage::ContractBlobIndexNotFound {
+                program_id
+            } => {
+                Err(
+                    Box::new(
+                        EngineError::Custom(
+                            format!(
+                                "unable to acquire blob index for program_id: {:?}",
+                                program_id
+                            )
+                        )
+                    ) as Box<dyn std::error::Error>
+                )
+            }
+            _ => {
+                Err(
+                    Box::new(
+                        EngineError::Custom(
+                            "invalid response received".to_string()
+                        )
+                    ) as Box<dyn std::error::Error>
+                )
+            }
+
+        }
+    };
+
     (get_da) => {
         |resp| match resp {
             RegistryResponse::DaClient(da_client) => Ok(da_client),

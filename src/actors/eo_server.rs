@@ -48,7 +48,9 @@ impl EoServerWrapper {
                     }).map_err(|e| {
                         EoServerError::Custom(e.to_string())
                     })?;
-                }
+                } 
+            } else {
+                log::info!("No logs found");
             }
         }
 
@@ -150,7 +152,6 @@ impl EoServer {
             }
             let be = bridge_event.build()?;
             events.push(be.clone());
-            log::info!("Parsed Bridge Event: {:?}", &be);
         }
         Ok(events)
     }
@@ -187,7 +188,6 @@ impl EoServer {
             }
             let se = settlement_event.build()?;
             events.push(se.clone());
-            log::info!("Parsed Settlement Event: {:?}", &se);
         }
         Ok(events)
     }
@@ -224,7 +224,6 @@ impl Actor for EoServer {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             EoMessage::Log { log, log_type } => {
-                log::info!("Eo Server Actor Received Log {:?}", log);
                 match log_type {
                     EventType::Bridge(_) => {
                         self.handle_eo_event(
@@ -243,11 +242,12 @@ impl Actor for EoServer {
             },
             EoMessage::Settle { address, batch_header_hash, blob_index } => {
                 log::info!("Eo server ready to settle blob index to EO contract");
+                log::info!("batch_header_hash: {:?}, blob_index: {:?}", batch_header_hash, blob_index);
             },
-            EoMessage::GetAccountBlobIndex { address } => {
+            EoMessage::GetAccountBlobIndex { address, .. } => {
                 log::info!("Eo Server Requesting Blob Index for address: {:?}", address);
             },
-            EoMessage::GetContractBlobIndex { program_id } => {
+            EoMessage::GetContractBlobIndex { program_id, .. } => {
                 log::info!("Eo Server Requesting Blob Index for program id: {:?}", program_id);
             }
 

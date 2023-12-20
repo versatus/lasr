@@ -15,6 +15,18 @@ use crate::certificate::{RecoverableSignature, Certificate};
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
+impl From<ethereum_types::H160> for Address {
+    fn from(value: ethereum_types::H160) -> Self {
+        Address::new(value.0)
+    }
+}
+
+impl Address {
+    fn new(bytes: [u8; 20]) -> Address {
+        Address(bytes)
+    }
+}
+
 /// Represents a 32-byte account hash.
 ///
 /// This structure is used to store current state hash associated with an account
@@ -74,21 +86,25 @@ impl Account {
     pub fn new(
         address: Address,
         programs: Option<BTreeMap<Address, Token>>
-    ) -> Result<Self, serde_json::error::Error> {
+    ) -> Self {
         let mut account = Self {
             address,
             programs: BTreeMap::new(),
             nonce: U256::default(),
         };
 
-        Ok(account)
+        account
+    }
+
+    pub fn address(&self) -> Address {
+        self.address.clone()
     }
 
     /// Updates the program data for a specific program address.
     ///
     /// This method either updates the existing program data or inserts new data if
     /// it doesn't exist for the given program address.
-    fn update_programs(
+    pub(crate) fn update_programs(
         &mut self,
         program_id: &Address,
         token: &Token
@@ -131,6 +147,12 @@ impl AsRef<[u8]> for ArbitraryData {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Metadata(Vec<u8>);
 
+impl Metadata {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+}
+
 impl AsRef<[u8]> for Metadata {
     /// Provides a reference to the internal byte array.
     ///
@@ -165,6 +187,22 @@ pub enum Token {
         owner_id: Address,
         data: ArbitraryData,
         status: Status
+    }
+}
+
+impl Token {
+    pub fn program_id(&self) -> Address {
+        match self {
+            Token::Fungible { program_id, .. } => {
+                program_id.clone()
+            }
+            Token::NonFungible { program_id, .. } => {
+                program_id.clone()
+            }
+            Token::Data { program_id, .. } => {
+                program_id.clone()
+            }
+        }
     }
 }
 

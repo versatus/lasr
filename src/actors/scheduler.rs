@@ -59,17 +59,18 @@ impl TaskScheduler {
 
     /// Requests a blob index from the EO server 
     async fn get_blob_index(&self, address: Address) -> Result<(), SchedulerError> {
+        let (tx, rx) = oneshot();
         let handler = create_handler!(get_eo);
         self.send_to_actor::<EoMessage, _, Option<ActorRef<EoMessage>>, ActorRef<EoMessage>>(
             handler, 
             ActorType::EoServer,
-            EoMessage::GetAccountBlobIndex { address }, 
+            EoMessage::GetAccountBlobIndex { address, sender: tx }, 
             self.registry.clone()
         ).await
     }
 
     /// Requests a blob from DA
-    async fn get_blob(&self, batch_header_hash: String, blob_index: String) -> Result<(), SchedulerError> {
+    async fn get_blob(&self, batch_header_hash: String, blob_index: u128) -> Result<(), SchedulerError> {
         let handler = create_handler!(get_da);
         let message = DaClientMessage::RetrieveBlob { batch_header_hash, blob_index };
         self.send_to_actor::<DaClientMessage, _, Option<ActorRef<DaClientMessage>>, ActorRef<DaClientMessage>>(
