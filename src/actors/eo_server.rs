@@ -3,11 +3,12 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort, Message, ActorCell};
+use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender}, RpcReplyPort, Message, ActorCell};
 use thiserror::Error;
-use web3::ethabi::{Log, FixedBytes, Address, LogParam};
+use web3::ethabi::{Log, FixedBytes, Address as EthereumAddress, LogParam};
 use jsonrpsee::core::Error as RpcError;
-use crate::{create_handler, TheatreMember, traits, RegistryMember};
+use crate::{create_handler, TheatreMember, traits, RegistryMember,Account, Address, Token};
+use tokio::sync::mpsc::Sender;
 
 use super::{
     handle_actor_response,
@@ -20,7 +21,10 @@ use super::{
 
 #[derive(Clone, Debug)]
 pub struct EoServer {
-    registry: ActorRef<RegistryMessage>
+    registry: ActorRef<RegistryMessage>,
+    account_cache_writer: Sender<Account>,
+    account_cache_checker: Sender<Address>,
+    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
 }
 
 pub struct EoServerWrapper {
@@ -83,8 +87,18 @@ impl RegistryMember for EoServer {
 }
 
 impl EoServer {
-    pub fn new(registry: ActorRef<RegistryMessage>) -> Self {
-        Self { registry }
+    pub fn new(
+        registry: ActorRef<RegistryMessage>,
+        account_cache_writer: Sender<Account>,
+        account_cache_checker: Sender<Address>,
+        pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
+    ) -> Self {
+        Self { 
+            registry, 
+            account_cache_writer, 
+            account_cache_checker, 
+            pending_transaction_writer 
+        }
     }
 
     pub fn register_self(&self, myself: ActorRef<EoMessage>) -> Result<(), Box<dyn std::error::Error>> {

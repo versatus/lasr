@@ -8,12 +8,16 @@ use thiserror::Error;
 use futures::stream::{iter, Then, StreamExt};
 use crate::{RegistryMember, Account, BridgeEvent, Token, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage};
 use jsonrpsee::core::Error as RpcError;
+use tokio::sync::mpsc::Sender;
 
 use super::{messages::{RegistryMessage, RegistryResponse, EngineMessage, RegistryActor, EoEvent}, types::ActorType};
 
 #[derive(Clone, Debug)]
 pub struct Engine {
     registry: ActorRef<RegistryMessage>,
+    account_cache_writer: Sender<Account>,
+    account_cache_checker: Sender<(Address, OneshotSender<Option<Account>>)>,
+    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
 }
 
 impl RegistryMember for Engine {
@@ -40,8 +44,18 @@ impl Display for EngineError {
 }
 
 impl Engine {
-    pub fn new(registry: ActorRef<RegistryMessage>) -> Self {
-        Self { registry }
+    pub fn new(
+        registry: ActorRef<RegistryMessage>,
+        account_cache_writer: Sender<Account>,
+        account_cache_checker: Sender<(Address, OneshotSender<Option<Account>>)>,
+        pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
+    ) -> Self {
+        Self { 
+            registry,
+            account_cache_writer,
+            account_cache_checker,
+            pending_transaction_writer,
+        }
     }
 
     pub fn register_self(&self, myself: ActorRef<EngineMessage>) -> Result<(), Box<dyn std::error::Error>> {
@@ -56,7 +70,7 @@ impl Engine {
 
     async fn get_account(&self, account: &Address) -> Account {
         log::info!("Attempting to get an acocunt");
-        if let Ok(mut account) = self.check_cache(account).await { 
+        if let Ok(Some(account)) = self.check_cache(account).await { 
             return account
         } else if let Ok(mut account) = self.get_account_from_da(&account).await {
             return account
@@ -65,34 +79,34 @@ impl Engine {
         return Account::new(account.clone(), None)
     }
 
-    async fn check_cache(&self, account: &Address) -> Result<Account, EngineError> {
-        return Err(
-            EngineError::Custom(
-                "cache not enabled yet".to_string()    
-            )
-        )
+    async fn check_cache(&self, account: &Address) -> Result<Option<Account>, EngineError> {
+        let (tx, rx) = oneshot();
+        self.account_cache_checker.send((account.clone(), tx));
+        self.handle_cache_response(rx).await
     }
 
     async fn handle_cache_response(
         &self, 
         rx: OneshotReceiver<Option<Account>>,
-        account: &Address
-    ) -> Result<Account, EngineError> {
+    ) -> Result<Option<Account>, EngineError> {
         log::info!("Attempting to handle cache_response");
         tokio::select! {
             reply = rx => {
                 match reply {
                     Ok(Some(account)) => {
                         log::info!("Found account in cache");
-                        return Ok(account)
+                        return Ok(Some(account))
                     },
+                    Ok(None) => {
+                        log::info!("did not find account in cache");
+                        return Ok(None)
+                    }
                     _ => {
                         log::info!("did not find account in cache");
                         return Err(
                             EngineError::Custom(
                                 format!(
-                                    "account: {:?} not found in cache",
-                                    account
+                                    "sender dropped"
                                 )
                             )
                         )

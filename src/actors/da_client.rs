@@ -6,7 +6,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender};
 use thiserror::Error;
 use tokio::{sync::mpsc::Sender, task::JoinHandle};
 use crate::{RegistryMember, Account, Address};
-
+use crate::Token;
 use super::{messages::{RegistryMessage, RegistryActor, DaClientMessage}, types::ActorType};
 
 
@@ -14,7 +14,10 @@ use super::{messages::{RegistryMessage, RegistryActor, DaClientMessage}, types::
 pub struct DaClient {
     registry: ActorRef<RegistryMessage>,
     client: EigenDaGrpcClient,
-    blob_cache_writer: Sender<(Address, BlobResponse)>
+    blob_cache_writer: Sender<(Address, BlobResponse)>,
+    account_cache_writer: Sender<Account>,
+    account_cache_checker: Sender<Address>,
+    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
 }
 
 #[derive(Clone, Debug, Error)]
@@ -44,9 +47,19 @@ impl DaClient {
     pub fn new(
         registry: ActorRef<RegistryMessage>,
         client: EigenDaGrpcClient,
-        blob_cache_writer: Sender<(Address, BlobResponse)>
+        blob_cache_writer: Sender<(Address, BlobResponse)>,
+        account_cache_writer: Sender<Account>,
+        account_cache_checker: Sender<Address>,
+        pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
     ) -> Self {
-        Self { registry, client, blob_cache_writer }
+        Self { 
+            registry, 
+            client, 
+            blob_cache_writer,
+            account_cache_writer,
+            account_cache_checker,
+            pending_transaction_writer,
+        }
     }
 
     pub fn register_self(&self, myself: ActorRef<DaClientMessage>) -> Result<(), Box<dyn std::error::Error>> {
@@ -65,7 +78,9 @@ impl DaClient {
             match bincode::serialize(&account) {
                 Ok(bytes) => {
                     match self.client.disperse_blob(bytes, &0) {
-                        Ok(resp) => responses.push((account.address(), resp)),
+                        Ok(resp) => { 
+                            responses.push((account.address(), resp));
+                        }
                         Err(e) => log::error!("failed to disperse blob: {}", e)
                     }
                 }

@@ -7,7 +7,7 @@ use ractor::{ActorRef, concurrency::{oneshot, OneshotReceiver, OneshotSender}};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use eigenda_client::response::BlobResponse;
-use crate::{DaClientMessage, Address, EoMessage, Account, EngineMessage, ValidatorMessage, Token, SchedulerMessage};
+use crate::{DaClientMessage, Address, EoMessage, Account, EngineMessage, ValidatorMessage, Token, SchedulerMessage, ActorType};
 
 #[derive(Debug)]
 pub struct AccountCache {
@@ -15,8 +15,9 @@ pub struct AccountCache {
     receivers: FuturesUnordered<OneshotReceiver<Address>>,
     engine_actor: ActorRef<EngineMessage>,
     validator_actor: ActorRef<ValidatorMessage>,
-    eo_actor: ActorRef<ValidatorMessage>,
-    writer: Receiver<Account>
+    eo_actor: ActorRef<EoMessage>,
+    writer: Receiver<Account>,
+    checker: Receiver<(Address, OneshotSender<Option<Account>>)>,
 }
 
 #[derive(Debug)]
@@ -190,12 +191,27 @@ impl AccountCache {
         } else {
             self.cache.insert(address, account);
         }
+        
+        let (tx, rx) = oneshot();
+        self.receivers.push(rx);
+        let _ = self.eo_actor.cast(
+            EoMessage::AccountCached { address, removal_tx: tx }
+        ); 
 
         Ok(())
     }
 
     fn handle_cache_removal(&mut self, address: &Address) -> Result<(), Box<dyn std::error::Error>> {
         self.cache.remove(address);
+        Ok(())
+    }
+
+    fn handle_cache_check(&self, address: &Address, response: OneshotSender<Option<Account>>) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(account) = self.cache.get(address) {
+            response.send(Some(account.clone()));
+        } else {
+            response.send(None);
+        }
         Ok(())
     }
 
@@ -215,6 +231,15 @@ impl AccountCache {
                     match write {
                         Some(account) => {
                             self.handle_cache_write(account);
+                        }
+                        _ => {}
+                    }
+                }
+
+                check = self.checker.recv() => {
+                    match check {
+                        Some((address, response)) => {
+                            self.handle_cache_check(&address, response);
                         }
                         _ => {}
                     }

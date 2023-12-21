@@ -584,6 +584,10 @@ pub enum EoMessage {
     ContractBlobIndexNotFound { 
         program_id: Address 
     },
+    AccountCached {
+        address: Address,
+        removal_tx: OneshotSender<Address>
+    },
     CommTest
 }
 
