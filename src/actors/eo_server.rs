@@ -112,6 +112,7 @@ impl EoServer {
     }
 
     async fn handle_eo_event(&self, events: EoEvent) -> Result<(), EoServerError> {
+        log::info!("Handling EO event: {:?}, by sending to Engine", events);
         let message = EngineMessage::EoEvent { event: events };
         let handler = create_handler!(get_engine);
         self.send_to_actor::<EngineMessage, _, Option<ActorRef<EngineMessage>>, ActorRef<EngineMessage>>(
@@ -120,6 +121,7 @@ impl EoServer {
     }
     
     fn parse_bridge_log(&self, logs: Vec<Log>) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
+        log::info!("Parsing bridge event");
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         for log in logs {

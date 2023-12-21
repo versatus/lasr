@@ -120,6 +120,7 @@ impl Engine {
         &self,
         account: &Address
     ) -> Result<(Address /*user*/, String/* batchHeaderHash*/, String /*blobIndex*/), EngineError> {
+        log::info!("Requesting blob index for account {:?}", &account);
         let (tx, rx) = oneshot();
         let message = EoMessage::GetAccountBlobIndex { address: account.clone(), sender: tx };
         let actor_type = ActorType::EoServer;
@@ -149,8 +150,10 @@ impl Engine {
             // Get DA actor 
             // send message to DA actor requesting account blob
             // return account blob or Err if not found
+            log::info!("Got blob index from EO: {:?}", blob_index);
             return Ok(Account::new(account.clone(), None))
         } else {
+            log::info!("Could not find blob index for account: {:?}", &account);
             return Err(
                 EngineError::Custom(
                     format!(
