@@ -121,6 +121,7 @@ impl Actor for DaClient {
             },
             // Optimistically and naively retreive account blobs
             DaClientMessage::RetrieveBlob { batch_header_hash, blob_index } => {
+                log::info!("Retrieving blob from batch_header_hash: {:?}, blob_index: {:?}", &batch_header_hash, &blob_index);
                 let blob = self.client.retrieve_blob(&batch_header_hash.into(), blob_index)?;
                 log::info!("successfully retrieved blob: {:?}", blob);
                 let encoded_blob = EncodedBlob::from_str(&blob)?;

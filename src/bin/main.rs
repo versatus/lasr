@@ -97,7 +97,7 @@ fn setup_eo_server() -> Result<EoListener, EoServerError> {
     })?;
 
     // Initialize the ExecutableOracle Address
-    let eo_address = eo_listener::EoAddress::new("0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9");
+    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
     // Initialize the web3 instance
     let web3: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
 
