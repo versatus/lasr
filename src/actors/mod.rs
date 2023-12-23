@@ -6,6 +6,9 @@ mod engine;
 mod validator;
 mod da_client;
 mod eo_server;
+mod account_cache;
+mod pending_transactions;
+mod blob_cache;
 
 pub use rpc_server::*;
 pub use scheduler::*;
@@ -15,7 +18,9 @@ pub use da_client::*;
 pub use eo_server::*;
 pub use messages::*;
 pub use types::*;
-
+pub use account_cache::*;
+pub use pending_transactions::*;
+pub use blob_cache::*;
 
 use ractor::Message;
 use ractor::concurrency::OneshotReceiver;

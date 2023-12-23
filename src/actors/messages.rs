@@ -9,8 +9,8 @@ use ethereum_types::U256;
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use ractor_cluster::RactorMessage;
-use ractor::{ActorRef, RpcReplyPort};
-use super::types::ActorType;
+use ractor::{RpcReplyPort};
+
 
 /// An error type for RPC Responses
 #[derive(thiserror::Error, Debug, Clone)]
@@ -293,6 +293,7 @@ pub enum EngineMessage {
 /// An event type that the Executable Oracle contract listener
 /// listens for
 #[derive(Builder, Clone, Debug)]
+#[allow(unused)]
 pub struct SettlementEvent {
     user: EthereumAddress,
     batch_header_hash: FixedBytes,
@@ -506,4 +507,8 @@ pub enum AccountCacheMessage {
     Read { address: Address, tx: OneshotSender<Option<Account>> },
     Remove { address: Address },
     Update { address: Address, delta: TokenDelta }
+}
+
+#[derive(Debug, RactorMessage)]
+pub enum BlobCacheMessage {
 }

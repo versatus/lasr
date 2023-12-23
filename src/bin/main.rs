@@ -16,7 +16,7 @@ use lasr::rpc::LasrRpcServer;
 use lasr::actors::LasrRpcServerImpl;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use ractor::Actor;
-use ractor::concurrency::oneshot;
+
 use web3::types::BlockNumber;
 
 #[tokio::main]
@@ -32,7 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
-    let (blob_cache_tx, blob_cache_rx) = tokio::sync::mpsc::channel(128);
     let account_cache_actor = AccountCacheActor::new();
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
@@ -68,13 +67,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ()
     ).await.map_err(|e| Box::new(e))?;
 
-    let (eo_server_actor_ref, _) = Actor::spawn(
+    let (_eo_server_actor_ref, _) = Actor::spawn(
         Some(ActorType::EoServer.to_string()), 
         eo_server_actor.clone(), 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
-    let (da_client_actor_ref, _) = Actor::spawn(Some(ActorType::DaClient.to_string()), da_client_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
+    let (_da_client_actor_ref, _) = Actor::spawn(Some(ActorType::DaClient.to_string()), da_client_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
 
     let (_account_cache_actor_ref, _) = Actor::spawn(
         Some(ActorType::AccountCache.to_string()),
@@ -82,9 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ()
     ).await.map_err(|e| Box::new(e))?;
 
-    let blob_cache = PendingBlobCache::new(
-        da_client_actor_ref.clone(), eo_server_actor_ref.clone(), blob_cache_rx
-    );
+    let _blob_cache = PendingBlobCache::new();
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let server = RpcServerBuilder::default().build("127.0.0.1:9292").await.map_err(|e| {
@@ -95,10 +92,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
     
-    let (_blob_stop_tx, blob_stop_rx) = oneshot();
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
-    tokio::spawn(blob_cache.run(blob_stop_rx));
 
     loop {}
 

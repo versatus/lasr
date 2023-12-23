@@ -89,7 +89,7 @@ impl Actor for DaClient {
         match message {
             // Optimistically and naively store account blobs
             DaClientMessage::StoreAccountBlobs { accounts } => {
-                let blob_responses = self.disperse_blobs(accounts).await;
+                let _blob_responses = self.disperse_blobs(accounts).await;
                 // for response in blob_responses {
                     // self.blob_cache_writer.send(response).await?;
                 // }
@@ -107,7 +107,7 @@ impl Actor for DaClient {
                 let blob = self.client.retrieve_blob(&batch_header_hash.into(), blob_index)?;
                 let encoded_blob = EncodedBlob::from_str(&blob)?;
                 let decoded = DecodedBlob::from_encoded(encoded_blob)?;
-                let account: Account = bincode::deserialize(&decoded.data())?;
+                let _account: Account = bincode::deserialize(&decoded.data())?;
                 //log::info!("successfully decoded account blob: {:?}", account);
             },
             _ => {}
