@@ -7,35 +7,28 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use thiserror::Error;
 use web3::ethabi::{Log, FixedBytes, Address as EthereumAddress, LogParam};
 use jsonrpsee::core::Error as RpcError;
-use crate::{create_handler, TheatreMember, traits, RegistryMember,Account, Address, Token};
+use crate::{create_handler, Account, Address, Token};
 use tokio::sync::mpsc::Sender;
 
 use super::{
     handle_actor_response,
     messages::{
-        RegistryMessage, RegistryActor, RegistryResponse, EoMessage, SchedulerMessage, EoEvent, SettlementEvent, BridgeEvent,
+        EoMessage, SchedulerMessage, EoEvent, SettlementEvent, BridgeEvent,
         SettlementEventBuilder, BridgeEventBuilder, EngineMessage, ValidatorMessage, DaClientMessage,
     }, types::ActorType,
     scheduler::SchedulerError
 };
 
 #[derive(Clone, Debug)]
-pub struct EoServer {
-    registry: ActorRef<RegistryMessage>,
-    account_cache_writer: Sender<Account>,
-    account_cache_checker: Sender<Address>,
-    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
-}
+pub struct EoServer;
 
 pub struct EoServerWrapper {
-    actor: ActorRef<EoMessage>,
     server: InnerEoServer
 }
 
 impl EoServerWrapper {
-    pub fn new(actor: ActorRef<EoMessage>, server: InnerEoServer) -> Self {
+    pub fn new(server: InnerEoServer) -> Self {
         Self {
-            actor,
             server
         }
     }
@@ -45,7 +38,12 @@ impl EoServerWrapper {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
                 if log.len() > 0 {
-                    self.actor.cast(
+                    let actor: ActorRef<EoMessage> = ractor::registry::where_is(
+                        ActorType::EoServer.to_string()
+                    ).ok_or(
+                        EoServerError::Custom("unable to acquire EO Server Actor".to_string())
+                    )?.into();
+                    actor.cast(
                         EoMessage::Log { 
                             log_type: logs.event_type, 
                             log: log.to_vec() 
@@ -82,42 +80,20 @@ impl Display for EoServerError {
     }
 }
 
-impl RegistryMember for EoServer {
-    type Err = EoServerError;
-}
-
 impl EoServer {
-    pub fn new(
-        registry: ActorRef<RegistryMessage>,
-        account_cache_writer: Sender<Account>,
-        account_cache_checker: Sender<Address>,
-        pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
-    ) -> Self {
-        Self { 
-            registry, 
-            account_cache_writer, 
-            account_cache_checker, 
-            pending_transaction_writer 
-        }
-    }
-
-    pub fn register_self(&self, myself: ActorRef<EoMessage>) -> Result<(), Box<dyn std::error::Error>> {
-        self.registry.cast(
-            RegistryMessage::Register(
-                ActorType::EoServer, 
-                RegistryActor::EoServer(myself)
-            )
-        ).map_err(|e| Box::new(e))?;
-        Ok(())
+    pub fn new() -> Self {
+        Self 
     }
 
     async fn handle_eo_event(&self, events: EoEvent) -> Result<(), EoServerError> {
-        log::info!("Handling EO event: {:?}, by sending to Engine", events);
         let message = EngineMessage::EoEvent { event: events };
-        let handler = create_handler!(get_engine);
-        self.send_to_actor::<EngineMessage, _, Option<ActorRef<EngineMessage>>, ActorRef<EngineMessage>>(
-            handler, ActorType::Engine, message, self.registry.clone()
-        ).await
+        let engine: ActorRef<EngineMessage> = ractor::registry::where_is(
+            ActorType::Engine.to_string()
+        ).ok_or(
+            EoServerError::Custom("unable to acquire engine".to_string())
+        )?.into();
+        engine.cast(message).map_err(|e| EoServerError::Custom(e.to_string()))?;
+        Ok(())
     }
     
     fn parse_bridge_log(&self, logs: Vec<Log>) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
@@ -258,7 +234,6 @@ impl Actor for EoServer {
             },
             EoMessage::Settle { address, batch_header_hash, blob_index } => {
                 log::info!("Eo server ready to settle blob index to EO contract");
-                log::info!("batch_header_hash: {:?}, blob_index: {:?}", batch_header_hash, blob_index);
             },
             EoMessage::GetAccountBlobIndex { address, .. } => {
                 log::info!("Eo Server Requesting Blob Index for address: {:?}", address);
@@ -267,7 +242,7 @@ impl Actor for EoServer {
                 log::info!("Eo Server Requesting Blob Index for program id: {:?}", program_id);
             }
 
-            _ => { log::info!("{:?}", &message); }
+            _ => { log::info!("Eo Server received unhandled message"); }
         }
         return Ok(())
     }

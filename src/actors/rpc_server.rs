@@ -1,14 +1,13 @@
 use async_trait::async_trait;
 use ethereum_types::U256;
-use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot, Message};
+use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, account::{ Address, Token }, 
-    certificate::RecoverableSignature, actors::{messages::RegistryResponse, handle_actor_response}, create_handler
+    rpc::LasrRpcServer, account::{ Address, Token}, 
+    certificate::RecoverableSignature, actors::handle_actor_response, create_handler
 };
 use jsonrpsee::core::Error as RpcError;
-use crate::SchedulerError;
+use super::{messages::{RpcMessage, SchedulerMessage}, types::{RpcRequestMethod, ActorType}};
 
-use super::{messages::{RpcMessage, SchedulerMessage, RegistryMessage, RegistryActor}, types::{RpcRequestMethod, ActorType}};
 #[allow(unused)]
 //TODO(asmith): Integrate timeouts
 use super::types::TIMEOUT_DURATION;
@@ -19,21 +18,11 @@ pub struct LasrRpcServerImpl {
 }
 
 #[derive(Debug, Clone)]
-pub struct LasrRpcServerActor { 
-    registry: ActorRef<RegistryMessage>,
-}
+pub struct LasrRpcServerActor;
 
 impl LasrRpcServerActor {
-    pub fn new(registry: ActorRef<RegistryMessage>) -> Self {
-        Self { registry }
-    }
-
-    pub fn register_self(&self, actor_ref: ActorRef<RpcMessage>) -> Result<(), RpcError> {
-        self.registry.cast(
-            RegistryMessage::Register(ActorType::RpcServer, RegistryActor::RpcServer(actor_ref))
-        ).map_err(|e| RpcError::Custom(e.to_string()))?;
-
-        Ok(())
+    pub fn new() -> Self {
+        Self 
     }
 
     async fn handle_response_data(
@@ -122,20 +111,11 @@ impl LasrRpcServerActor {
     }
 
     async fn get_scheduler(&self) -> Result<Option<ActorRef<SchedulerMessage>>, RpcError> {
-        let (tx, rx) = oneshot();
-        let reply = RpcReplyPort::from(tx);
-        let msg = RegistryMessage::GetActor(ActorType::Scheduler, reply);
-        self.registry.cast(msg).map_err(|e| {
-            RpcError::Custom(
-                format!("{:?}", e)
-            )
-        })?;
+        if let Some(actor) = ractor::registry::where_is(ActorType::Scheduler.to_string()) {
+            return Ok(Some(actor.into()))
+        }
 
-        let handler = create_handler!(get_scheduler); 
-
-        handle_actor_response(rx, handler).await.map_err(|_| {
-            RpcError::Custom("invalid_registry_response_received".to_string())
-        })
+        Err(RpcError::Custom("unable to acquire scheduler".to_string()))
     }
 
     async fn handle_deploy_response_data(

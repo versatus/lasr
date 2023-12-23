@@ -1,8 +1,7 @@
 use std::fmt::Display;
-
 use crate::{Account, ContractBlob};
 use crate::actors::types::RpcRequestMethod;
-use crate::account::{Token, Address};
+use crate::account::{Token, Address, TokenDelta};
 use crate::certificate::RecoverableSignature;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;
@@ -12,138 +11,6 @@ use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use ractor_cluster::RactorMessage;
 use ractor::{ActorRef, RpcReplyPort};
 use super::types::ActorType;
-
-/// An enum that the `Registry` actor can use to respond to requests 
-/// for a specific actor.
-///
-/// Variants
-///
-///    Scheduler(Option<ActorRef<SchedulerMessage>>),
-///    RpcServer(Option<ActorRef<RpcMessage>>),
-///    EoServer(Option<ActorRef<EoMessage>>),
-///    DaClient(Option<ActorRef<DaClientMessage>>),
-///    Engine(Option<ActorRef<EngineMessage>>),
-///    Validator(Option<ActorRef<ValidatorMessage>>)
-///
-#[derive(Debug, RactorMessage)]
-pub enum RegistryResponse {
-    Scheduler(Option<ActorRef<SchedulerMessage>>),
-    RpcServer(Option<ActorRef<RpcMessage>>),
-    EoServer(Option<ActorRef<EoMessage>>),
-    DaClient(Option<ActorRef<DaClientMessage>>),
-    Engine(Option<ActorRef<EngineMessage>>),
-    Validator(Option<ActorRef<ValidatorMessage>>)
-}
-
-
-/// An enum that represents various `actor`s in the system that are 
-/// registered with the Registry 
-///
-///    Scheduler(ActorRef<SchedulerMessage>),
-///    RpcServer(ActorRef<RpcMessage>),
-///    EoServer(ActorRef<EoMessage>),
-///    DaClient(ActorRef<DaClientMessage>),
-///    Engine(ActorRef<EngineMessage>),
-///    Validator(ActorRef<ValidatorMessage>)
-///
-#[derive(Debug, RactorMessage)]
-pub enum RegistryActor {
-    Scheduler(ActorRef<SchedulerMessage>),
-    RpcServer(ActorRef<RpcMessage>),
-    EoServer(ActorRef<EoMessage>),
-    DaClient(ActorRef<DaClientMessage>),
-    Engine(ActorRef<EngineMessage>),
-    Validator(ActorRef<ValidatorMessage>)
-}
-
-/// Converts a `RegistryActor` into a `RegistryResponse`
-impl From<RegistryActor> for RegistryResponse {
-    fn from(value: RegistryActor) -> Self {
-        match value {
-            RegistryActor::Scheduler(actor_ref) => {
-                RegistryResponse::Scheduler(
-                    Some(actor_ref)
-                )
-            }
-            RegistryActor::RpcServer(actor_ref) => {
-                RegistryResponse::RpcServer(
-                    Some(actor_ref)
-                )
-            }
-            RegistryActor::EoServer(actor_ref) => {
-                RegistryResponse::EoServer(
-                    Some(actor_ref)
-                )
-            }
-            RegistryActor::Engine(actor_ref) => {
-                RegistryResponse::Engine(
-                    Some(actor_ref)
-                )
-            }
-            RegistryActor::Validator(actor_ref) => {
-                RegistryResponse::Validator(
-                    Some(actor_ref)
-                )
-            }
-            RegistryActor::DaClient(actor_ref) => {
-                RegistryResponse::DaClient(
-                    Some(actor_ref)
-                )
-            }
-        }
-    }
-}
-
-
-/// Converts a borrowed `RegistryActor` into a `RegistryResponse`
-impl From<&RegistryActor> for RegistryResponse {
-    fn from(value: &RegistryActor) -> Self {
-        match value {
-            RegistryActor::Scheduler(actor_ref) => {
-                RegistryResponse::Scheduler(
-                    Some(actor_ref.clone())
-                )
-            }
-            RegistryActor::RpcServer(actor_ref) => {
-                RegistryResponse::RpcServer(
-                    Some(actor_ref.clone())
-                )
-            }
-            RegistryActor::EoServer(actor_ref) => {
-                RegistryResponse::EoServer(
-                    Some(actor_ref.clone())
-                )
-            }
-            RegistryActor::Engine(actor_ref) => {
-                RegistryResponse::Engine(
-                    Some(actor_ref.clone())
-                )
-            }
-            RegistryActor::Validator(actor_ref) => {
-                RegistryResponse::Validator(
-                    Some(actor_ref.clone())
-                )
-            }
-            RegistryActor::DaClient(actor_ref) => {
-                RegistryResponse::DaClient(
-                    Some(actor_ref.clone())
-                )
-            }
-        }
-    }
-}
-
-/// The message types that the Registry can handle
-/// 
-/// Variants
-///
-///    Register(ActorType, RegistryActor),
-///    GetActor(ActorType, RpcReplyPort<RegistryResponse>),
-#[derive(Debug, RactorMessage)]
-pub enum RegistryMessage {
-    Register(ActorType, RegistryActor),
-    GetActor(ActorType, RpcReplyPort<RegistryResponse>),
-}
 
 /// An error type for RPC Responses
 #[derive(thiserror::Error, Debug, Clone)]
@@ -297,8 +164,7 @@ pub enum SchedulerMessage {
 ///        inputs: String,
 ///        tx_hash: String,
 ///        sig: RecoverableSignature,
-///    },
-///    Send {
+///    }, Send {
 ///        program_id: Address,
 ///        from: Address,
 ///        to: Vec<Address>,
@@ -632,4 +498,12 @@ pub enum DaClientMessage {
         event: EoEvent
     },
     CommTest
+}
+
+#[derive(Debug, RactorMessage)]
+pub enum AccountCacheMessage {
+    Write { account: Account },
+    Read { address: Address, tx: OneshotSender<Option<Account>> },
+    Remove { address: Address },
+    Update { address: Address, delta: TokenDelta }
 }

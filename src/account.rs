@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::Debug};
+use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}};
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
@@ -15,6 +15,14 @@ use crate::certificate::{RecoverableSignature, Certificate};
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
+impl LowerHex for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
+    }
+}
 impl From<ethereum_types::H160> for Address {
     fn from(value: ethereum_types::H160) -> Self {
         Address::new(value.0)
@@ -100,6 +108,18 @@ impl Account {
         self.address.clone()
     }
 
+    pub fn programs(&self) -> &BTreeMap<Address, Token> {
+        &self.programs
+    }
+
+    pub fn balance(&self, program_id: &Address) -> U256 {
+        if let Some(entry) = self.programs().get(program_id) {
+            return entry.balance()
+        }
+
+        return 0.into()
+    }
+
     /// Updates the program data for a specific program address.
     ///
     /// This method either updates the existing program data or inserts new data if
@@ -107,14 +127,22 @@ impl Account {
     pub(crate) fn update_programs(
         &mut self,
         program_id: &Address,
-        token: &Token
+        delta: &TokenDelta
     ) {
-        match self.programs.get_mut(program_id) {
-            Some(entry) => {
-                *entry = token.clone(); 
+        match self.programs.get(&delta.token().program_id()) {
+            Some(mut entry) => {
+                match &mut entry {
+                    Token::Fungible { program_id, owner_id, amount, .. } => {
+                        let amount = entry.update_amount(*delta.receive(), *delta.send()).clone();
+                        log::info!("after updating, entry amount: {}", amount);
+                    }
+                    _ => {
+                        // entry = delta.token().clone();
+                    }
+                }
             },
             None => { 
-                self.programs.insert(program_id.clone(), token.clone());
+                self.programs.insert(program_id.clone(), delta.token.clone());
             }
         }
     }
@@ -190,6 +218,35 @@ pub enum Token {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct TokenDelta {
+    token: Token,
+    send: U256,
+    receive: U256,
+}
+
+impl TokenDelta {
+    pub fn new(token: Token, send: U256, receive: U256) -> Self {
+        Self { token, send, receive }
+    }
+
+    pub fn program_id(&self) -> Address {
+        self.token().program_id()
+    }
+
+    pub fn token(&self) -> &Token {
+        &self.token
+    }
+    
+    pub fn send(&self) -> &U256 {
+        &self.send
+    }
+    
+    pub fn receive(&self) -> &U256 {
+        &self.receive
+    }
+}
+
 impl Token {
     pub fn program_id(&self) -> Address {
         match self {
@@ -202,6 +259,30 @@ impl Token {
             Token::Data { program_id, .. } => {
                 program_id.clone()
             }
+        }
+    }
+
+    pub fn update_amount(&self, receive: U256, send: U256) -> U256 {
+        match self {
+            Token::Fungible { program_id, mut amount, .. } => {
+                log::info!("token_id: {:x} amount before update: {}", &program_id, &amount);
+                amount += receive;
+                log::info!("added {} to amount", receive); 
+                amount -= send;
+                log::info!("subtracted {} from amount", send);
+                log::info!("updated {:x} amount: {}", &program_id, &amount);
+                return amount 
+            }
+            _ => {}
+        }
+
+        return 0.into() 
+    }
+
+    pub fn balance(&self) -> U256 {
+        match self {
+            Token::Fungible { amount, .. } => { return *amount }
+            _ => return 0.into()
         }
     }
 }

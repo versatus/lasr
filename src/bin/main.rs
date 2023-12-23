@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
 use eo_listener::EoServerError;
+use lasr::AccountCacheActor;
+use lasr::ActorType;
 use lasr::EoServerWrapper;
 use lasr::LasrRpcServerActor;
 use lasr::PendingBlobCache;
@@ -12,7 +14,6 @@ use eo_listener::EoServer as EoListener;
 use lasr::DaClient;
 use lasr::rpc::LasrRpcServer;
 use lasr::actors::LasrRpcServerImpl;
-use lasr::actors::ActorRegistry;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use ractor::Actor;
 use ractor::concurrency::oneshot;
@@ -20,52 +21,71 @@ use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Info).map_err(|e| EoServerError::Other(e.to_string()))?;
-    let registry = ActorRegistry;
-    let (registry_ref, _) = Actor::spawn(
-        Some("registry".to_string()), registry, ()
-    ).await.map_err(|e| Box::new(e))?;
+    simple_logger::init_with_level(
+        log::Level::Info
+    ).map_err(|e| EoServerError::Other(e.to_string()))?;
+
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default() 
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         .server_address("disperser-goerli.eigenda.xyz:443".to_string())
         .adversary_threshold(40)
         .quorum_threshold(60)
         .build()?;
-   
+
     let (blob_cache_tx, blob_cache_rx) = tokio::sync::mpsc::channel(128);
-    let lasr_rpc_actor = LasrRpcServerActor::new(registry_ref.clone());
-    let scheduler_actor = TaskScheduler::new(registry_ref.clone());
-    let engine_actor = Engine::new(registry_ref.clone());
-    let validator_actor = Validator::new(registry_ref.clone());
-    let eo_server_actor = EoServer::new(registry_ref.clone());
-    let da_client_actor = DaClient::new(registry_ref.clone(), eigen_da_client, blob_cache_tx);
+    let account_cache_actor = AccountCacheActor::new();
+    let lasr_rpc_actor = LasrRpcServerActor::new();
+    let scheduler_actor = TaskScheduler::new();
+    let engine_actor = Engine::new();
+    let validator_actor = Validator::new();
+    let eo_server_actor = EoServer::new();
+    let da_client_actor = DaClient::new(eigen_da_client);
     let inner_eo_server = setup_eo_server().map_err(|e| {
         Box::new(e)
     })?;
 
     let (lasr_rpc_actor_ref, _) = Actor::spawn(
-        None, lasr_rpc_actor.clone(), ()
+        Some(ActorType::RpcServer.to_string()), 
+        lasr_rpc_actor.clone(), 
+        ()
     ).await.map_err(|e| Box::new(e))?;
-    lasr_rpc_actor.register_self(lasr_rpc_actor_ref.clone())?;
 
-    let (scheduler_actor_ref, _) = Actor::spawn(None, scheduler_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
-    scheduler_actor.register_self(scheduler_actor_ref.clone())?;
+    let (_scheduler_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Scheduler.to_string()), 
+        scheduler_actor.clone(), 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
-    let (engine_actor_ref, _) = Actor::spawn(None, engine_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
-    engine_actor.register_self(engine_actor_ref.clone())?;
+    let (_engine_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Engine.to_string()), 
+        engine_actor.clone(), 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
-    let (validator_actor_ref, _) = Actor::spawn(None, validator_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
-    validator_actor.register_self(validator_actor_ref.clone())?;
+    let (_validator_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Validator.to_string()),
+        validator_actor.clone(), 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
-    let (eo_server_actor_ref, _) = Actor::spawn(None, eo_server_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
-    eo_server_actor.register_self(eo_server_actor_ref.clone())?;
+    let (eo_server_actor_ref, _) = Actor::spawn(
+        Some(ActorType::EoServer.to_string()), 
+        eo_server_actor.clone(), 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
-    let (da_client_actor_ref, _) = Actor::spawn(None, da_client_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
-    da_client_actor.register_self(da_client_actor_ref.clone())?;
+    let (da_client_actor_ref, _) = Actor::spawn(Some(ActorType::DaClient.to_string()), da_client_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
 
-    let mut blob_cache = PendingBlobCache::new(
+    let (_account_cache_actor_ref, _) = Actor::spawn(
+        Some(ActorType::AccountCache.to_string()),
+        account_cache_actor.clone(),
+        ()
+    ).await.map_err(|e| Box::new(e))?;
+
+    let blob_cache = PendingBlobCache::new(
         da_client_actor_ref.clone(), eo_server_actor_ref.clone(), blob_cache_rx
     );
+
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let server = RpcServerBuilder::default().build("127.0.0.1:9292").await.map_err(|e| {
         Box::new(e)
@@ -73,19 +93,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| {
         Box::new(e)
     })?;
-    let eo_server_wrapper = EoServerWrapper::new(
-        eo_server_actor_ref.clone(),
-        inner_eo_server,
-    );
+    let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
     
     let (_blob_stop_tx, blob_stop_rx) = oneshot();
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
     tokio::spawn(blob_cache.run(blob_stop_rx));
 
-    loop {
-    }
+    loop {}
 
+    #[allow(unreachable_code)]
     Ok(())
 }
 

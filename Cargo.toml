@@ -47,6 +47,8 @@ eo_listener = { path = "../eo_listener" }
 log = "0.4.20"
 simple_logger = "4.3.0"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
+erased-serde = "0.4.1"
+typetag = "0.2.14"
 
 [dev-dependencies]
 simple_logger = "4.3.0"

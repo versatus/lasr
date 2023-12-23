@@ -4,20 +4,14 @@ use async_trait::async_trait;
 use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::BlobVerificationProof, status::{BlobStatus, BlobResult}, blob::{DecodedBlob, EncodedBlob}};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender};
 use thiserror::Error;
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
-use crate::{RegistryMember, Account, Address};
-use crate::Token;
-use super::{messages::{RegistryMessage, RegistryActor, DaClientMessage}, types::ActorType};
+use tokio::task::JoinHandle;
+use crate::{Account, Address};
+use crate::DaClientMessage;
 
 
 #[derive(Clone, Debug)]
 pub struct DaClient {
-    registry: ActorRef<RegistryMessage>,
-    client: EigenDaGrpcClient,
-    blob_cache_writer: Sender<(Address, BlobResponse)>,
-    account_cache_writer: Sender<Account>,
-    account_cache_checker: Sender<Address>,
-    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
+    client: EigenDaGrpcClient
 }
 
 #[derive(Clone, Debug, Error)]
@@ -39,37 +33,13 @@ impl Default for DaClientError {
     }
 }
 
-impl RegistryMember for DaClient {
-    type Err = DaClientError;
-}
-
 impl DaClient {
     pub fn new(
-        registry: ActorRef<RegistryMessage>,
         client: EigenDaGrpcClient,
-        blob_cache_writer: Sender<(Address, BlobResponse)>,
-        account_cache_writer: Sender<Account>,
-        account_cache_checker: Sender<Address>,
-        pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
     ) -> Self {
         Self { 
-            registry, 
             client, 
-            blob_cache_writer,
-            account_cache_writer,
-            account_cache_checker,
-            pending_transaction_writer,
         }
-    }
-
-    pub fn register_self(&self, myself: ActorRef<DaClientMessage>) -> Result<(), Box<dyn std::error::Error>> {
-        self.registry.cast(
-            RegistryMessage::Register(
-                ActorType::DaClient, 
-                RegistryActor::DaClient(myself)
-            )
-        ).map_err(|e| Box::new(e))?;
-        Ok(())
     }
 
     async fn disperse_blobs(&self, accounts: Vec<Account>) -> Vec<(Address, BlobResponse)> {
@@ -77,6 +47,7 @@ impl DaClient {
         for account in accounts {
             match bincode::serialize(&account) {
                 Ok(bytes) => {
+                    log::info!("serialized account is {} bytes", bytes.len());
                     match self.client.disperse_blob(bytes, &0) {
                         Ok(resp) => { 
                             responses.push((account.address(), resp));
@@ -118,31 +89,26 @@ impl Actor for DaClient {
         match message {
             // Optimistically and naively store account blobs
             DaClientMessage::StoreAccountBlobs { accounts } => {
-                log::info!("account blobs requested to be stored");
                 let blob_responses = self.disperse_blobs(accounts).await;
-                log::info!("dispersed blobs: {:?}", blob_responses);
-                for response in blob_responses {
-                    self.blob_cache_writer.send(response).await?;
-                }
+                // for response in blob_responses {
+                    // self.blob_cache_writer.send(response).await?;
+                // }
                 // Need to send blob responses somewhere to be stored,
                 // and checked for dispersal.
             },
             DaClientMessage::StoreContractBlobs { .. /*contracts*/ } => {},
             DaClientMessage::StoreTransactionBlob => {}, 
             DaClientMessage::ValidateBlob { request_id, address, tx } => {
-                log::info!("received validate blob request for request_id: {:?}", request_id);
                 let _ = validate_blob(self.client.clone(), request_id, address, tx).await;
                 // Spawn a tokio task to poll EigenDa for the validated blob
             },
             // Optimistically and naively retreive account blobs
             DaClientMessage::RetrieveBlob { batch_header_hash, blob_index } => {
-                log::info!("Retrieving blob from batch_header_hash: {:?}, blob_index: {:?}", &batch_header_hash, &blob_index);
                 let blob = self.client.retrieve_blob(&batch_header_hash.into(), blob_index)?;
-                log::info!("successfully retrieved blob: {:?}", blob);
                 let encoded_blob = EncodedBlob::from_str(&blob)?;
                 let decoded = DecodedBlob::from_encoded(encoded_blob)?;
                 let account: Account = bincode::deserialize(&decoded.data())?;
-                log::info!("successfully decoded account blob: {:?}", account);
+                //log::info!("successfully decoded account blob: {:?}", account);
             },
             _ => {}
         } 
@@ -166,7 +132,7 @@ async fn poll_blob_status(
 ) -> Result<(), std::io::Error> {
     let mut status = get_blob_status(&client, &request_id).await?;
     while status.status().clone() != BlobResult::Confirmed {
-        log::info!("blob result not yet confirmed... polling again in 10 seconds");
+        //log::info!("blob result not yet confirmed... polling again in 10 seconds");
         tokio::time::sleep(Duration::from_secs(10)).await;
         status = get_blob_status(&client, &request_id).await?;
     }
@@ -181,7 +147,7 @@ async fn validate_blob(
     address: Address, 
     tx: OneshotSender<(Address, BlobVerificationProof)>
 ) -> JoinHandle<Result<(), std::io::Error>> {
-    log::info!("spawning tokio task");
+    log::info!("spawning blob validation task");
     tokio::task::spawn(async move { poll_blob_status(
         client.clone(), request_id, address, tx).await
     })

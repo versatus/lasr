@@ -2,14 +2,12 @@ mod rpc_server;
 mod messages;
 mod types;
 mod scheduler;
-mod registry;
 mod engine;
 mod validator;
 mod da_client;
 mod eo_server;
 
 pub use rpc_server::*;
-pub use registry::*;
 pub use scheduler::*;
 pub use engine::*;
 pub use validator::*;
@@ -121,6 +119,21 @@ macro_rules! create_handler {
     (get_engine) => {
         |resp| match resp {
             RegistryResponse::Engine(engine) => Ok(engine),
+            _ => {
+                Err(
+                    Box::new(
+                        RpcError::Custom(
+                            "invalid registry response received".to_string()
+                        )
+                    ) as Box<dyn std::error::Error>
+                )
+            }
+        }
+    };
+
+    (get_cache) => {
+        |resp| match resp {
+            RegistryResponse::AccountCache(account_cache) => Ok(account_cache),
             _ => {
                 Err(
                     Box::new(

@@ -1,19 +1,12 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender};
+use ractor::{ActorRef, Actor, ActorProcessingErr};
 use thiserror::Error;
-use crate::{RegistryMember, Account, Token, Address};
-use tokio::sync::mpsc::Sender;
-use super::{messages::{RegistryMessage, ValidatorMessage, RegistryActor}, types::ActorType};
+use super::messages::ValidatorMessage;
 
 #[derive(Clone, Debug)]
-pub struct Validator {
-    registry: ActorRef<RegistryMessage>,
-    account_cache_writer: Sender<Account>,
-    account_cache_checker: Sender<Address>,
-    pending_transaction_writer: Sender<(Address, Token, OneshotSender<(Address, Address)>)>
-}
+pub struct Validator; 
 
 #[derive(Clone, Debug, Error)]
 pub enum ValidatorError {
@@ -34,34 +27,9 @@ impl Default for ValidatorError {
     }
 }
 
-impl RegistryMember for Validator {
-    type Err = ValidatorError;
-}
-    
-
 impl Validator {
-    pub fn new(
-        registry: ActorRef<RegistryMessage>,
-        account_cache_writer: Sender<Account>,
-        account_cache_checker: Sender<Address>,
-        pending_transaction_writer: Sender<(Address, Token, tokio::sync::oneshot::Sender<(Address, Address)>)>,
-    ) -> Self {
-        Self { 
-            registry,
-            account_cache_writer,
-            account_cache_checker,
-            pending_transaction_writer,
-        }
-    }
-
-    pub fn register_self(&self, myself: ActorRef<ValidatorMessage>) -> Result<(), Box<dyn std::error::Error>> {
-        self.registry.cast(
-            RegistryMessage::Register(
-                ActorType::Validator, 
-                RegistryActor::Validator(myself)
-            )
-        ).map_err(|e| Box::new(e))?;
-        Ok(())
+    pub fn new() -> Self {
+        Self 
     }
 }
 
