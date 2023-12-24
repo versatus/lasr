@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use ractor::{concurrency::{OneshotReceiver, OneshotSender}, Actor, ActorRef, ActorProcessingErr};
 use thiserror::Error;
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, time::{Duration, Instant}};
 use crate::{Address, Account, AccountCacheMessage, TokenDelta};
 
 #[derive(Debug, Clone)]
@@ -28,6 +28,8 @@ impl Default for AccountCacheError {
 pub struct AccountCache {
     cache: HashMap<Address, Account>,
     receivers: FuturesUnordered<OneshotReceiver<Address>>,
+    batch_interval: Duration,
+    last_batch: Option<Instant>
 }
 
 impl AccountCache {
@@ -36,6 +38,8 @@ impl AccountCache {
         Self {
             cache: HashMap::new(),
             receivers: FuturesUnordered::new(),
+            batch_interval: Duration::from_secs(180),
+            last_batch: None 
         }
     }
 
@@ -74,36 +78,39 @@ impl AccountCache {
         account: Account
     ) -> Result<(), Box<dyn std::error::Error>> {
         let address = account.address(); 
-        // if let Some(mut entry) = self.cache.get_mut(&address) {
-        //    log::info!("Found account: 0x{:x} in cache, updating...", &account.address());
-        //    *entry = account;
-        //} else {
-        self.cache.insert(address, account);
-        //}
+        if let Some(entry) = self.cache.get_mut(&address) {
+            log::info!("Found account: 0x{:x} in cache, updating...", &address);
+            *entry = account;
+        } else {
+            log::info!("Did not find account: 0x{:x} in cache, inserting...", &address);
+            self.cache.insert(address, account);
+            log::info!("Inserted account: 0x{:x} in cache, cache.len(): {}", &address, self.cache.len());
+        }
+
+        self.check_build_batch()?;
         
         Ok(())
     }
 
-    #[allow(unused)]
-    pub(crate) fn handle_cache_removal(
-        &mut self,
-        address: &Address
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.cache.remove(address);
+    fn check_build_batch(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = bincode::serialize(&self.cache)?;
+        if let Some(size) = base64::encoded_len(bytes.len(), true) {
+            if size >= crate::MAX_BATCH_SIZE {
+                self.build_batch()?;
+            } else if let Some(instant) = self.last_batch {
+                if Instant::now().duration_since(instant) > self.batch_interval {
+                    self.build_batch()?;
+                }
+            } else if let None = self.last_batch {
+                self.last_batch = Some(Instant::now());
+            }
+        }
+
         Ok(())
     }
 
-    #[allow(unused)]
-    pub(crate) fn handle_cache_check(
-        &self,
-        address: &Address,
-        response: OneshotSender<Option<Account>>
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(account) = self.cache.get(address) {
-            let _ = response.send(Some(account.clone()));
-        } else {
-            let _ = response.send(None);
-        }
+    fn build_batch(&self) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("Time to build a batch and settle it");
         Ok(())
     }
 }
@@ -136,13 +143,13 @@ impl Actor for AccountCacheActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             AccountCacheMessage::Write { account } => {
-                log::info!("Received account cache write request");
-                let _ = state.handle_cache_write(account);
+                log::info!("Received account cache write request: 0x{:x}", &account.address());
+                let _ = state.handle_cache_write(account.clone());
+                log::info!("Account: {:?}", &account);
             }
             AccountCacheMessage::Read { address, tx } => {
                 log::info!("Recieved account cache read request"); 
                 let account = state.get(&address);
-                log::info!("Account: {:?}", &account);
                 let _ = tx.send(account.cloned());
             }
             AccountCacheMessage::Remove { address } => {

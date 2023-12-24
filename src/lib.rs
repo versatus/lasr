@@ -16,6 +16,8 @@ pub use crate::traits::*;
 pub use crate::actors::*;
 pub use crate::cache::*;
 
+pub const MAX_BATCH_SIZE: usize = 1024 * 512;
+
 #[macro_use]
 extern crate derive_builder;
 

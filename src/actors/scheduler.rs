@@ -65,29 +65,30 @@ impl Actor for TaskScheduler {
         println!("Scheduler Received RPC Call");
         match message {
             SchedulerMessage::Call { 
-                program_id, from, to, op, inputs, sig, tx_hash, rpc_reply 
+                program_id, from, op, inputs, sig, rpc_reply 
             } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
-                // Check cache for account (and dependencies) and Contract Blob for ABI
-                // If one or both not in cache, get blob index from eo
-                // If one or both not in cache or EO, return error to user via RPC server
-                // If both found in cache or EO schedule for execution & validation 
-                // If valid & executed without error, return updated account to 
-                // user via RPC, and prepare as part of batch to store in DA and 
-                // settle blob index to EO
+                // Send to engine where a `Transaction` will be created 
+                // add to RpcCollector with reply port
+                // when transaction is complete and account is consolidated,
+                // the collector will respond to the channel opened by the 
+                // RpcServer with the necessary information
             },
             SchedulerMessage::Send { .. } => {
-                log::info!("Scheduler received RPC `send` method. Prepping to send to Validator & Engine");
-                // Check cache for account (and dependencies)
-                // If not in cache, get blob index from eo
-                // If not in cache or EO, return error to user via RPC server
-                // If found in cache or EO schedule for execution & validation 
-                // If valid & executed without error, return updated account to 
-                // user via RPC, and prepare as part of batch to store in DA and 
-                // settle blob index to EO
+                log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
+                // Send to `Engine` where a `Transaction` will be created
+                // add to RpcCollector with reply port
+                // when transaction is complete and account is consolidated,
+                // the collector will respond to the channel opened by the 
+                // RpcServer with the necessary information
             },
             SchedulerMessage::Deploy { .. } => {
                 log::info!("Scheduler received RPC `deploy` method. Prepping to send to Validator & Engine");
+                // Add to pending transactions where a dependency graph will be built
+                // add to RpcCollector with reply port
+                // when transaction is complete and account is consolidated,
+                // the collector will respond to the channel opened by the 
+                // RpcServer with the necessary information
             },
             _ => {}
         }

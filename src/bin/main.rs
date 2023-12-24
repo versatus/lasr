@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use eo_listener::EoServerError;
 use lasr::AccountCacheActor;
 use lasr::ActorType;
+use lasr::BlobCacheActor;
 use lasr::EoServerWrapper;
 use lasr::LasrRpcServerActor;
-use lasr::PendingBlobCache;
+use lasr::PendingTransactionActor;
 use lasr::TaskScheduler;
 use lasr::Engine;
 use lasr::Validator;
@@ -32,7 +33,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
+    let blob_cache_actor = BlobCacheActor::new(); 
     let account_cache_actor = AccountCacheActor::new();
+    let pending_transaction_actor = PendingTransactionActor;
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
     let engine_actor = Engine::new();
@@ -45,43 +48,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (lasr_rpc_actor_ref, _) = Actor::spawn(
         Some(ActorType::RpcServer.to_string()), 
-        lasr_rpc_actor.clone(), 
+        lasr_rpc_actor, 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
     let (_scheduler_actor_ref, _) = Actor::spawn(
         Some(ActorType::Scheduler.to_string()), 
-        scheduler_actor.clone(), 
+        scheduler_actor, 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
     let (_engine_actor_ref, _) = Actor::spawn(
         Some(ActorType::Engine.to_string()), 
-        engine_actor.clone(), 
+        engine_actor, 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
     let (_validator_actor_ref, _) = Actor::spawn(
         Some(ActorType::Validator.to_string()),
-        validator_actor.clone(), 
+        validator_actor, 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
     let (_eo_server_actor_ref, _) = Actor::spawn(
         Some(ActorType::EoServer.to_string()), 
-        eo_server_actor.clone(), 
+        eo_server_actor, 
         ()
     ).await.map_err(|e| Box::new(e))?;
 
-    let (_da_client_actor_ref, _) = Actor::spawn(Some(ActorType::DaClient.to_string()), da_client_actor.clone(), ()).await.map_err(|e| Box::new(e))?;
+    let (_da_client_actor_ref, _) = Actor::spawn(
+        Some(ActorType::DaClient.to_string()), 
+        da_client_actor, 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
+
+    let (_pending_transaction_actor_ref, _) = Actor::spawn(
+        Some(ActorType::PendingTransactions.to_string()),
+        pending_transaction_actor,
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
     let (_account_cache_actor_ref, _) = Actor::spawn(
         Some(ActorType::AccountCache.to_string()),
-        account_cache_actor.clone(),
+        account_cache_actor,
         ()
     ).await.map_err(|e| Box::new(e))?;
 
-    let _blob_cache = PendingBlobCache::new();
+    let (_blob_cache_actor_ref, _) = Actor::spawn(
+        Some(ActorType::BlobCache.to_string()),
+        blob_cache_actor,
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let server = RpcServerBuilder::default().build("127.0.0.1:9292").await.map_err(|e| {
@@ -109,6 +126,7 @@ fn setup_eo_server() -> Result<EoListener, EoServerError> {
     })?;
 
     // Initialize the ExecutableOracle Address
+    //0x5FbDB2315678afecb367f032d93F642f64180aa3
     let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
     // Initialize the web3 instance
     let web3: web3::Web3<web3::transports::Http> = web3::Web3::new(http);

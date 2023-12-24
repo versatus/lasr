@@ -39,15 +39,13 @@ impl LasrRpcServerActor {
         scheduler: ActorRef<SchedulerMessage>,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), ActorProcessingErr> {
         Ok(scheduler.cast(
-            SchedulerMessage::Call { program_id, from, to, op, inputs, sig, tx_hash, rpc_reply: reply }
+            SchedulerMessage::Call { program_id, from, op, inputs, sig, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
     }
 
@@ -56,14 +54,13 @@ impl LasrRpcServerActor {
         scheduler: ActorRef<SchedulerMessage>,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), ActorProcessingErr> {
         Ok(scheduler.cast(
-            SchedulerMessage::Send { program_id, from, to, amount, content: None, sig, tx_hash, rpc_reply: reply }
+            SchedulerMessage::Send { program_id, from, to, amount, sig, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
     }
 
@@ -72,11 +69,10 @@ impl LasrRpcServerActor {
         scheduler: ActorRef<SchedulerMessage>,
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), ActorProcessingErr> {
         Ok(scheduler.cast(
-            SchedulerMessage::Deploy { program_id, sig, tx_hash, rpc_reply: reply }
+            SchedulerMessage::Deploy { program_id, sig, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
     }
 
@@ -93,19 +89,19 @@ impl LasrRpcServerActor {
             ).map_err(|e| Box::new(e))?;
         match method {
             RpcRequestMethod::Call { 
-                program_id, from, to, op, inputs, sig, tx_hash 
+                program_id, from, op, inputs, sig
             } => {
-                self.handle_call_request(scheduler, program_id, from, to, op, inputs, sig, tx_hash, reply)
+                self.handle_call_request(scheduler, program_id, from, op, inputs, sig, reply)
             },
             RpcRequestMethod::Send { 
-                program_id, from, to, amount, sig, tx_hash 
+                program_id, from, to, amount, sig
             } => {
-                self.handle_send_request(scheduler, program_id, from, to, amount, sig, tx_hash, reply)
+                self.handle_send_request(scheduler, program_id, from, to, amount, sig, reply)
             },
             RpcRequestMethod::Deploy { 
-                program_id, sig, tx_hash 
+                program_id, sig
             } => {
-                self.handle_deploy_request(scheduler, program_id, sig, tx_hash, reply)
+                self.handle_deploy_request(scheduler, program_id, sig, reply)
             }
         }
     }
@@ -141,10 +137,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
         &self,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
-        tx_hash: String,
         sig: RecoverableSignature 
     ) -> Result<Token, RpcError> {
         // This RPC is a program call to a program deployed to the network
@@ -156,11 +150,9 @@ impl LasrRpcServer for LasrRpcServerImpl {
         self.send_rpc_call_method_to_self(
             program_id,
             from,
-            to,
             op,
             inputs,
             sig,
-            tx_hash,
             reply
         ).await?;
         
@@ -177,9 +169,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
         &self,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
-        tx_hash: String,
         sig: RecoverableSignature
     ) -> Result<Token, jsonrpsee::core::Error> {
         println!("Received RPC send method");
@@ -187,7 +178,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let reply = RpcReplyPort::from(tx); 
 
         self.send_rpc_send_method_to_self(
-            program_id, from, to, amount, sig, tx_hash,reply
+            program_id, from, to, amount, sig, reply
         ).await?;
 
         let handler = create_handler!(rpc_response, send); 
@@ -203,7 +194,6 @@ impl LasrRpcServer for LasrRpcServerImpl {
         &self,
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String,
     ) -> Result<(), jsonrpsee::core::Error> {
         println!("Received RPC deploy method"); 
         let (tx, rx) = oneshot();
@@ -212,7 +202,6 @@ impl LasrRpcServer for LasrRpcServerImpl {
         self.send_rpc_deploy_method_to_self(
             program_id,
             sig,
-            tx_hash,
             reply 
         ).await?;
         
@@ -236,11 +225,9 @@ impl LasrRpcServerImpl {
         &self, 
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         println!("Sending RPC call method to proxy actor");
@@ -250,11 +237,9 @@ impl LasrRpcServerImpl {
                     method: RpcRequestMethod::Call {
                         program_id,
                         from,
-                        to,
                         op,
                         inputs,
                         sig,
-                        tx_hash,
                     },
                     reply
                 }
@@ -268,16 +253,15 @@ impl LasrRpcServerImpl {
         &self,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         self.get_myself().cast(
                 RpcMessage::Request {
                     method: RpcRequestMethod::Send { 
-                        program_id, from, to, amount, sig, tx_hash 
+                        program_id, from, to, amount, sig 
                     }, 
                     reply 
                 }
@@ -291,12 +275,11 @@ impl LasrRpcServerImpl {
         &self,
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         self.get_myself().cast(
             RpcMessage::Request {
-                method: RpcRequestMethod::Deploy { program_id, sig, tx_hash },
+                method: RpcRequestMethod::Deploy { program_id, sig },
                 reply
             }
         ).map_err(|e| {

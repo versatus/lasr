@@ -9,6 +9,7 @@ mod eo_server;
 mod account_cache;
 mod pending_transactions;
 mod blob_cache;
+mod executor;
 
 pub use rpc_server::*;
 pub use scheduler::*;
@@ -21,9 +22,12 @@ pub use types::*;
 pub use account_cache::*;
 pub use pending_transactions::*;
 pub use blob_cache::*;
+pub use executor::*;
 
-use ractor::Message;
-use ractor::concurrency::OneshotReceiver;
+use ractor::ActorRef;
+use ractor::concurrency::{OneshotReceiver, oneshot};
+
+use crate::{Address, Account};
 
 #[macro_export]
 macro_rules! create_handler {
@@ -76,81 +80,6 @@ macro_rules! create_handler {
         }
     };
 
-    (get_scheduler) => {
-        |resp| match resp {
-            RegistryResponse::Scheduler(scheduler) => Ok(scheduler),
-            _ => {
-                Err(
-                    Box::new(
-                        SchedulerError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
-        }
-    };
-    
-    (get_rpc) => {
-        |resp| match resp {
-            RegistryResponse::RpcServer(rpc_server) => Ok(rpc_server),
-            _ => {
-                Err(
-                    Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
-        }
-    };
-
-    (get_validator) => {
-        |resp| match resp {
-            RegistryResponse::Validator(validator) => Ok(validator),
-            _ => {
-                Err(
-                    Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
-        }
-    };
-
-    (get_engine) => {
-        |resp| match resp {
-            RegistryResponse::Engine(engine) => Ok(engine),
-            _ => {
-                Err(
-                    Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
-        }
-    };
-
-    (get_cache) => {
-        |resp| match resp {
-            RegistryResponse::AccountCache(account_cache) => Ok(account_cache),
-            _ => {
-                Err(
-                    Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
-        }
-    };
-
     (engine_response, call) => {
         |resp| match resp {
         }
@@ -166,18 +95,10 @@ macro_rules! create_handler {
         }
     };
 
-    (get_eo) => {
+    (retrieve_blob) => {
         |resp| match resp {
-            RegistryResponse::EoServer(eo_server) => Ok(eo_server),
-            _ => {
-                Err(
-                    Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
-            }
+            Some(account) => Ok(Some(account)),
+            _ => Ok(None) 
         }
     };
 
@@ -234,15 +155,13 @@ macro_rules! create_handler {
         }
     };
 
-    (get_da) => {
+    (account_cache_response) => {
         |resp| match resp {
-            RegistryResponse::DaClient(da_client) => Ok(da_client),
-            _ => {
+            Some(account) => Ok(account),
+            None => {
                 Err(
                     Box::new(
-                        RpcError::Custom(
-                            "invalid registry response received".to_string()
-                        )
+                        AccountCacheError
                     ) as Box<dyn std::error::Error>
                 )
             }
@@ -259,7 +178,6 @@ pub async fn handle_actor_response<T, F, M>(
     handler: F
 ) -> Result<M, Box<dyn std::error::Error>> 
 where 
-    T: Message,
     F: FnOnce(T) -> Result<M, Box<dyn std::error::Error>>,
 {
     tokio::select! {
@@ -268,4 +186,29 @@ where
             handler(resp)
         }
     }
+}
+
+pub async fn check_account_cache(address: Address) -> Option<Account> {
+    let actor: ActorRef<AccountCacheMessage> = ractor::registry::where_is(ActorType::AccountCache.to_string())?.into();
+    let (tx, rx) = oneshot();
+    let message = AccountCacheMessage::Read { address, tx };
+    let _ = actor.cast(message).ok()?; 
+    let handler = create_handler!(account_cache_response);
+    let account = handle_actor_response(rx, handler).await.ok()?;
+    Some(account)
+}
+
+pub async fn check_da_for_account(address: Address) -> Option<Account> {
+    let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoServer.to_string())?.into();
+    let (tx, rx) = oneshot();
+    let message = EoMessage::GetAccountBlobIndex { address, sender: tx};
+    let _ = eo_actor.cast(message).ok()?;
+    let eo_handler = create_handler!(retrieve_blob_index);
+    let blob_index = handle_actor_response(rx, eo_handler).await.ok()?;
+    let (tx, rx) = oneshot();
+    let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string())?.into();
+    let message = DaClientMessage::RetrieveBlob { batch_header_hash: blob_index.1.into(), blob_index: blob_index.2, tx };
+    da_actor.cast(message).ok()?;
+    let da_handler = create_handler!(retrieve_blob);
+    handle_actor_response(rx, da_handler).await.ok()?
 }

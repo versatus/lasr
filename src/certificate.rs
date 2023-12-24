@@ -38,6 +38,16 @@ impl RecoverableSignature {
         secp.recover_ecdsa(&message, &recoverable_sig)
     }
 
+    pub fn verify(&self, message: &[u8]) -> Result<(), secp256k1::Error> {
+        let sig = Signature::try_from(self)?.to_standard();
+        let pk = self.recover(message)?;
+        let mut hasher = Sha3_256::new();
+        hasher.update(message);
+        let message_hash = hasher.finalize();
+        let msg = Message::from_digest_slice(&message_hash)?;
+        sig.verify(&msg, &pk)
+    }
+
     /// Converts the signature into a vector of bytes.
     ///
     /// This method serializes the signature components (`r`, `s`, and `v`) into
@@ -87,6 +97,27 @@ impl From<Signature> for RecoverableSignature {
         Self { r, s, v: v.to_i32() }
     }
 }
+
+impl TryFrom<RecoverableSignature> for Signature {
+    type Error = secp256k1::Error;
+    fn try_from(value: RecoverableSignature) -> Result<Signature, Self::Error> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&value.get_r());
+        data.extend_from_slice(&value.get_s());
+        Signature::from_compact(&data, RecoveryId::from_i32(value.get_v())?)
+    }
+}
+
+impl TryFrom<&RecoverableSignature> for Signature {
+    type Error = secp256k1::Error;
+    fn try_from(value: &RecoverableSignature) -> Result<Signature, Self::Error> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&value.get_r());
+        data.extend_from_slice(&value.get_s());
+        Signature::from_compact(&data, RecoveryId::from_i32(value.get_v())?)
+    }
+}
+
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Certificate {

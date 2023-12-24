@@ -103,11 +103,13 @@ impl Actor for DaClient {
                 // Spawn a tokio task to poll EigenDa for the validated blob
             },
             // Optimistically and naively retreive account blobs
-            DaClientMessage::RetrieveBlob { batch_header_hash, blob_index } => {
+            DaClientMessage::RetrieveBlob { batch_header_hash, blob_index, tx } => {
                 let blob = self.client.retrieve_blob(&batch_header_hash.into(), blob_index)?;
                 let encoded_blob = EncodedBlob::from_str(&blob)?;
                 let decoded = DecodedBlob::from_encoded(encoded_blob)?;
-                let _account: Account = bincode::deserialize(&decoded.data())?;
+                let account: Account = bincode::deserialize(&decoded.data())?;
+                let _ = tx.send(Some(account)).map_err(|e| Box::new(
+                        DaClientError::Custom(format!("{:?}", e))))?;
                 //log::info!("successfully decoded account blob: {:?}", account);
             },
             _ => {}
@@ -133,7 +135,7 @@ async fn poll_blob_status(
     let mut status = get_blob_status(&client, &request_id).await?;
     while status.status().clone() != BlobResult::Confirmed {
         //log::info!("blob result not yet confirmed... polling again in 10 seconds");
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
         status = get_blob_status(&client, &request_id).await?;
     }
     let proof = status.info().blob_verification_proof(); 

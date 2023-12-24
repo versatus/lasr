@@ -1,10 +1,11 @@
 #![allow(unused)]
 use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}};
+use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::certificate::{RecoverableSignature, Certificate};
+use crate::{certificate::{RecoverableSignature, Certificate}, RecoverableSignatureBuilder, AccountCacheError};
 
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
@@ -14,6 +15,24 @@ use crate::certificate::{RecoverableSignature, Certificate};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
+
+impl From<[u8; 20]> for Address {
+    fn from(value: [u8; 20]) -> Self {
+        Address(value)
+    }
+}
+
+impl AsRef<[u8]> for Address {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
+impl From<Address> for [u8; 20] {
+    fn from(value: Address) -> Self {
+        value.0
+    }
+}
 
 impl LowerHex for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,6 +131,10 @@ impl Account {
         &self.programs
     }
 
+    pub fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
+        &mut self.programs
+    }
+
     pub fn balance(&self, program_id: &Address) -> U256 {
         if let Some(entry) = self.programs().get(program_id) {
             return entry.balance()
@@ -129,22 +152,37 @@ impl Account {
         program_id: &Address,
         delta: &TokenDelta
     ) {
-        match self.programs.get(&delta.token().program_id()) {
+        match self.programs.get_mut(&delta.token().program_id()) {
             Some(mut entry) => {
-                match &mut entry {
-                    Token::Fungible { program_id, owner_id, amount, .. } => {
-                        let amount = entry.update_amount(*delta.receive(), *delta.send()).clone();
-                        log::info!("after updating, entry amount: {}", amount);
-                    }
-                    _ => {
-                        // entry = delta.token().clone();
-                    }
-                }
+                entry.update_balance(*delta.receive(), *delta.send()).clone();
+                log::info!("after updating, entry amount: {}", entry.balance());
             },
             None => { 
                 self.programs.insert(program_id.clone(), delta.token.clone());
             }
         }
+    }
+
+    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) {
+        self.programs.insert(program_id.clone(), token);
+    }
+
+    pub(crate) fn validate_program_id(&self, program_id: &Address) -> Result<(), Box<dyn std::error::Error + Send>> {
+        if let Some(token) = self.programs.get(program_id) {
+            return Ok(())
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_balance(&self, program_id: &Address, amount: U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+        if let Some(token) = self.programs.get(program_id) {
+            if token.balance() >= amount {
+                return Ok(())
+            }
+        }
+
+        return Err(Box::new(AccountCacheError))
     }
 }
 
@@ -155,6 +193,12 @@ impl Account {
 /// typically used for storing data that doesn't have a fixed format or structure.
 #[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct ArbitraryData(Vec<u8>);
+
+impl ArbitraryData {
+    pub fn new() -> Self {
+        Self(vec![])
+    }
+}
 
 impl AsRef<[u8]> for ArbitraryData {
     /// Provides a reference to the internal byte array.
@@ -192,36 +236,23 @@ impl AsRef<[u8]> for Metadata {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-pub enum Token {
-    Fungible {
-        program_id: Address,
-        owner_id: Address,
-        amount: U256,
-        metadata: Metadata,
-        allowance: BTreeMap<Address, U256>,
-        status: Status,
-    },
-    NonFungible {
-        program_id: Address,
-        owner_id: Address,
-        content_address: [u8; 32],
-        metadata: Metadata,
-        approvals: BTreeMap<Address, [u8; 32]>,
-        status: Status
-    },
-    Data {
-        program_id: Address,
-        owner_id: Address,
-        data: ArbitraryData,
-        status: Status
-    }
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct Token {
+    program_id: Address,
+    owner_id: Address,
+    balance: U256,
+    metadata: Metadata,
+    token_ids: Vec<U256>,
+    allowance: BTreeMap<Address, U256>,
+    approvals: BTreeMap<Address, U256>,
+    data: ArbitraryData,
+    status: Status,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct TokenDelta {
     token: Token,
-    send: U256,
+    send: U256, 
     receive: U256,
 }
 
@@ -249,41 +280,16 @@ impl TokenDelta {
 
 impl Token {
     pub fn program_id(&self) -> Address {
-        match self {
-            Token::Fungible { program_id, .. } => {
-                program_id.clone()
-            }
-            Token::NonFungible { program_id, .. } => {
-                program_id.clone()
-            }
-            Token::Data { program_id, .. } => {
-                program_id.clone()
-            }
-        }
+        self.program_id
     }
 
-    pub fn update_amount(&self, receive: U256, send: U256) -> U256 {
-        match self {
-            Token::Fungible { program_id, mut amount, .. } => {
-                log::info!("token_id: {:x} amount before update: {}", &program_id, &amount);
-                amount += receive;
-                log::info!("added {} to amount", receive); 
-                amount -= send;
-                log::info!("subtracted {} from amount", send);
-                log::info!("updated {:x} amount: {}", &program_id, &amount);
-                return amount 
-            }
-            _ => {}
-        }
-
-        return 0.into() 
+    pub fn update_balance(&mut self, receive: U256, send: U256) {
+        self.balance += receive;
+        self.balance -= send;
     }
 
     pub fn balance(&self) -> U256 {
-        match self {
-            Token::Fungible { amount, .. } => { return *amount }
-            _ => return 0.into()
-        }
+        self.balance
     }
 }
 
@@ -291,4 +297,136 @@ impl Token {
 pub enum Status {
     Locked,
     Free,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub enum TransactionType {
+    BridgeIn,
+    Send,
+    Call,
+    BridgeOut,
+    Deploy
+}
+
+impl ToString for TransactionType {
+    fn to_string(&self) -> String {
+        match self {
+            TransactionType::BridgeIn => "bridgeIn".to_string(),
+            TransactionType::Send => "send".to_string(),
+            TransactionType::Call => "call".to_string(),
+            TransactionType::BridgeOut => "bridgeOut".to_string(),
+            TransactionType::Deploy => "deploy".to_string()
+        }
+    }
+}
+
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct Transaction {
+    transaction_type: TransactionType,
+    from: [u8; 20],
+    to: [u8; 20],
+    program_id: [u8; 20],
+    inputs: String,
+    value: U256,
+    v: i32,
+    r: [u8; 32],
+    s: [u8; 32],
+}
+
+impl Transaction {
+    pub fn program_id(&self) -> Address {
+        self.program_id.into()
+    }
+
+    pub fn from(&self) -> Address {
+        self.from.into()
+    }
+
+    pub fn to(&self) -> Address {
+        self.to.into()
+    }
+
+    pub fn transaction_type(&self) -> TransactionType {
+        self.transaction_type.clone()
+    }
+
+    pub fn inputs(&self) -> String {
+        self.inputs.to_string()
+    }
+
+    pub fn value(&self) -> U256 {
+        self.value
+    }
+
+    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
+        let sig = RecoverableSignatureBuilder::default()
+            .r(self.r)
+            .s(self.s)
+            .v(self.v)
+            .build().map_err(|e| Box::new(e))?;
+
+        Ok(sig)
+    }
+
+    pub fn recover(&self) -> Result<PublicKey, Box<dyn std::error::Error>> {
+        let pk = self.sig()?.recover(&self.as_bytes())?;
+        Ok(pk)
+    }
+
+    pub fn message(&self) -> String {
+        format!("{:02x}", self)
+    }
+
+    pub fn hash(&self) -> String {
+        let mut hasher = Sha3_256::new();
+        hasher.update(&self.as_bytes());
+        let res = hasher.finalize();
+        format!("0x{:x}", res)
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
+        bytes.extend_from_slice(&self.from().as_ref());
+        bytes.extend_from_slice(&self.to().as_ref());
+        bytes.extend_from_slice(&self.program_id().as_ref());
+        bytes.extend_from_slice(self.inputs().to_string().as_bytes());
+        let mut u256 = Vec::new(); 
+        let value = self.value();
+        value.0.iter().for_each(|n| { 
+            let le = n.to_le_bytes();
+            u256.extend_from_slice(&le);
+        }); 
+        bytes.extend_from_slice(&u256);
+        bytes
+    }
+
+    pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
+        self.sig().map_err(|e| secp256k1::Error::InvalidMessage )?.verify(&self.as_bytes())
+    }
+}
+
+impl LowerHex for Transaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.as_bytes() {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for Transaction {
+    fn default() -> Self {
+        Transaction {
+            transaction_type: TransactionType::BridgeIn,
+            from: [0; 20],
+            to: [0; 20],
+            program_id: [0; 20],
+            inputs: String::new(),
+            value: 0.into(),
+            v: 0,
+            r: [0; 32],
+            s: [0; 32]
+        }
+    }
 }

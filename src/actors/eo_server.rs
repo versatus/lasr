@@ -138,6 +138,13 @@ impl EoServer {
                                 self.boxed_custom_eo_error(&param)
                             )?
                         );
+                    },
+                    "bridgeEventId" => {
+                        bridge_event.bridge_event_id(
+                            param.value.clone().into_uint().ok_or(
+                                self.boxed_custom_eo_error(&param)
+                            )?
+                        );
                     }
                     _ => {/* return error */}
                 }

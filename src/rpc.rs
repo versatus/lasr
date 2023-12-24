@@ -11,10 +11,8 @@ pub trait LasrRpc {
         &self,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
-        tx_hash: String,
         sig: RecoverableSignature 
     ) -> Result<Token, Error>;
     
@@ -23,9 +21,8 @@ pub trait LasrRpc {
         &self,
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
-        tx_hash: String,
         sig: RecoverableSignature
     ) -> Result<Token, Error>;
 
@@ -34,6 +31,5 @@ pub trait LasrRpc {
         &self,
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String
     ) -> Result<(), Error>;
 }

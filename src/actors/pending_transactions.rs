@@ -1,61 +1,69 @@
-use std::collections::HashMap;
-use crate::{Address, Token};
-use ractor::concurrency::{OneshotSender, OneshotReceiver};
-use tokio::sync::mpsc::Receiver;
-use futures::stream::{FuturesUnordered, StreamExt};
+use std::collections::{HashMap, VecDeque};
+use crate::{Address, PendingTransactionMessage, Transaction, ActorType, ValidatorMessage};
+use async_trait::async_trait;
+use ractor::{Actor, ActorRef, ActorProcessingErr};
 use std::fmt::Display;
 use thiserror::Error;
 
 #[derive(Debug)]
-pub struct PendingTokens {
-    map: HashMap<Address, Vec<OneshotSender<(Address, Address)>>>
+pub struct DependencyGraph {
+    parent: Transaction,
+    children: VecDeque<Transaction>,
 }
 
-impl PendingTokens {
-    pub fn new(token: Token, sender: OneshotSender<(Address, Address)>) -> Self {
-        let mut map = HashMap::new();
-        map.insert(token.program_id(), vec![sender]);
-        Self {
-            map
-        }
+impl DependencyGraph {
+    pub fn new(
+        parent: Transaction, 
+    ) -> Self {
+        Self { parent, children: VecDeque::new() }
     }
 
-    pub(crate) fn insert(
+    pub(crate) async fn insert(
         &mut self,
-        token: Token,
-        sender: OneshotSender<(Address, Address)>
+        transaction: Transaction 
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let address = token.program_id();
-        if let Some(entry) = self.map.get_mut(&address) {
-            entry.push(sender);
+        if self.parent.hash() == transaction.hash() {
+            log::warn!("transaction already in dependency graph, ignoring");
             return Ok(())
-        } 
-        self.map.insert(address, vec![sender]);
+        }
+
+        if self.children.contains(&transaction) {
+            log::warn!("transaction already in dependency graph, ignoring");
+            return Ok(())
+        }
+        self.children.push_back(transaction);
         Ok(())
     }
 
-    pub(crate) fn remove(
+    pub(crate) async fn next(
         &mut self,
-        token: &Token
-    ) -> Option<Vec<OneshotSender<(Address, Address)>>> {
-        let program_id = token.program_id();
-        self.map.remove(&program_id)
+    ) -> Option<Transaction> {
+        let new_parent = self.children.pop_front();
+        if let Some(parent) = new_parent {
+            self.parent = parent.clone();
+            return Some(parent)
+        }
+
+        None
     }
 
     pub(crate) fn get(
-        &mut self,
-        token: &Token
-    ) -> Option<&mut Vec<OneshotSender<(Address, Address)>>> {
-        let program_id = token.program_id();
-        self.map.get_mut(&program_id)
+        &self,
+    ) -> &Transaction {
+        &self.parent
+    }
+
+    pub(crate) fn get_mut(
+        &mut self
+    ) -> &mut Transaction {
+        &mut self.parent
     }
 }
 
 #[derive(Debug)]
 pub struct PendingTransactions {
-    pending: HashMap<Address, PendingTokens>,
-    receivers: FuturesUnordered<OneshotReceiver<(Address, Token)>>,
-    writer: Receiver<(Address, Token, OneshotSender<(Address, Address)>)>
+    // User address -> ProgramId -> PendingTransactionThreadSender
+    pending: HashMap<Address, HashMap<Address, DependencyGraph>>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,70 +79,134 @@ impl Display for PendingTransactionError {
 }
 
 impl PendingTransactions {
-    fn handle_new_pending(
+    pub fn new() -> Self {
+        let pending = HashMap::new();
+        PendingTransactions { 
+            pending
+        }
+    }
+
+    async fn schedule_with_validator(&mut self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
+            ActorType::Validator.to_string()
+        ).ok_or(
+            PendingTransactionError
+        ).map_err(|e| Box::new(e))?.into();
+        let message = ValidatorMessage::PendingTransaction { transaction };
+        validator.cast(message)?;
+
+        Ok(())
+    }
+
+    async fn handle_new_pending(
         &mut self,
-        address: Address,
-        token: Token,
-        tx: OneshotSender<(Address, Address)>
+        transaction: Transaction,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(entry) = self.pending.get_mut(&address) {
-            let _ = entry.insert(token, tx)?;
+        log::info!("received new transaction: {}", transaction.hash());
+        if let Some(entry) = self.pending.get_mut(&transaction.from()) {
+            log::info!("account exists in pending transactions");
+            if let Some(graph) = entry.get_mut(&transaction.program_id()) {
+                log::info!("program id exists in pending transactions");
+                let _ = graph.insert(transaction).await?;
+                return Ok(())
+            } 
+
+            let _ = entry.insert(
+                transaction.program_id(),
+                DependencyGraph::new(transaction.clone())
+            );
+            self.schedule_with_validator(transaction).await?;
             return Ok(())
         }
-        let _pending_token = PendingTokens::new(token, tx); 
+
+        log::info!("account doesn't exist in pending transactions yet, entering it");
+        let mut graph = HashMap::new();
+        graph.insert(transaction.program_id(), DependencyGraph::new(transaction.clone()));
+        self.pending.insert(transaction.from(), graph);
+        self.schedule_with_validator(transaction).await?;
         Ok(())
     }
 
-    fn handle_confirmed(
-        &mut self, 
-        address: Address,
-        token: Token
+    async fn handle_confirmed(
+        &mut self,
+        transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut remove: bool = false;
-        if let Some(pending) = self.pending.get_mut(&address) {
-            if let Some(senders) = pending.get(&token) {
-                let sender = senders.remove(0);
-                let _ = sender.send((address, token.program_id()));
-                if senders.len() == 0 {
-                    remove = true;
+        let mut remove_graph: bool = false;
+        let mut remove_user: bool = false;
+        let mut new_parent: Option<Transaction> = None;
+        if let Some(programs) = self.pending.get_mut(&transaction.from()) {
+            if let Some(entry) = programs.get_mut(&transaction.program_id()) {
+                if let Some(next) = entry.next().await {
+                    new_parent = Some(next);
+                } else {
+                    remove_graph = true;
                 }
             }
 
-            if remove {
-                pending.remove(&token);
+            if remove_graph {
+                programs.remove(&transaction.program_id());
             }
+
+            if programs.len() == 0 {
+                remove_user = true;
+            }
+        }
+
+        if let Some(transaction) = new_parent {
+            let _ = self.schedule_with_validator(transaction).await?;
+        }
+
+        if remove_user {
+            self.pending.remove(&transaction.from());
         }
 
         Ok(())
     }
+}
 
-    pub async fn run(
-        mut self,
-        mut stop: OneshotReceiver<u8>
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Starting Pending Transaction Cache");
-        while let Err(_) = stop.try_recv() {
-            tokio::select! {
-                res = self.receivers.next() => {
-                    match res {
-                        Some(Ok((address, token))) => {
-                            let _ = self.handle_confirmed(address, token);
-                        },
-                        _ => {}
-                    }
+#[async_trait]
+impl Actor for PendingTransactionActor {
+    type Msg = PendingTransactionMessage;
+    type State = PendingTransactions; 
+    type Arguments = ();
+    
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(PendingTransactions::new()) 
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            PendingTransactionMessage::New { transaction }  => {
+                let res = state.handle_new_pending(transaction).await;
+                if let Err(e) = res {
+                    log::error!("Encountered error adding transaction to pending pool {}", e);
                 }
-
-                write = self.writer.recv() => {
-                    match write {
-                        Some((address, token, tx)) => {
-                            let _ = self.handle_new_pending(address, token, tx);
-                        }
-                        _ => {}
-                    }
+            }
+            PendingTransactionMessage::Valid { transaction, .. } => {
+                log::info!("received notice transaction is valid: {}", transaction.hash());
+                let _ = state.handle_confirmed(transaction.clone());
+                // Send to batcher
+                // batcher certifies transaction
+                // batcher consolidates transactions from account
+                // and applies updated account to cache until settlement
+                // when account, transaction batch exceeds a certain size it is committed to DA
+            }
+            PendingTransactionMessage::Invalid { .. } => {}
+            PendingTransactionMessage::Confirmed { map, .. }=> {
+                for (_, tx) in map.into_iter() {
+                    let _ = state.handle_confirmed(tx);
                 }
             }
         }
-
         Ok(())
     }
 }

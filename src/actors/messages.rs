@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::fmt::Display;
-use crate::{Account, ContractBlob};
+use crate::{Account, ContractBlob, Certificate, Transaction, TransactionBuilder};
 use crate::actors::types::RpcRequestMethod;
 use crate::account::{Token, Address, TokenDelta};
 use crate::certificate::RecoverableSignature;
+use eigenda_client::batch::BatchHeaderHash;
+use eigenda_client::blob::DecodedBlob;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;
 use ethereum_types::U256;
@@ -107,27 +110,22 @@ pub enum SchedulerMessage {
     Call {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
-        tx_hash: String,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Send {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
-        content: Option<[u8; 32]>,
         sig: RecoverableSignature,
-        tx_hash: String,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Deploy {
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     ValidatorComplete {
@@ -184,32 +182,7 @@ pub enum SchedulerMessage {
 ///}
 #[derive(Debug, Clone, RactorMessage)]
 pub enum ValidatorMessage {
-    Call { 
-        program_id: Address,
-        from: Address,
-        to: Vec<Address>,
-        op: String,
-        inputs: String,
-        tx_hash: String,
-        sig: RecoverableSignature,
-    },
-    Send {
-        program_id: Address,
-        from: Address,
-        to: Vec<Address>,
-        amount: U256,
-        content: Option<[u8; 32]>,
-        tx_hash: String,
-        sig: RecoverableSignature,
-    },
-    Deploy {
-        program_id: Address,
-        sig: RecoverableSignature,
-    },
-    EoEvent {
-        event: EoEvent
-    },
-    CommTest
+    PendingTransaction { transaction: Transaction },
 }
 
 /// A message type that the Engine can `handle`
@@ -257,19 +230,22 @@ pub enum EngineMessage {
     Call {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
-        tx_hash: String
     },
     Send {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
         content: Option<[u8; 32]>,
         sig: RecoverableSignature,
+    },
+    Deploy {
+        program_id: Address,
+        from: Address,
+        sig: RecoverableSignature
     },
     EoEvent {
         event: EoEvent 
@@ -297,7 +273,8 @@ pub enum EngineMessage {
 pub struct SettlementEvent {
     user: EthereumAddress,
     batch_header_hash: FixedBytes,
-    blob_index: String
+    blob_index: String,
+    settlement_event_id: U256,
 }
 
 /// An event type that the Executable Oracle contract listener
@@ -309,6 +286,7 @@ pub struct BridgeEvent {
     amount: ethereum_types::U256,
     token_id: ethereum_types::U256,
     token_type: String,
+    bridge_event_id: U256,
 }
 
 impl BridgeEvent {
@@ -438,12 +416,12 @@ pub enum EoMessage {
     AccountBlobIndexAcquired {
         address: Address,
         batch_header_hash: String,
-        blob_index: String
+        blob_index: u128 
     },
     ContractBlobIndexAcquired {
         program_id: Address,
         batch_header_hash: String,
-        blob_index: String
+        blob_index: u128 
     },
     AccountBlobIndexNotFound { 
         address: Address 
@@ -493,7 +471,8 @@ pub enum DaClientMessage {
     },
     RetrieveBlob {
         batch_header_hash: String,
-        blob_index: u128
+        blob_index: u128,
+        tx: OneshotSender<Option<Account>>,
     },
     EoEvent {
         event: EoEvent
@@ -511,4 +490,26 @@ pub enum AccountCacheMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum BlobCacheMessage {
+    Cache,
+    Get,
+    Remove
+}
+
+#[derive(Debug, RactorMessage)]
+pub enum PendingTransactionMessage {
+    New {
+        transaction: Transaction,
+    },
+    Valid {
+        transaction: Transaction,
+        cert: Option<Certificate>
+    },
+    Invalid {
+        transaction: Transaction,
+    },
+    Confirmed {
+        map: HashMap<Address, Transaction>,
+        batch_header_hash: BatchHeaderHash,
+        blob_index: u128
+    },
 }

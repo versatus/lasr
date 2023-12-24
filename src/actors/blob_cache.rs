@@ -42,29 +42,6 @@ impl PendingBlobCache {
         proof: BlobVerificationProof
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.queue.remove(&address);
-        let batch_header_hash = proof.batch_metadata().batch_header_hash();
-        let blob_index = proof.blob_index();
-        let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
-            Box::new(PendingBlobError) as Box<dyn std::error::Error>
-        )?.into();
-        let _ = eo_actor.cast(
-            EoMessage::Settle {
-                address,
-                batch_header_hash: batch_header_hash.to_string(),
-                blob_index
-            }
-        )?;
-
-        let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
-            Box::new(PendingBlobError) as Box<dyn std::error::Error>
-        )?.into();
-        let _ = da_actor.cast(
-            DaClientMessage::RetrieveBlob { 
-                batch_header_hash: batch_header_hash.to_string(), 
-                blob_index
-            }
-        );
-
         Ok(())
     }
 
@@ -96,8 +73,14 @@ impl PendingBlobCache {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlobCacheActor;
+
+impl BlobCacheActor {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 #[async_trait]
 impl Actor for BlobCacheActor {
@@ -116,10 +99,14 @@ impl Actor for BlobCacheActor {
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _message: Self::Msg,
-        _state: &mut Self::State,
+        message: Self::Msg,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        match message {
+            BlobCacheMessage::Cache => {},
+            BlobCacheMessage::Get => {},
+            BlobCacheMessage::Remove => {},
+        }
         Ok(())
     }
 }
-

@@ -15,7 +15,9 @@ pub enum ActorType {
     Engine,
     EoServer,
     DaClient,
-    AccountCache
+    AccountCache,
+    BlobCache,
+    PendingTransactions,
 }
 
 impl ToString for ActorType {
@@ -28,7 +30,9 @@ impl ToString for ActorType {
             ActorType::Engine => "engine".to_string(),
             ActorType::EoServer => "eo_server".to_string(),
             ActorType::DaClient => "da_client".to_string(),
-            ActorType::AccountCache => "account_cache".to_string()
+            ActorType::AccountCache => "account_cache".to_string(),
+            ActorType::BlobCache => "blob_cache".to_string(),
+            ActorType::PendingTransactions => "pending_transactions".to_string()
         }
     }
 }
@@ -38,23 +42,19 @@ pub enum RpcRequestMethod {
     Call {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
-        tx_hash: String,
     },
     Send {
         program_id: Address,
         from: Address,
-        to: Vec<Address>,
+        to: Address,
         amount: U256,
         sig: RecoverableSignature,
-        tx_hash: String,
     },
     Deploy {
         program_id: Address,
         sig: RecoverableSignature,
-        tx_hash: String
     }
 }
