@@ -64,15 +64,9 @@ impl Actor for TaskScheduler {
     ) -> Result<(), ActorProcessingErr> {
         println!("Scheduler Received RPC Call");
         match message {
-            SchedulerMessage::Call { 
-                program_id, from, to, value, op, inputs, sig, nonce, rpc_reply 
-            } => {
+            SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
-                // Send to engine where a `Transaction` will be created 
-                // add to RpcCollector with reply port
-                // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
-                // RpcServer with the necessary information
+                // Send to engine add to RpcCollector with reply port
             },
             SchedulerMessage::Send { .. } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");

@@ -58,12 +58,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         let token = self.client.send(
-            program_id,
-            address,
-            to,
-            value,
-            sig,
-            account.nonce()
+            transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         self.account_mut().apply_send_transaction(transaction, token)?;
@@ -105,14 +100,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         let token_deltas = self.client.call(
-            program_id,
-            self.address(),
-            to,
-            value,
-            op,
-            inputs,
-            sig,
-            self.account.nonce()
+            transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         self.account_mut().apply_call_transaction(transaction, token_deltas)?;

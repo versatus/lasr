@@ -115,29 +115,15 @@ pub enum RpcMessage {
 #[derive(Debug, RactorMessage)]
 pub enum SchedulerMessage {
     Call {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        value: U256,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
-        nonce: U256, 
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        sig: RecoverableSignature,
-        nonce: U256, 
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Deploy {
-        program_id: Address,
-        sig: RecoverableSignature,
-        nonce: U256, 
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     ValidatorComplete {
@@ -240,28 +226,13 @@ pub enum ValidatorMessage {
 #[derive(Debug, RactorMessage)]
 pub enum EngineMessage {
     Call {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
-        nonce: U256
+        transaction: Transaction,
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        content: Option<[u8; 32]>,
-        sig: RecoverableSignature,
-        nonce: U256, 
+        transaction: Transaction,
     },
     Deploy {
-        program_id: Address,
-        from: Address,
-        sig: RecoverableSignature,
-        nonce: U256,
+        transaction: Transaction,
     },
     EoEvent {
         event: EoEvent 

@@ -1,4 +1,4 @@
-use crate::account::Address;
+use crate::{account::Address, Transaction};
 use crate::certificate::RecoverableSignature;
 use ethereum_types::U256;
 use tokio::time::Duration;
@@ -40,26 +40,12 @@ impl ToString for ActorType {
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
     Call {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        value: U256,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
-        nonce: U256, 
+        transaction: Transaction 
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        sig: RecoverableSignature,
-        nonce: U256
+        transaction: Transaction
     },
     Deploy {
-        program_id: Address,
-        sig: RecoverableSignature,
-        nonce: U256
+        transaction: Transaction,
     }
 }

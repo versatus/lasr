@@ -8,7 +8,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
 use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature};
-use jsonrpsee::core::Error as RpcError;
+use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
 use super::{messages::{EngineMessage, EoEvent}, types::ActorType};
@@ -175,78 +175,18 @@ impl Engine {
         Ok(())
     }
 
-    async fn handle_call(
-        &self,
-        program_id: Address,
-        from: Address, 
-        to: Address,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
-        nonce: U256,
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to(to.into())
-            .transaction_type(TransactionType::Call(nonce))
-            .inputs(inputs)
-            .value(0.into())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
-            
+    async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
         Ok(())
     }
 
-    async fn handle_send(
-        &self,
-        program_id: Address,
-        from: Address,
-        to: Address,
-        value: U256,
-        sig: RecoverableSignature,
-        nonce: U256, 
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to(to.into())
-            .transaction_type(TransactionType::Send(nonce))
-            .value(value)
-            .inputs(String::new())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
+    async fn handle_send(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
-
         Ok(())
-        
     }
 
-    async fn handle_deploy(
-        &self,
-        program_id: Address,
-        from: Address,
-        sig: RecoverableSignature,
-        nonce: U256
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to([0u8; 20])
-            .transaction_type(TransactionType::Deploy(nonce))
-            .value(0.into())
-            .inputs(String::new())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
+    async fn handle_deploy(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
-
         Ok(())
     }
 }
@@ -289,20 +229,14 @@ impl Actor for Engine {
                 //TODO(asmith): Use a proper LRU Cache
                 self.write_to_cache(account);
             },
-            EngineMessage::Call {
-                program_id, from, to, op, inputs, sig, nonce
-            } => {
-                self.handle_call(program_id, from, to, op, inputs, sig, nonce).await;
+            EngineMessage::Call { transaction } => {
+                self.handle_call(transaction).await;
             },
-            EngineMessage::Send {
-                program_id, from, to, amount, content, sig, nonce
-            } => {
-                self.handle_send(program_id, from, to, amount, sig, nonce).await;
+            EngineMessage::Send { transaction } => {
+                self.handle_send(transaction).await;
             },
-            EngineMessage::Deploy {
-                program_id, from, sig, nonce
-            } => {
-                self.handle_deploy(program_id, from, sig, nonce).await;
+            EngineMessage::Deploy { transaction } => {
+                self.handle_deploy(transaction).await;
             }
             _ => {}
         }
