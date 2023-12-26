@@ -38,7 +38,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         account.validate_balance(&program_id, value)?;
 
-        let payload = PayloadBuilder::default()
+        let payload = self.builder
             .transaction_type(TransactionType::Send(account.nonce()))
             .from(address.into())
             .to(to.into())
@@ -80,12 +80,13 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         account.validate_balance(&program_id, value)?;
 
-        let payload = PayloadBuilder::default()
+        let payload = self.builder 
             .transaction_type(TransactionType::Send(account.nonce()))
             .from(address.into())
             .to(to.into())
             .program_id(program_id.into())
-            .inputs(String::new())
+            .inputs(inputs)
+            .op(op)
             .value(value)
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 

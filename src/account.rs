@@ -450,6 +450,7 @@ pub struct Payload {
     from: [u8; 20],
     to: [u8; 20],
     program_id: [u8; 20],
+    op: String,
     inputs: String,
     value: U256,
 }
@@ -469,6 +470,10 @@ impl Payload {
 
     fn program_id(&self) -> [u8; 20] {
         self.program_id
+    }
+
+    fn op(&self) -> String {
+        self.op.clone()
     }
 
     fn inputs(&self) -> String {
@@ -517,6 +522,7 @@ pub struct Transaction {
     from: [u8; 20],
     to: [u8; 20],
     program_id: [u8; 20],
+    op: String,
     inputs: String,
     value: U256,
     v: i32,
@@ -632,6 +638,7 @@ impl Default for Transaction {
             from: [0; 20],
             to: [0; 20],
             program_id: [0; 20],
+            op: String::new(),
             inputs: String::new(),
             value: 0.into(),
             v: 0,
@@ -648,6 +655,7 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
             from: value.0.from(), 
             to: value.0.to(), 
             program_id: value.0.program_id(), 
+            op: value.0.op(),
             inputs: value.0.inputs(), 
             value: value.0.value(), 
             v: value.1.get_v(), 
