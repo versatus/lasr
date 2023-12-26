@@ -113,6 +113,7 @@ pub enum SchedulerMessage {
         op: String,
         inputs: String,
         sig: RecoverableSignature,
+        nonce: U256, 
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Send {
@@ -121,11 +122,13 @@ pub enum SchedulerMessage {
         to: Address,
         amount: U256,
         sig: RecoverableSignature,
+        nonce: U256, 
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Deploy {
         program_id: Address,
         sig: RecoverableSignature,
+        nonce: U256, 
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     ValidatorComplete {
@@ -233,6 +236,7 @@ pub enum EngineMessage {
         op: String,
         inputs: String,
         sig: RecoverableSignature,
+        nonce: U256
     },
     Send {
         program_id: Address,
@@ -241,11 +245,13 @@ pub enum EngineMessage {
         amount: U256,
         content: Option<[u8; 32]>,
         sig: RecoverableSignature,
+        nonce: U256, 
     },
     Deploy {
         program_id: Address,
         from: Address,
-        sig: RecoverableSignature
+        sig: RecoverableSignature,
+        nonce: U256,
     },
     EoEvent {
         event: EoEvent 
@@ -313,6 +319,10 @@ impl BridgeEvent {
     /// A getter for the `token_type` field in a bridge event
     pub fn token_type(&self) -> String {
         self.token_type.clone()
+    }
+    
+    pub fn bridge_event_id(&self) -> U256 {
+        self.bridge_event_id
     }
 }
 

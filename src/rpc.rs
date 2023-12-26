@@ -13,7 +13,8 @@ pub trait LasrRpc {
         from: Address,
         op: String,
         inputs: String,
-        sig: RecoverableSignature 
+        sig: RecoverableSignature,
+        nonce: U256, 
     ) -> Result<Token, Error>;
     
     #[method(name = "send")]
@@ -23,7 +24,8 @@ pub trait LasrRpc {
         from: Address,
         to: Address,
         amount: U256,
-        sig: RecoverableSignature
+        sig: RecoverableSignature,
+        nonce: U256, 
     ) -> Result<Token, Error>;
 
     #[method(name = "deploy")]
@@ -31,5 +33,6 @@ pub trait LasrRpc {
         &self,
         program_id: Address,
         sig: RecoverableSignature,
+        nonce: U256
     ) -> Result<(), Error>;
 }

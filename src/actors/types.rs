@@ -45,6 +45,7 @@ pub enum RpcRequestMethod {
         op: String,
         inputs: String,
         sig: RecoverableSignature,
+        nonce: U256, 
     },
     Send {
         program_id: Address,
@@ -52,9 +53,11 @@ pub enum RpcRequestMethod {
         to: Address,
         amount: U256,
         sig: RecoverableSignature,
+        nonce: U256
     },
     Deploy {
         program_id: Address,
         sig: RecoverableSignature,
+        nonce: U256
     }
 }

@@ -135,11 +135,11 @@ impl Actor for Validator {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ValidatorMessage::PendingTransaction { transaction } => {
-                log::info!("Received transaction to validate: {}", transaction.hash());
+                log::info!("Received transaction to validate: {}", transaction.hash_string());
                 // spin up thread 
                 let transaction_type = transaction.transaction_type();
                 match transaction_type {
-                    TransactionType::Send => {
+                    TransactionType::Send(_) => {
                         let account = if let Some(account) = check_account_cache(transaction.from()).await {
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
@@ -164,13 +164,13 @@ impl Actor for Validator {
                             });
                         }
                     }
-                    TransactionType::Call => {
+                    TransactionType::Call(_) => {
 
                         // get account
                         // build op
                         // install op
                     },
-                    TransactionType::BridgeIn => {
+                    TransactionType::BridgeIn(_) => {
                         let account = if let Some(account) = check_account_cache(transaction.from()).await {
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
@@ -187,7 +187,7 @@ impl Actor for Validator {
                         // for address
                         // naively validate
                     },
-                    TransactionType::Deploy => {
+                    TransactionType::Deploy(_) => {
                         // get program
                         // build program
                         // validate sender sig
@@ -195,7 +195,7 @@ impl Actor for Validator {
                         // commit contract blob
                         //
                     },
-                    TransactionType::BridgeOut => {
+                    TransactionType::BridgeOut(_) => {
                         // get program
                         // check for corresponding program
                         // validate sender sig

@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}};
+use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}, ops::{AddAssign, SubAssign}};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
@@ -7,6 +7,7 @@ use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
 use crate::{certificate::{RecoverableSignature, Certificate}, RecoverableSignatureBuilder, AccountCacheError};
 
+pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
 /// This structure is used to store Ethereum Compatible addresses, which are 
@@ -127,6 +128,10 @@ impl Account {
         self.address.clone()
     }
 
+    pub fn nonce(&self) -> U256 {
+        self.nonce
+    }
+
     pub fn programs(&self) -> &BTreeMap<Address, Token> {
         &self.programs
     }
@@ -163,11 +168,19 @@ impl Account {
         }
     }
 
+    pub(crate) fn apply_send_transaction(&mut self, transaction: Transaction) -> AccountResult<()> {
+        if !transaction.transaction_type().is_send() {
+            return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) {
         self.programs.insert(program_id.clone(), token);
     }
 
-    pub(crate) fn validate_program_id(&self, program_id: &Address) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             return Ok(())
         }
@@ -175,7 +188,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_balance(&self, program_id: &Address, amount: U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub(crate) fn validate_balance(&self, program_id: &Address, amount: U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if token.balance() >= amount {
                 return Ok(())
@@ -301,22 +314,126 @@ pub enum Status {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub enum TransactionType {
-    BridgeIn,
-    Send,
-    Call,
-    BridgeOut,
-    Deploy
+    BridgeIn(U256),
+    Send(U256),
+    Call(U256),
+    BridgeOut(U256),
+    Deploy(U256)
+}
+
+impl TransactionType {
+    pub fn is_send(&self) -> bool {
+        match self {
+            TransactionType::Send(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_bridge_in(&self) -> bool {
+        match self {
+            TransactionType::BridgeIn(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_call(&self) -> bool {
+        match self {
+            TransactionType::Call(_) => true,
+            _ => false
+        }
+    }
+    
+    pub fn is_bridge_out(&self) -> bool {
+        match self {
+            TransactionType::BridgeOut(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_deploy(&self) -> bool {
+        match self {
+            TransactionType::Deploy(_) => true,
+            _ => false
+        }
+    }
 }
 
 impl ToString for TransactionType {
     fn to_string(&self) -> String {
         match self {
-            TransactionType::BridgeIn => "bridgeIn".to_string(),
-            TransactionType::Send => "send".to_string(),
-            TransactionType::Call => "call".to_string(),
-            TransactionType::BridgeOut => "bridgeOut".to_string(),
-            TransactionType::Deploy => "deploy".to_string()
+            TransactionType::BridgeIn(n) => format!("bridgeIn{n}"),
+            TransactionType::Send(n) => format!("send{n}").to_string(),
+            TransactionType::Call(n) => format!("call{n}").to_string(),
+            TransactionType::BridgeOut(n) => "bridgeOut".to_string(),
+            TransactionType::Deploy(n) => "deploy".to_string()
         }
+    }
+}
+
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct Payload {
+    transaction_type: TransactionType,
+    from: [u8; 20],
+    to: [u8; 20],
+    program_id: [u8; 20],
+    inputs: String,
+    value: U256,
+}
+
+impl Payload {
+    fn transaction_type(&self) -> TransactionType {
+        self.transaction_type.clone()
+    }
+
+    fn from(&self) -> [u8; 20] {
+        self.from
+    }
+
+    fn to(&self) -> [u8; 20] {
+        self.to
+    }
+
+    fn program_id(&self) -> [u8; 20] {
+        self.program_id
+    }
+
+    fn inputs(&self) -> String {
+        self.inputs.clone()
+    }
+
+    fn value(&self) -> U256 {
+        self.value
+    }
+
+    pub fn hash_string(&self) -> String {
+        let mut hasher = Sha3_256::new();
+        hasher.update(&self.as_bytes());
+        let res = hasher.finalize();
+        format!("0x{:x}", res)
+    }
+
+    pub fn hash(&self) -> Vec<u8> {
+        let mut hasher = Sha3_256::new();
+        hasher.update(&self.as_bytes());
+        let res = hasher.finalize();
+        res.to_vec()
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
+        bytes.extend_from_slice(&self.from().as_ref());
+        bytes.extend_from_slice(&self.to().as_ref());
+        bytes.extend_from_slice(&self.program_id().as_ref());
+        bytes.extend_from_slice(self.inputs().to_string().as_bytes());
+        let mut u256 = Vec::new(); 
+        let value = self.value();
+        value.0.iter().for_each(|n| { 
+            let le = n.to_le_bytes();
+            u256.extend_from_slice(&le);
+        }); 
+        bytes.extend_from_slice(&u256);
+        bytes
     }
 }
 
@@ -377,11 +494,18 @@ impl Transaction {
         format!("{:02x}", self)
     }
 
-    pub fn hash(&self) -> String {
+    pub fn hash_string(&self) -> String {
         let mut hasher = Sha3_256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         format!("0x{:x}", res)
+    }
+
+    pub fn hash(&self) -> Vec<u8> {
+        let mut hasher = Sha3_256::new();
+        hasher.update(&self.as_bytes());
+        let res = hasher.finalize();
+        res.to_vec()
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -402,7 +526,19 @@ impl Transaction {
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|e| secp256k1::Error::InvalidMessage )?.verify(&self.as_bytes())
+        self.sig().map_err(|e| secp256k1::Error::InvalidMessage)?.verify(&self.as_bytes())
+    }
+}
+
+impl AddAssign for Token {
+    fn add_assign(&mut self, rhs: Self) {
+        self.balance += rhs.balance();
+    }
+}
+
+impl SubAssign for Token {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.balance -= rhs.balance();
     }
 }
 
@@ -418,7 +554,7 @@ impl LowerHex for Transaction {
 impl Default for Transaction {
     fn default() -> Self {
         Transaction {
-            transaction_type: TransactionType::BridgeIn,
+            transaction_type: TransactionType::BridgeIn(0.into()),
             from: [0; 20],
             to: [0; 20],
             program_id: [0; 20],
@@ -427,6 +563,22 @@ impl Default for Transaction {
             v: 0,
             r: [0; 32],
             s: [0; 32]
+        }
+    }
+}
+
+impl From<(Payload, RecoverableSignature)> for Transaction {
+    fn from(value: (Payload, RecoverableSignature)) -> Self {
+        Transaction { 
+            transaction_type: value.0.transaction_type(), 
+            from: value.0.from(), 
+            to: value.0.to(), 
+            program_id: value.0.program_id(), 
+            inputs: value.0.inputs(), 
+            value: value.0.value(), 
+            v: value.1.get_v(), 
+            r: value.1.get_r(), 
+            s: value.1.get_s() 
         }
     }
 }
