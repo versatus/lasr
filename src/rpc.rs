@@ -1,7 +1,7 @@
-use ethereum_types::U256;
+
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::core::Error;
-use crate::{account::Address, certificate::RecoverableSignature, Token, TokenDelta, Transaction};
+use crate::{Token, TokenDelta, Transaction};
 
 #[rpc(client, server, namespace = "lasr")]
 #[async_trait::async_trait]

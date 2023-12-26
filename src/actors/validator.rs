@@ -71,16 +71,19 @@ impl ValidatorCore {
         }
     }
 
+    #[allow(unused)]
     async fn validate_call(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+        |_tx| Ok(false)
     }
     
+    #[allow(unused)]
     async fn validate_bridge_out(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+        |_tx| Ok(false)
     }
 
-    async fn validate_deploy<T>(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+    #[allow(unused)]
+    async fn validate_deploy(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
+        |_tx| Ok(false)
     }
 }
 
@@ -171,7 +174,7 @@ impl Actor for Validator {
                         // install op
                     },
                     TransactionType::BridgeIn(_) => {
-                        let account = if let Some(account) = check_account_cache(transaction.from()).await {
+                        let _account = if let Some(account) = check_account_cache(transaction.from()).await {
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
                             Some(account)

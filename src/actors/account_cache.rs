@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use ractor::{concurrency::{OneshotReceiver, OneshotSender}, Actor, ActorRef, ActorProcessingErr};
+use ractor::{concurrency::{OneshotReceiver}, Actor, ActorRef, ActorProcessingErr};
 use thiserror::Error;
 use std::{collections::HashMap, fmt::Display, time::{Duration, Instant}};
-use crate::{Address, Account, AccountCacheMessage, TokenDelta, TransactionType};
+use crate::{Address, Account, AccountCacheMessage};
 
 #[derive(Debug, Clone)]
 pub struct AccountCacheActor;
@@ -158,7 +158,7 @@ impl Actor for AccountCacheActor {
                 let _ = state.remove(&address);
             }
             AccountCacheMessage::Update { account } => {
-                if let Err(e) = state.update(account.clone()) {
+                if let Err(_e) = state.update(account.clone()) {
                     let _ = state.handle_cache_write(account.clone());
                 }
             }

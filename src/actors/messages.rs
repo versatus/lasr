@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
 use crate::account::{Token, Address, TokenDelta};
-use crate::certificate::RecoverableSignature;
+
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;

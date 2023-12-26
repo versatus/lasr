@@ -47,13 +47,13 @@ impl DependencyGraph {
         None
     }
 
-    pub(crate) fn get(
+    pub fn get(
         &self,
     ) -> &Transaction {
         &self.parent
     }
 
-    pub(crate) fn get_mut(
+    pub fn get_mut(
         &mut self
     ) -> &mut Transaction {
         &mut self.parent

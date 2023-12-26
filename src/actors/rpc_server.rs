@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use ethereum_types::U256;
+
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, account::{ Address, Token}, 
-    certificate::RecoverableSignature, actors::handle_actor_response, create_handler, TokenDelta, Transaction
+    rpc::LasrRpcServer, account::{ Token}, actors::handle_actor_response, create_handler, TokenDelta, Transaction
 };
 use jsonrpsee::core::Error as RpcError;
 use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
