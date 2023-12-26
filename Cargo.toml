@@ -41,7 +41,7 @@ ractor = { version = "0.9.3", features = [ "async-std", "cluster" ]}
 ractor_cluster_derive = "0.9.3"
 ractor_cluster = "0.9.3"
 thiserror = "1.0.50"
-clap = "4.4.11"
+clap = { version = "4.4.11", features=[ "derive", "cargo", "env", "wrap_help", "string" ] }
 rayon = "1.8.0"
 eo_listener = { path = "../eo_listener" }
 log = "0.4.20"
