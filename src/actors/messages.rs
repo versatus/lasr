@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 use std::fmt::Display;
-use crate::{Account, ContractBlob, Certificate, Transaction, TransactionBuilder};
+use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
 use crate::account::{Token, Address, TokenDelta};
 use crate::certificate::RecoverableSignature;
 use eigenda_client::batch::BatchHeaderHash;
-use eigenda_client::blob::DecodedBlob;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;
 use ethereum_types::U256;
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use ractor_cluster::RactorMessage;
-use ractor::{RpcReplyPort};
+use ractor::RpcReplyPort;
 
 
 /// An error type for RPC Responses
@@ -24,6 +23,13 @@ impl Display for RpcResponseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum TransactionResponse {
+    SendResponse(Token),
+    CallResponse(Vec<TokenDelta>),
+    DeployResponse
 }
 
 /// A message type that the RpcServer Actor can `handle`
@@ -49,10 +55,11 @@ pub enum RpcMessage {
         reply: RpcReplyPort<RpcMessage>
     },
     Response{
-        response: Result<Token, RpcResponseError>,
+        response: Result<TransactionResponse, RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>>,
     },
     DeploySuccess {
+        response: Result<(), RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>> 
     },
 }
@@ -110,6 +117,8 @@ pub enum SchedulerMessage {
     Call {
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
@@ -233,6 +242,7 @@ pub enum EngineMessage {
     Call {
         program_id: Address,
         from: Address,
+        to: Address,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
@@ -495,7 +505,7 @@ pub enum AccountCacheMessage {
     Write { account: Account },
     Read { address: Address, tx: OneshotSender<Option<Account>> },
     Remove { address: Address },
-    Update { address: Address, delta: TokenDelta }
+    Update { account: Account }
 }
 
 #[derive(Debug, RactorMessage)]

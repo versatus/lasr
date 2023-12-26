@@ -42,6 +42,8 @@ pub enum RpcRequestMethod {
     Call {
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature,

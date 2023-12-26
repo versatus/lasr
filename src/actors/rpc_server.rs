@@ -3,10 +3,10 @@ use ethereum_types::U256;
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
     rpc::LasrRpcServer, account::{ Address, Token}, 
-    certificate::RecoverableSignature, actors::handle_actor_response, create_handler
+    certificate::RecoverableSignature, actors::handle_actor_response, create_handler, TokenDelta
 };
 use jsonrpsee::core::Error as RpcError;
-use super::{messages::{RpcMessage, SchedulerMessage}, types::{RpcRequestMethod, ActorType}};
+use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
 
 #[allow(unused)]
 //TODO(asmith): Integrate timeouts
@@ -39,6 +39,8 @@ impl LasrRpcServerActor {
         scheduler: ActorRef<SchedulerMessage>,
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
@@ -46,7 +48,7 @@ impl LasrRpcServerActor {
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), ActorProcessingErr> {
         Ok(scheduler.cast(
-            SchedulerMessage::Call { program_id, from, op, inputs, sig, nonce, rpc_reply: reply }
+            SchedulerMessage::Call { program_id, from, to, value, op, inputs, sig, nonce, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
     }
 
@@ -92,9 +94,9 @@ impl LasrRpcServerActor {
             ).map_err(|e| Box::new(e))?;
         match method {
             RpcRequestMethod::Call { 
-                program_id, from, op, inputs, sig, nonce
+                program_id, from, to, value, op, inputs, sig, nonce
             } => {
-                self.handle_call_request(scheduler, program_id, from, op, inputs, sig, nonce, reply)
+                self.handle_call_request(scheduler, program_id, from, to, value, op, inputs, sig, nonce, reply)
             },
             RpcRequestMethod::Send { 
                 program_id, from, to, amount, sig, nonce
@@ -140,11 +142,13 @@ impl LasrRpcServer for LasrRpcServerImpl {
         &self,
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature, 
         nonce: U256,
-    ) -> Result<Token, RpcError> {
+    ) -> Result<Vec<TokenDelta>, RpcError> {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
@@ -154,6 +158,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
         self.send_rpc_call_method_to_self(
             program_id,
             from,
+            to,
+            value,
             op,
             inputs,
             sig,
@@ -163,11 +169,19 @@ impl LasrRpcServer for LasrRpcServerImpl {
         
         let handler = create_handler!(rpc_response, call); 
 
-        handle_actor_response(rx, handler).await.map_err(|e| {
+        match handle_actor_response(rx, handler).await.map_err(|e| {
             RpcError::Custom(
                 format!("Error: {}", e)
             )
-        })
+        }) {
+            Ok(resp) => {
+                match resp {
+                    TransactionResponse::CallResponse(deltas) => return Ok(deltas),
+                    _ => Err(jsonrpsee::core::Error::Custom("invalid response to `call` method".to_string())) 
+                }
+            }
+            Err(e) => Err(jsonrpsee::core::Error::Custom(e.to_string())) 
+        }
     }
     
     async fn send(
@@ -189,11 +203,19 @@ impl LasrRpcServer for LasrRpcServerImpl {
 
         let handler = create_handler!(rpc_response, send); 
 
-        handle_actor_response(rx, handler).await.map_err(|e| {
+        match handle_actor_response(rx, handler).await.map_err(|e| {
             RpcError::Custom(
                 format!("Error: {}", e)
             )
-        })
+        }) {
+            Ok(resp) => {
+                match resp {
+                    TransactionResponse::SendResponse(token) => return Ok(token),
+                    _ => return Err(jsonrpsee::core::Error::Custom("invalid response to `send` methond".to_string()))
+                }
+            }
+            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string()))
+        }
     }
 
     async fn deploy(
@@ -213,7 +235,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
             reply 
         ).await?;
         
-        let handler = create_handler!(rpc_deploy_success);
+        let handler = create_handler!(rpc_response, deploy);
 
         handle_actor_response(rx, handler).await.map_err(|e| {
             RpcError::Custom(
@@ -233,6 +255,8 @@ impl LasrRpcServerImpl {
         &self, 
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
@@ -246,6 +270,8 @@ impl LasrRpcServerImpl {
                     method: RpcRequestMethod::Call {
                         program_id,
                         from,
+                        to,
+                        value,
                         op,
                         inputs,
                         sig,
@@ -342,13 +368,13 @@ impl Actor for LasrRpcServerActor {
                 let message = RpcMessage::Response { response, reply: None };
                 self.handle_response_data(message, reply).await?;
             },
-            RpcMessage::DeploySuccess { reply } => {
+            RpcMessage::DeploySuccess { response, reply } => {
                 let reply = reply.ok_or(
                     Box::new(
                         RpcError::Custom("Unable to acquire rpc reply sender in RpcMessage::Response".to_string())
                     )
                 )?;
-                let msg = RpcMessage::DeploySuccess { reply: None  };
+                let msg = RpcMessage::DeploySuccess { response, reply: None  };
                 self.handle_deploy_response_data(msg, reply).await?;
             }
         }

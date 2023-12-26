@@ -179,6 +179,7 @@ impl Engine {
         &self,
         program_id: Address,
         from: Address, 
+        to: Address,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
@@ -187,7 +188,7 @@ impl Engine {
         let transaction = TransactionBuilder::default()
             .program_id(program_id.into())
             .from(from.into())
-            .to([0u8; 20])
+            .to(to.into())
             .transaction_type(TransactionType::Call(nonce))
             .inputs(inputs)
             .value(0.into())
@@ -289,9 +290,9 @@ impl Actor for Engine {
                 self.write_to_cache(account);
             },
             EngineMessage::Call {
-                program_id, from, op, inputs, sig, nonce
+                program_id, from, to, op, inputs, sig, nonce
             } => {
-                self.handle_call(program_id, from, op, inputs, sig, nonce).await;
+                self.handle_call(program_id, from, to, op, inputs, sig, nonce).await;
             },
             EngineMessage::Send {
                 program_id, from, to, amount, content, sig, nonce

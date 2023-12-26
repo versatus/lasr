@@ -65,7 +65,7 @@ impl Actor for TaskScheduler {
         println!("Scheduler Received RPC Call");
         match message {
             SchedulerMessage::Call { 
-                program_id, from, op, inputs, sig, nonce, rpc_reply 
+                program_id, from, to, value, op, inputs, sig, nonce, rpc_reply 
             } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
                 // Send to engine where a `Transaction` will be created 

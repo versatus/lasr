@@ -148,36 +148,104 @@ impl Account {
         return 0.into()
     }
 
-    /// Updates the program data for a specific program address.
-    ///
-    /// This method either updates the existing program data or inserts new data if
-    /// it doesn't exist for the given program address.
-    pub(crate) fn update_programs(
-        &mut self,
-        program_id: &Address,
-        delta: &TokenDelta
-    ) {
-        match self.programs.get_mut(&delta.token().program_id()) {
-            Some(mut entry) => {
-                entry.update_balance(*delta.receive(), *delta.send()).clone();
-                log::info!("after updating, entry amount: {}", entry.balance());
-            },
-            None => { 
-                self.programs.insert(program_id.clone(), delta.token.clone());
-            }
-        }
-    }
-
-    pub(crate) fn apply_send_transaction(&mut self, transaction: Transaction) -> AccountResult<()> {
+    pub(crate) fn apply_send_transaction(&mut self, transaction: Transaction, token: Token) -> AccountResult<()> {
         if !transaction.transaction_type().is_send() {
             return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+        }
+        
+        if transaction.from() == self.address() {
+            if let Some(t) = self.programs_mut().get_mut(&transaction.program_id()) {
+                if token.balance() > t.balance() {
+                    return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+                }
+                //TODO(asmith): use Checked Subtraction instead of SubAssign
+                *t -= token.clone();
+            } else {
+                return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+            }
+
+            self.nonce += 1.into();
+        }
+
+        if transaction.to() == self.address() {
+            if let Some(t) = self.programs_mut().get_mut(&transaction.program_id()) { 
+                *t += token.clone();
+            } else {
+                self.insert_program(&transaction.program_id(), token).ok_or(
+                    Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply_call_transaction(&mut self, transaction: Transaction, token_deltas: Vec<TokenDelta>) -> AccountResult<()> {
+        if !transaction.transaction_type().is_call() {
+            return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+        }
+        
+        if transaction.from() == self.address() {
+            for delta in token_deltas.clone() {
+                match delta.method {
+                    TokenDeltaMethod::Add => {
+                        if let Some(t) = self.programs_mut().get_mut(&delta.token().program_id()) {
+                            *t += delta.token().clone();
+                        } else {
+                            self.insert_program(&delta.token().program_id(), delta.token().clone());
+                        }
+                    }
+                    TokenDeltaMethod::Subtract => {
+                        if let Some(t) = self.programs_mut().get_mut(&delta.token().program_id()) {
+                            if delta.token().balance() > t.balance() {
+                                return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+                            }
+                            //TODO(asmith): use Checked Subtraction instead of SubAssign
+                            *t -= delta.token().clone();
+                        } else {
+                            return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+                        }
+                    }
+                    TokenDeltaMethod::Merge => {
+                        self.insert_program(&delta.token().program_id(), delta.token().clone());
+                    }
+                }
+            }
+
+            self.nonce += 1.into();
+        }
+
+        if transaction.to() == self.address() {
+            for delta in token_deltas {
+                match delta.method {
+                    TokenDeltaMethod::Add => {
+                        if let Some(t) = self.programs_mut().get_mut(&delta.token().program_id()) {
+                            if delta.token().balance() > t.balance() {
+                                return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+                            }
+
+                            //TODO(asmith): use Checked Subtraction instead of SubAssign
+                            *t = delta.token().clone();
+                        }
+                    }
+
+                    TokenDeltaMethod::Subtract => {
+                        if let Some(t) = self.programs_mut().get_mut(&delta.token().program_id()) {
+                            *t += delta.token().clone();
+                        } else {
+                            self.insert_program(&delta.token().program_id(), delta.token().clone());
+                        }
+                    }
+
+                    TokenDeltaMethod::Merge => {}
+                }
+            }
         }
 
         Ok(())
     }
 
-    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) {
-        self.programs.insert(program_id.clone(), token);
+    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
+        self.programs.insert(program_id.clone(), token)
     }
 
     pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
@@ -249,8 +317,16 @@ impl AsRef<[u8]> for Metadata {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub enum TokenType {
+    Fungible,
+    NonFungible,
+    Data
+}
+
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Token {
+    token_type: TokenType,
     program_id: Address,
     owner_id: Address,
     balance: U256,
@@ -263,15 +339,21 @@ pub struct Token {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub enum TokenDeltaMethod {
+    Merge,
+    Add,
+    Subtract,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct TokenDelta {
+    method: TokenDeltaMethod,
     token: Token,
-    send: U256, 
-    receive: U256,
 }
 
 impl TokenDelta {
-    pub fn new(token: Token, send: U256, receive: U256) -> Self {
-        Self { token, send, receive }
+    pub fn new(method: TokenDeltaMethod, token: Token) -> Self {
+        Self { method, token }
     }
 
     pub fn program_id(&self) -> Address {
@@ -280,14 +362,6 @@ impl TokenDelta {
 
     pub fn token(&self) -> &Token {
         &self.token
-    }
-    
-    pub fn send(&self) -> &U256 {
-        &self.send
-    }
-    
-    pub fn receive(&self) -> &U256 {
-        &self.receive
     }
 }
 

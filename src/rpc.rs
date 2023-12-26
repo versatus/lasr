@@ -1,7 +1,7 @@
 use ethereum_types::U256;
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::core::Error;
-use crate::{account::Address, certificate::RecoverableSignature, Token};
+use crate::{account::Address, certificate::RecoverableSignature, Token, TokenDelta};
 
 #[rpc(client, server, namespace = "lasr")]
 #[async_trait::async_trait]
@@ -11,11 +11,13 @@ pub trait LasrRpc {
         &self,
         program_id: Address,
         from: Address,
+        to: Address,
+        value: U256,
         op: String,
         inputs: String,
         sig: RecoverableSignature,
         nonce: U256, 
-    ) -> Result<Token, Error>;
+    ) -> Result<Vec<TokenDelta>, Error>;
     
     #[method(name = "send")]
     async fn send(

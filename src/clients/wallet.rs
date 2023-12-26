@@ -57,7 +57,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         let transaction: Transaction = (payload, sig.clone()).into();
 
-        let result = self.client.send(
+        let token = self.client.send(
             program_id,
             address,
             to,
@@ -66,17 +66,62 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             account.nonce()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        self.account_mut().apply_send_transaction(transaction)?;
+        self.account_mut().apply_send_transaction(transaction, token)?;
 
         Ok(())
     }
 
-    fn call(&self) -> WalletResult<()> {
-        todo!()
+    pub async fn call(
+        &mut self,
+        program_id: Address,
+        to: Address,
+        value: U256,
+        op: String,
+        inputs: String,
+    ) -> WalletResult<()> {
+
+        let account = self.account();
+        let address = self.address();
+
+        account.validate_balance(&program_id, value)?;
+
+        let payload = PayloadBuilder::default()
+            .transaction_type(TransactionType::Send(account.nonce()))
+            .from(address.into())
+            .to(to.into())
+            .program_id(program_id.into())
+            .inputs(String::new())
+            .value(value)
+            .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
+        let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
+            Box::new(e) as Box<dyn std::error::Error + Send>
+        })?;
+
+        let context = Secp256k1::new();
+
+        let sig: RecoverableSignature = context.sign_ecdsa_recoverable(&msg, &self.sk).into();
+
+        let transaction: Transaction = (payload, sig.clone()).into();
+
+        let token_deltas = self.client.call(
+            program_id,
+            self.address(),
+            to,
+            value,
+            op,
+            inputs,
+            sig,
+            self.account.nonce()
+        ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
+        self.account_mut().apply_call_transaction(transaction, token_deltas)?;
+
+        Ok(())
     }
 
     fn address(&self) -> Address {
-        todo!()
+        self.address
     }
 
     fn account_mut(&mut self) -> &mut Account {
