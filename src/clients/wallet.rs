@@ -57,7 +57,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         let transaction: Transaction = (payload, sig.clone()).into();
 
-        let token = self.client.send(
+        let _token = self.client.send(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 

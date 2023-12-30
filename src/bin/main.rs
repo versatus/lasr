@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use eo_listener::EoServerError;
 use lasr::AccountCacheActor;
 use lasr::ActorType;
+use lasr::Address;
 use lasr::BlobCacheActor;
+use lasr::EoClient;
+use lasr::EoClientActor;
 use lasr::EoServerWrapper;
 use lasr::LasrRpcServerActor;
 use lasr::PendingTransactionActor;
@@ -18,6 +21,7 @@ use lasr::actors::LasrRpcServerImpl;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use ractor::Actor;
 
+use secp256k1::Secp256k1;
 use web3::types::BlockNumber;
 
 #[tokio::main]
@@ -33,6 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
+    let eo_client = setup_eo_client().await?;
+
     let blob_cache_actor = BlobCacheActor::new(); 
     let account_cache_actor = AccountCacheActor::new();
     let pending_transaction_actor = PendingTransactionActor;
@@ -41,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine_actor = Engine::new();
     let validator_actor = Validator::new();
     let eo_server_actor = EoServer::new();
+    let eo_client_actor = EoClientActor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let inner_eo_server = setup_eo_server().map_err(|e| {
         Box::new(e)
@@ -74,6 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(ActorType::EoServer.to_string()), 
         eo_server_actor, 
         ()
+    ).await.map_err(|e| Box::new(e))?;
+
+    let (_eo_client_actor_ref, _) = Actor::spawn(
+        Some(ActorType::EoClient.to_string()),
+        eo_client_actor,
+        eo_client
     ).await.map_err(|e| Box::new(e))?;
 
     let (_da_client_actor_ref, _) = Actor::spawn(
@@ -180,4 +193,36 @@ fn setup_eo_server() -> Result<EoListener, EoServerError> {
         .build()?;
     
     Ok(eo_server)
+}
+
+async fn setup_eo_client() -> Result<EoClient, Box<dyn std::error::Error>> {
+    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
+        Box::new(err) as Box<dyn std::error::Error>
+    })?;
+
+    // Initialize the ExecutableOracle Address
+    //0x5FbDB2315678afecb367f032d93F642f64180aa3
+    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+    // Initialize the web3 instance
+    let web3: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
+
+    let contract_address = eo_address.parse().map_err(|err| {
+        Box::new(
+            err
+        ) as Box<dyn std::error::Error>
+    })?;
+    let contract_abi = eo_listener::get_abi().map_err(|e| {
+        Box::new(e) as Box<dyn std::error::Error>
+    })?;
+    let address = web3::types::Address::from(contract_address);
+    let contract = web3::contract::Contract::new(web3.eth(), address, contract_abi);
+
+    let secp = Secp256k1::new();
+
+    let (secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
+
+    let user_address: Address = public_key.into();
+    EoClient::new(web3, contract, user_address).await.map_err(|e| {
+        Box::new(e) as Box<dyn std::error::Error>
+    })
 }

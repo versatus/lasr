@@ -22,11 +22,10 @@ pub struct EoClient {
 
 impl EoClient {
     pub async fn new(
-        url: &str,
+        web3: Web3<Http>,
         contract: Contract<Http>,
         address: Address,
     ) -> web3::Result<Self> {
-        let web3 = Web3::new(Http::new(url)?);
         let address = EoClient::parse_checksum_address(address)?;
         
         Ok(
@@ -134,7 +133,7 @@ impl Actor for EoClientActor {
             EoMessage::GetAccountBlobIndex { address, sender } => {
                 let blob = state.get_blob_index(address.into()).await;
                 if let Some((batch_header_hash, blob_index)) = blob {
-                    let res = sender.send(
+                    let _res = sender.send(
                         EoMessage::AccountBlobIndexAcquired { 
                             address,
                             batch_header_hash,
@@ -143,14 +142,14 @@ impl Actor for EoClientActor {
                     );
                 } else {
                     log::info!("unable to find blob index for address: 0x{:x}", address);
-                    let res = sender.send(
+                    let _res = sender.send(
                         EoMessage::AccountBlobIndexNotFound { address }
                     );
                 }
             }
-            EoMessage::GetContractBlobIndex { program_id, sender } => {
+            EoMessage::GetContractBlobIndex { program_id: _, sender: _ } => {
             }
-            EoMessage::GetAccountBalance { program_id, address, sender } => {
+            EoMessage::GetAccountBalance { program_id: _, address: _, sender: _ } => {
             }
             _ => {}
         }

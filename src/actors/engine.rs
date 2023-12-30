@@ -3,11 +3,11 @@ use std::{fmt::Display, collections::{BTreeMap, HashMap}};
 
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
-use ethereum_types::U256;
+use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -96,7 +96,7 @@ impl Engine {
     async fn request_blob_index(
         &self,
         account: &Address
-    ) -> Result<(Address /*user*/, String/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
+    ) -> Result<(Address /*user*/, H256/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
         let (tx, rx) = oneshot();
         let message = EoMessage::GetAccountBlobIndex { address: account.clone(), sender: tx };
         let actor: ActorRef<EoMessage> = ractor::registry::where_is(
@@ -118,29 +118,11 @@ impl Engine {
         &self,
         address: &Address,
     ) -> Result<Account, EngineError> {
-        if let Ok((address, batch_header_hash, blob_index)) = self.request_blob_index(address).await {
-            let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
-                EngineError::Custom("unable to acquire DA actor".to_string())
-            )?.into();
-            let (tx, rx) = oneshot();
-            let message = DaClientMessage::RetrieveBlob { batch_header_hash, blob_index, tx };
-            let _ = da_actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
-            let handler = create_handler!(retrieve_blob);
-            let account = handle_actor_response(rx, handler).await.map_err(|e| {
-                EngineError::Custom(e.to_string())
-            })?.ok_or(
-                EngineError::Custom("unable to acquire account from blob storage".to_string())
-            )?;
-            return Ok(account)
-        } else {
-            return Err(
-                EngineError::Custom(
-                    format!( "unable to find blob index for account: {:?}",
-                        &address
-                    )
-                )
+        check_da_for_account(address.clone()).await.ok_or(
+            EngineError::Custom(
+                format!("unable to find account 0x{:x}", address)
             )
-        }
+        )
     }
 
     async fn set_pending_transaction(&self, transaction: Transaction) -> Result<(), EngineError> {
