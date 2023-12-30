@@ -7,7 +7,7 @@ use crate::account::{Token, Address, TokenDelta};
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;
-use ethereum_types::U256;
+use ethereum_types::{U256, H256};
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use ractor_cluster::RactorMessage;
@@ -29,6 +29,7 @@ impl Display for RpcResponseError {
 pub enum TransactionResponse {
     SendResponse(Token),
     CallResponse(Vec<TokenDelta>),
+    GetAccountResponse(Account),
     DeployResponse
 }
 
@@ -144,6 +145,10 @@ pub enum SchedulerMessage {
     },
     EoEvent {
         event: EoEvent
+    },
+    GetAccount {
+        address: Address,
+        rpc_reply: RpcReplyPort<RpcMessage>
     }
 }
 
@@ -393,10 +398,15 @@ pub enum EoMessage {
     },
     Settle {
         address: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128
     },
     GetAccountBlobIndex {
+        address: Address,
+        sender: OneshotSender<EoMessage>
+    },
+    GetAccountBalance {
+        program_id: Address,
         address: Address,
         sender: OneshotSender<EoMessage>
     },
@@ -406,12 +416,12 @@ pub enum EoMessage {
     },
     AccountBlobIndexAcquired {
         address: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256, 
         blob_index: u128 
     },
     ContractBlobIndexAcquired {
         program_id: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128 
     },
     AccountBlobIndexNotFound { 
@@ -461,7 +471,7 @@ pub enum DaClientMessage {
         tx: OneshotSender<(Address, BlobVerificationProof)>
     },
     RetrieveBlob {
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
     },
@@ -476,7 +486,8 @@ pub enum AccountCacheMessage {
     Write { account: Account },
     Read { address: Address, tx: OneshotSender<Option<Account>> },
     Remove { address: Address },
-    Update { account: Account }
+    Update { account: Account },
+    TryGetAccount { address: Address, reply: RpcReplyPort<RpcMessage> }
 }
 
 #[derive(Debug, RactorMessage)]

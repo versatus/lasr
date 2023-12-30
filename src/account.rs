@@ -1,7 +1,8 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}, ops::{AddAssign, SubAssign}};
+use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}, ops::{AddAssign, SubAssign}, str::FromStr};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
+use hex::FromHexError;
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
@@ -23,6 +24,26 @@ impl From<[u8; 20]> for Address {
     }
 }
 
+impl FromStr for Address {
+    type Err = FromHexError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hex_str = if s.starts_with("0x") {
+            &s[2..]
+        } else {
+            s
+        };
+
+        let decoded = hex::decode(hex_str)?;
+        if decoded.len() != 20 {
+            return Err(FromHexError::InvalidStringLength);
+        }
+
+        let mut inner: [u8; 20] = [0; 20];
+        inner.copy_from_slice(&decoded);
+        Ok(Address::new(inner))
+    }
+}
+
 impl AsRef<[u8]> for Address {
     fn as_ref(&self) -> &[u8] {
         &self.0[..]
@@ -32,6 +53,12 @@ impl AsRef<[u8]> for Address {
 impl From<Address> for [u8; 20] {
     fn from(value: Address) -> Self {
         value.0
+    }
+}
+
+impl From<Address> for ethereum_types::H160 {
+    fn from(value: Address) -> Self {
+        ethereum_types::H160(value.0)
     }
 }
 

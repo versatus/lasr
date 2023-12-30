@@ -1,4 +1,4 @@
-use crate::{Transaction};
+use crate::{Transaction, Address};
 
 
 use tokio::time::Duration;
@@ -18,6 +18,7 @@ pub enum ActorType {
     AccountCache,
     BlobCache,
     PendingTransactions,
+    EoClient
 }
 
 impl ToString for ActorType {
@@ -32,7 +33,8 @@ impl ToString for ActorType {
             ActorType::DaClient => "da_client".to_string(),
             ActorType::AccountCache => "account_cache".to_string(),
             ActorType::BlobCache => "blob_cache".to_string(),
-            ActorType::PendingTransactions => "pending_transactions".to_string()
+            ActorType::PendingTransactions => "pending_transactions".to_string(),
+            ActorType::EoClient => "eo_client".to_string()
         }
     }
 }
@@ -47,5 +49,8 @@ pub enum RpcRequestMethod {
     },
     Deploy {
         transaction: Transaction,
+    },
+    GetAccount {
+        address: Address 
     }
 }

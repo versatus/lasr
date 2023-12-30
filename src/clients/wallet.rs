@@ -61,7 +61,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        self.account_mut().apply_send_transaction(transaction, token)?;
+        // self.account_mut().apply_send_transaction(transaction, token)?;
 
         Ok(())
     }

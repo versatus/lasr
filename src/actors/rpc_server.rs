@@ -1,8 +1,9 @@
 use async_trait::async_trait;
+use std::str::FromStr;
 
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, account::{ Token}, actors::handle_actor_response, create_handler, TokenDelta, Transaction
+    rpc::LasrRpcServer, account::Token, actors::handle_actor_response, create_handler, TokenDelta, Transaction, Account, Address
 };
 use jsonrpsee::core::Error as RpcError;
 use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
@@ -66,6 +67,17 @@ impl LasrRpcServerActor {
         ).map_err(|e| Box::new(e))?)
     }
 
+    fn handle_get_account_request(
+        &self,
+        scheduler: ActorRef<SchedulerMessage>,
+        address: Address,
+        reply: RpcReplyPort<RpcMessage>
+    ) -> Result<(), ActorProcessingErr> {
+        Ok(scheduler.cast(
+            SchedulerMessage::GetAccount { address, rpc_reply: reply }
+        ).map_err(|e| Box::new(e))?)
+    }
+
     async fn handle_request_method(
         &self,
         method: RpcRequestMethod,
@@ -81,7 +93,7 @@ impl LasrRpcServerActor {
             RpcRequestMethod::Call { transaction } => self.handle_call_request(scheduler, transaction, reply),
             RpcRequestMethod::Send { transaction } => self.handle_send_request(scheduler, transaction, reply),
             RpcRequestMethod::Deploy { transaction } => self.handle_deploy_request(scheduler, transaction, reply),
-            
+            RpcRequestMethod::GetAccount { address } => self.handle_get_account_request(scheduler, address, reply),
         }
     }
 
@@ -194,6 +206,37 @@ impl LasrRpcServer for LasrRpcServerImpl {
             )
         })
     }
+
+    async fn get_account(
+        &self,
+        address: String
+    ) -> Result<Account, jsonrpsee::core::Error> {
+        println!("Received RPC getAccount method");
+
+        let (tx, rx) = oneshot();
+        let reply = RpcReplyPort::from(tx);
+
+        self.send_rpc_get_account_method_to_self(
+            address,
+            reply
+        ).await?;
+
+        let handler = create_handler!(rpc_response, getAccount);
+
+        match handle_actor_response(rx, handler).await.map_err(|e| {
+            RpcError::Custom(
+                format!("Error: {}", e)
+            )
+        }) {
+            Ok(resp) => {
+                match resp {
+                    TransactionResponse::GetAccountResponse(account) => return Ok(account),
+                    _ => return Err(jsonrpsee::core::Error::Custom("invalid response to `getAccount` methond".to_string()))
+                }
+            }
+            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string()))
+        }
+    }
 }
 
 impl LasrRpcServerImpl {
@@ -248,6 +291,24 @@ impl LasrRpcServerImpl {
         self.get_myself().cast(
             RpcMessage::Request {
                 method: RpcRequestMethod::Deploy { transaction },
+                reply
+            }
+        ).map_err(|e| {
+            RpcError::Custom(e.to_string())
+        })
+    }
+
+    async fn send_rpc_get_account_method_to_self(
+        &self,
+        address: String,
+        reply: RpcReplyPort<RpcMessage>
+    ) -> Result<(), RpcError> {
+        let address: Address = Address::from_str(&address).map_err(|e| {
+            RpcError::Custom(e.to_string())
+        })?;
+        self.get_myself().cast(
+            RpcMessage::Request { 
+                method: RpcRequestMethod::GetAccount { address },
                 reply
             }
         ).map_err(|e| {

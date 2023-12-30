@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use ractor::{concurrency::{OneshotReceiver}, Actor, ActorRef, ActorProcessingErr};
+use ractor::{concurrency::OneshotReceiver, Actor, ActorRef, ActorProcessingErr};
 use thiserror::Error;
 use std::{collections::HashMap, fmt::Display, time::{Duration, Instant}};
-use crate::{Address, Account, AccountCacheMessage};
+use crate::{Address, Account, AccountCacheMessage, TransactionResponse, RpcMessage, RpcResponseError};
 
 #[derive(Debug, Clone)]
 pub struct AccountCacheActor;
@@ -160,6 +160,23 @@ impl Actor for AccountCacheActor {
             AccountCacheMessage::Update { account } => {
                 if let Err(_e) = state.update(account.clone()) {
                     let _ = state.handle_cache_write(account.clone());
+                }
+            }
+            AccountCacheMessage::TryGetAccount { address, reply } => {
+                if let Some(account) = state.get(&address) {
+                    let _ = reply.send(
+                        RpcMessage::Response { 
+                            response: Ok(TransactionResponse::GetAccountResponse(account.clone())),
+                            reply: None 
+                        }
+                    );
+                } else {
+                    // Pass along to EO
+                    // EO passes along to DA if Account Blob discovered
+                    let response = Err(RpcResponseError);
+                    let _ = reply.send(
+                        RpcMessage::Response { response, reply: None }
+                    );
                 }
             }
         }
