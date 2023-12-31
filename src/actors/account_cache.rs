@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use ractor::{concurrency::{OneshotReceiver, OneshotSender}, Actor, ActorRef, ActorProcessingErr};
+use ractor::{concurrency::OneshotReceiver, Actor, ActorRef, ActorProcessingErr};
 use thiserror::Error;
 use std::{collections::HashMap, fmt::Display, time::{Duration, Instant}};
-use crate::{Address, Account, AccountCacheMessage, TokenDelta};
+use crate::{Address, Account, AccountCacheMessage, TransactionResponse, RpcMessage, RpcResponseError};
 
 #[derive(Debug, Clone)]
 pub struct AccountCacheActor;
@@ -56,27 +56,27 @@ impl AccountCache {
     pub(crate) fn remove(
         &mut self,
         address: &Address
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.cache.remove(address);
         Ok(())
     }
 
     pub(crate) fn update(
         &mut self,
-        address: &Address,
-        delta: &TokenDelta
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(entry) = self.cache.get_mut(address) {
-            entry.update_programs(address, delta);
-        } 
+        account: Account,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
+        if let Some(a) = self.cache.get_mut(&account.address()) {
+            *a = account;
+            return Ok(())
+        }
 
-        Ok(())
+        return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
     }
 
     pub(crate) fn handle_cache_write(
         &mut self,
         account: Account
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         let address = account.address(); 
         if let Some(entry) = self.cache.get_mut(&address) {
             log::info!("Found account: 0x{:x} in cache, updating...", &address);
@@ -92,8 +92,10 @@ impl AccountCache {
         Ok(())
     }
 
-    fn check_build_batch(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let bytes = bincode::serialize(&self.cache)?;
+    fn check_build_batch(&mut self) -> Result<(), Box<dyn std::error::Error + Send>> {
+        let bytes = bincode::serialize(&self.cache).map_err(|e| {
+            Box::new(e) as Box<dyn std::error::Error + Send>
+        })?;
         if let Some(size) = base64::encoded_len(bytes.len(), true) {
             if size >= crate::MAX_BATCH_SIZE {
                 self.build_batch()?;
@@ -109,7 +111,7 @@ impl AccountCache {
         Ok(())
     }
 
-    fn build_batch(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn build_batch(&self) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::info!("Time to build a batch and settle it");
         Ok(())
     }
@@ -155,8 +157,27 @@ impl Actor for AccountCacheActor {
             AccountCacheMessage::Remove { address } => {
                 let _ = state.remove(&address);
             }
-            AccountCacheMessage::Update { address, delta } => {
-                let _ = state.update(&address, &delta);
+            AccountCacheMessage::Update { account } => {
+                if let Err(_e) = state.update(account.clone()) {
+                    let _ = state.handle_cache_write(account.clone());
+                }
+            }
+            AccountCacheMessage::TryGetAccount { address, reply } => {
+                if let Some(account) = state.get(&address) {
+                    let _ = reply.send(
+                        RpcMessage::Response { 
+                            response: Ok(TransactionResponse::GetAccountResponse(account.clone())),
+                            reply: None 
+                        }
+                    );
+                } else {
+                    // Pass along to EO
+                    // EO passes along to DA if Account Blob discovered
+                    let response = Err(RpcResponseError);
+                    let _ = reply.send(
+                        RpcMessage::Response { response, reply: None }
+                    );
+                }
             }
         }
         Ok(())

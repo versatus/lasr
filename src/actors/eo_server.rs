@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender}, RpcReplyPort, Message, ActorCell};
+use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender}, RpcReplyPort, Message, ActorCell, ActorStatus};
 use thiserror::Error;
 use web3::ethabi::{Log, FixedBytes, Address as EthereumAddress, LogParam};
 use jsonrpsee::core::Error as RpcError;
@@ -34,6 +34,12 @@ impl EoServerWrapper {
     }
 
     pub async fn run(mut self) -> Result<(), EoServerError> {
+        let eo_actor: ActorCell = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
+            EoServerError::Custom(
+                "unable to acquire eo_actor".to_string()
+            )
+        )?;
+
         loop {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
@@ -51,12 +57,13 @@ impl EoServerWrapper {
                         EoServerError::Custom(e.to_string())
                     })?;
                 } 
-            } else {
-                log::info!("No logs found");
+            } 
+
+            if let ActorStatus::Stopped = eo_actor.get_status() {
+                break
             }
         }
 
-        #[allow(unreachable_code)]
         Ok(())
     }
 }
@@ -242,13 +249,6 @@ impl Actor for EoServer {
             EoMessage::Settle { address, batch_header_hash, blob_index } => {
                 log::info!("Eo server ready to settle blob index to EO contract");
             },
-            EoMessage::GetAccountBlobIndex { address, .. } => {
-                log::info!("Eo Server Requesting Blob Index for address: {:?}", address);
-            },
-            EoMessage::GetContractBlobIndex { program_id, .. } => {
-                log::info!("Eo Server Requesting Blob Index for program id: {:?}", program_id);
-            }
-
             _ => { log::info!("Eo Server received unhandled message"); }
         }
         return Ok(())

@@ -10,7 +10,9 @@ mod account_cache;
 mod pending_transactions;
 mod blob_cache;
 mod executor;
+mod batcher;
 
+pub use batcher::*;
 pub use rpc_server::*;
 pub use scheduler::*;
 pub use engine::*;
@@ -35,9 +37,18 @@ macro_rules! create_handler {
         |resp| {
             match resp {
                 RpcMessage::Response { response, .. } => {
-                    return Ok(
-                        response.map_err(|e| RpcError::Custom(e.to_string()))?
-                    );
+                    match response {
+                        Ok(TransactionResponse::CallResponse(deltas)) => {
+                            return Ok(
+                                TransactionResponse::CallResponse(deltas.clone())
+                            );
+                        }
+                        _ => {
+                            return Err(Box::new(RpcError::Custom(
+                                "Received an invalid type in response to RPC `call` method".to_string()
+                            )) as Box<dyn std::error::Error>);
+                        }
+                    }
                 }
                 _ => {
                     return Err(Box::new(RpcError::Custom(
@@ -52,9 +63,18 @@ macro_rules! create_handler {
         |resp| {
             match resp {
                 RpcMessage::Response { response, .. } => {
-                    return Ok(
-                        response.map_err(|e| RpcError::Custom(e.to_string()))?
-                    );
+                    match response {
+                        Ok(TransactionResponse::SendResponse(token)) => {
+                            return Ok(
+                                TransactionResponse::SendResponse(token.clone())
+                            );
+                        }
+                        _ => {
+                            return Err(Box::new(RpcError::Custom(
+                                "Received an invalid type in response to RPC `send` method".to_string()
+                            )) as Box<dyn std::error::Error>);
+                        }
+                    }
                 }
                 _ => {
                     return Err(Box::new(RpcError::Custom(
@@ -65,17 +85,48 @@ macro_rules! create_handler {
         }
     };
 
-    (rpc_deploy_success) => {
+    (rpc_response, deploy) => {
         |resp| {
             match resp {
-                RpcMessage::DeploySuccess { .. } => {
-                    Ok(())
-                },
+                RpcMessage::DeploySuccess { response, .. } => {
+                    match response {
+                        Ok(()) => {
+                            return Ok(())
+                        }
+                        _ => {
+                            return Err(Box::new(RpcError::Custom(
+                                "Received an invalid type in response to RPC `deploy` method".to_string()
+                            )) as Box<dyn std::error::Error>);
+                        }
+                    }
+                }
                 _ => {
                     return Err(Box::new(RpcError::Custom(
                         "Received an invalid type in response to RPC `deploy` method".to_string()
                     )) as Box<dyn std::error::Error>);
                 }
+            }
+        }
+    };
+
+    (rpc_response, getAccount) => {
+        |resp| {
+            match resp {
+                RpcMessage::Response { response, .. } => {
+                    match response {
+                        Ok(TransactionResponse::GetAccountResponse(account)) => {
+                            return Ok(TransactionResponse::GetAccountResponse(account))
+                        }
+                        _ => {
+                            return Err(Box::new(RpcError::Custom(
+                                "received an invalid type in response to RPC `getAccount` method".to_string()
+                            )) as Box<dyn std::error::Error>);
+                        }
+                    }
+                }
+                _ => return Err(Box::new(RpcError::Custom(
+                        "Received an invalid type in response to RPC `getAccount` method".to_string()
+                    )) as Box<dyn std::error::Error>)
             }
         }
     };
@@ -189,26 +240,54 @@ where
 }
 
 pub async fn check_account_cache(address: Address) -> Option<Account> {
-    let actor: ActorRef<AccountCacheMessage> = ractor::registry::where_is(ActorType::AccountCache.to_string())?.into();
+    let actor: ActorRef<AccountCacheMessage> = ractor::registry::where_is(
+        ActorType::AccountCache.to_string()
+    )?.into();
+
     let (tx, rx) = oneshot();
     let message = AccountCacheMessage::Read { address, tx };
+
     let _ = actor.cast(message).ok()?; 
+
     let handler = create_handler!(account_cache_response);
     let account = handle_actor_response(rx, handler).await.ok()?;
+
     Some(account)
 }
 
 pub async fn check_da_for_account(address: Address) -> Option<Account> {
-    let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoServer.to_string())?.into();
+    let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(
+        ActorType::EoClient.to_string()
+    )?.into();
+
     let (tx, rx) = oneshot();
     let message = EoMessage::GetAccountBlobIndex { address, sender: tx};
+
     let _ = eo_actor.cast(message).ok()?;
     let eo_handler = create_handler!(retrieve_blob_index);
     let blob_index = handle_actor_response(rx, eo_handler).await.ok()?;
+
     let (tx, rx) = oneshot();
-    let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string())?.into();
-    let message = DaClientMessage::RetrieveBlob { batch_header_hash: blob_index.1.into(), blob_index: blob_index.2, tx };
+    let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(
+        ActorType::DaClient.to_string()
+    )?.into();
+
+    let message = DaClientMessage::RetrieveBlob { 
+        batch_header_hash: blob_index.1.into(), 
+        blob_index: blob_index.2, 
+        tx 
+    };
+
     da_actor.cast(message).ok()?;
     let da_handler = create_handler!(retrieve_blob);
+
     handle_actor_response(rx, da_handler).await.ok()?
+}
+
+pub async fn get_account(address: Address) -> Option<Account> {
+    let mut account = check_account_cache(address).await;
+    if let None = &mut account {
+        account = check_da_for_account(address).await;
+    }
+    return account
 }

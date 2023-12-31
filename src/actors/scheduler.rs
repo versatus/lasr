@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use ethereum_types::U256;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort};
 use thiserror::*;
-use crate::{account::Address, create_handler, RecoverableSignature};
+use crate::{account::Address, create_handler, RecoverableSignature, AccountCacheMessage, check_account_cache, TransactionResponse, check_da_for_account};
 use super::{messages::{RpcMessage, ValidatorMessage, EngineMessage, SchedulerMessage, RpcResponseError, EoMessage, DaClientMessage}, types::ActorType, handle_actor_response, eo_server, da_client};
 use jsonrpsee::core::Error as RpcError;
 
@@ -39,6 +39,41 @@ impl TaskScheduler {
     pub fn new() -> Self {
         Self 
     }
+
+    async fn handle_get_account_request(&self, address: Address, rpc_reply: RpcReplyPort<RpcMessage>) -> Result<(), SchedulerError> {
+        if let Some(account) = check_account_cache(address).await {
+            rpc_reply.send(
+                RpcMessage::Response { 
+                    response: Ok(
+                        TransactionResponse::GetAccountResponse(account)
+                    ), 
+                    reply: None 
+                }
+            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
+            
+            return Ok(())
+        } else if let Some(account) = check_da_for_account(address).await {
+            rpc_reply.send(
+                RpcMessage::Response { 
+                    response: Ok(
+                        TransactionResponse::GetAccountResponse(account)
+                    ), 
+                    reply: None 
+                }
+            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
+        } else {
+            rpc_reply.send(
+                RpcMessage::Response { 
+                    response: Err(
+                        RpcResponseError
+                    ), 
+                    reply: None 
+                }
+            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
+        }
+
+        Ok(())
+    }
 }
 
 
@@ -64,15 +99,9 @@ impl Actor for TaskScheduler {
     ) -> Result<(), ActorProcessingErr> {
         println!("Scheduler Received RPC Call");
         match message {
-            SchedulerMessage::Call { 
-                program_id, from, op, inputs, sig, rpc_reply 
-            } => {
+            SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
-                // Send to engine where a `Transaction` will be created 
-                // add to RpcCollector with reply port
-                // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
-                // RpcServer with the necessary information
+                // Send to engine add to RpcCollector with reply port
             },
             SchedulerMessage::Send { .. } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
@@ -90,6 +119,13 @@ impl Actor for TaskScheduler {
                 // the collector will respond to the channel opened by the 
                 // RpcServer with the necessary information
             },
+            SchedulerMessage::GetAccount { address, rpc_reply } => {
+                log::info!("Scheduler received RPC `getAccount` method. Prepping to check cache");
+                // Check cache
+                self.handle_get_account_request(address, rpc_reply).await;
+                // if not in cache check DA
+                // if not in DA check archives
+            }
             _ => {}
         }
 

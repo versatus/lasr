@@ -47,13 +47,13 @@ impl DependencyGraph {
         None
     }
 
-    pub(crate) fn get(
+    pub fn get(
         &self,
     ) -> &Transaction {
         &self.parent
     }
 
-    pub(crate) fn get_mut(
+    pub fn get_mut(
         &mut self
     ) -> &mut Transaction {
         &mut self.parent
@@ -62,7 +62,7 @@ impl DependencyGraph {
 
 #[derive(Debug)]
 pub struct PendingTransactions {
-    // User address -> ProgramId -> PendingTransactionThreadSender
+    // User address -> ProgramId -> DependencyGraph 
     pending: HashMap<Address, HashMap<Address, DependencyGraph>>,
 }
 
@@ -102,7 +102,8 @@ impl PendingTransactions {
         &mut self,
         transaction: Transaction,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("received new transaction: {}", transaction.hash());
+        log::info!("received new transaction: {}", transaction.hash_string());
+        log::info!("transaction type: {:?}", transaction.transaction_type());
         if let Some(entry) = self.pending.get_mut(&transaction.from()) {
             log::info!("account exists in pending transactions");
             if let Some(graph) = entry.get_mut(&transaction.program_id()) {
@@ -131,12 +132,16 @@ impl PendingTransactions {
         &mut self,
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("handling confirmed transaction");
         let mut remove_graph: bool = false;
         let mut remove_user: bool = false;
         let mut new_parent: Option<Transaction> = None;
         if let Some(programs) = self.pending.get_mut(&transaction.from()) {
+            log::info!("found program");
             if let Some(entry) = programs.get_mut(&transaction.program_id()) {
+                log::info!("found transaction");
                 if let Some(next) = entry.next().await {
+                    log::info!("discovered child transaction, setting to parent");
                     new_parent = Some(next);
                 } else {
                     remove_graph = true;
@@ -144,6 +149,7 @@ impl PendingTransactions {
             }
 
             if remove_graph {
+                log::info!("no more transactions for user/program removing graph");
                 programs.remove(&transaction.program_id());
             }
 
@@ -153,10 +159,12 @@ impl PendingTransactions {
         }
 
         if let Some(transaction) = new_parent {
+            log::info!("found new parent transaction, sending to validator");
             let _ = self.schedule_with_validator(transaction).await?;
         }
 
         if remove_user {
+            log::info!("no more transactions for user removing address");
             self.pending.remove(&transaction.from());
         }
 
@@ -192,8 +200,8 @@ impl Actor for PendingTransactionActor {
                 }
             }
             PendingTransactionMessage::Valid { transaction, .. } => {
-                log::info!("received notice transaction is valid: {}", transaction.hash());
-                let _ = state.handle_confirmed(transaction.clone());
+                log::info!("received notice transaction is valid: {}", transaction.hash_string());
+                let _ = state.handle_confirmed(transaction.clone()).await;
                 // Send to batcher
                 // batcher certifies transaction
                 // batcher consolidates transactions from account
@@ -203,7 +211,7 @@ impl Actor for PendingTransactionActor {
             PendingTransactionMessage::Invalid { .. } => {}
             PendingTransactionMessage::Confirmed { map, .. }=> {
                 for (_, tx) in map.into_iter() {
-                    let _ = state.handle_confirmed(tx);
+                    let _ = state.handle_confirmed(tx).await;
                 }
             }
         }

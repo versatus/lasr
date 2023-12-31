@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use ractor::{concurrency::{OneshotReceiver, oneshot}, ActorProcessingErr};
-use crate::{Address, EoMessage, DaClientMessage, BlobCacheMessage, ActorType};
+use crate::{Address, DaClientMessage, BlobCacheMessage, ActorType};
 use eigenda_client::response::BlobResponse;
 use eigenda_client::proof::BlobVerificationProof;
 use thiserror::Error;
@@ -100,7 +100,7 @@ impl Actor for BlobCacheActor {
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        state: &mut Self::State,
+        _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
             BlobCacheMessage::Cache => {},

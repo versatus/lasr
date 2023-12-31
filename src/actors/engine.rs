@@ -3,12 +3,12 @@ use std::{fmt::Display, collections::{BTreeMap, HashMap}};
 
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
-use ethereum_types::U256;
+use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature};
-use jsonrpsee::core::Error as RpcError;
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache};
+use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
 use super::{messages::{EngineMessage, EoEvent}, types::ActorType};
@@ -62,13 +62,7 @@ impl Engine {
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
-        let (tx, rx) = oneshot();
-        let message = AccountCacheMessage::Read { address: address.clone(), tx }; 
-        let cache_actor = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
-            EngineError::Custom("unable to find AccountCacheActor in registry".to_string())
-        )?;
-        cache_actor.send_message(message);
-        return self.handle_cache_response(rx).await
+        Ok(check_account_cache(address.clone()).await)
     }
 
     async fn handle_cache_response(
@@ -96,7 +90,7 @@ impl Engine {
     async fn request_blob_index(
         &self,
         account: &Address
-    ) -> Result<(Address /*user*/, String/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
+    ) -> Result<(Address /*user*/, H256/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
         let (tx, rx) = oneshot();
         let message = EoMessage::GetAccountBlobIndex { address: account.clone(), sender: tx };
         let actor: ActorRef<EoMessage> = ractor::registry::where_is(
@@ -118,29 +112,11 @@ impl Engine {
         &self,
         address: &Address,
     ) -> Result<Account, EngineError> {
-        if let Ok((address, batch_header_hash, blob_index)) = self.request_blob_index(address).await {
-            let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
-                EngineError::Custom("unable to acquire DA actor".to_string())
-            )?.into();
-            let (tx, rx) = oneshot();
-            let message = DaClientMessage::RetrieveBlob { batch_header_hash, blob_index, tx };
-            let _ = da_actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
-            let handler = create_handler!(retrieve_blob);
-            let account = handle_actor_response(rx, handler).await.map_err(|e| {
-                EngineError::Custom(e.to_string())
-            })?.ok_or(
-                EngineError::Custom("unable to acquire account from blob storage".to_string())
-            )?;
-            return Ok(account)
-        } else {
-            return Err(
-                EngineError::Custom(
-                    format!( "unable to find blob index for account: {:?}",
-                        &address
-                    )
-                )
+        check_da_for_account(address.clone()).await.ok_or(
+            EngineError::Custom(
+                format!("unable to find account 0x{:x}", address)
             )
-        }
+        )
     }
 
     async fn set_pending_transaction(&self, transaction: Transaction) -> Result<(), EngineError> {
@@ -162,9 +138,10 @@ impl Engine {
                 .program_id(event.program_id().into())
                 .from(event.user().into())
                 .to(event.user().into())
-                .transaction_type(TransactionType::BridgeIn)
+                .transaction_type(TransactionType::BridgeIn(event.bridge_event_id()))
                 .value(event.amount())
                 .inputs(String::new())
+                .op(String::new())
                 .v(0)
                 .r([0; 32])
                 .s([0; 32])
@@ -175,74 +152,18 @@ impl Engine {
         Ok(())
     }
 
-    async fn handle_call(
-        &self,
-        program_id: Address,
-        from: Address, 
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to([0u8; 20])
-            .transaction_type(TransactionType::Call)
-            .inputs(inputs)
-            .value(0.into())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
-            
+    async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
         Ok(())
     }
 
-    async fn handle_send(
-        &self,
-        program_id: Address,
-        from: Address,
-        to: Address,
-        value: U256,
-        sig: RecoverableSignature,
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to(to.into())
-            .transaction_type(TransactionType::Send)
-            .value(value)
-            .inputs(String::new())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
+    async fn handle_send(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
-
         Ok(())
-        
     }
 
-    async fn handle_deploy(
-        &self,
-        program_id: Address,
-        from: Address,
-        sig: RecoverableSignature
-    ) -> Result<(), EngineError> {
-        let transaction = TransactionBuilder::default()
-            .program_id(program_id.into())
-            .from(from.into())
-            .to([0u8; 20])
-            .transaction_type(TransactionType::Deploy)
-            .value(0.into())
-            .inputs(String::new())
-            .v(sig.get_v())
-            .r(sig.get_r())
-            .s(sig.get_s())
-            .build().map_err(|e| EngineError::Custom(e.to_string()))?;
+    async fn handle_deploy(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
-
         Ok(())
     }
 }
@@ -285,20 +206,14 @@ impl Actor for Engine {
                 //TODO(asmith): Use a proper LRU Cache
                 self.write_to_cache(account);
             },
-            EngineMessage::Call {
-                program_id, from, op, inputs, sig
-            } => {
-                self.handle_call(program_id, from, op, inputs, sig).await;
+            EngineMessage::Call { transaction } => {
+                self.handle_call(transaction).await;
             },
-            EngineMessage::Send {
-                program_id, from, to, amount, content, sig,
-            } => {
-                self.handle_send(program_id, from, to, amount, sig).await;
+            EngineMessage::Send { transaction } => {
+                self.handle_send(transaction).await;
             },
-            EngineMessage::Deploy {
-                program_id, from, sig
-            } => {
-                self.handle_deploy(program_id, from, sig).await;
+            EngineMessage::Deploy { transaction } => {
+                self.handle_deploy(transaction).await;
             }
             _ => {}
         }

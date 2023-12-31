@@ -71,16 +71,19 @@ impl ValidatorCore {
         }
     }
 
+    #[allow(unused)]
     async fn validate_call(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+        |_tx| Ok(false)
     }
     
+    #[allow(unused)]
     async fn validate_bridge_out(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+        |_tx| Ok(false)
     }
 
-    async fn validate_deploy<T>(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |tx| Ok(false)
+    #[allow(unused)]
+    async fn validate_deploy(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
+        |_tx| Ok(false)
     }
 }
 
@@ -135,11 +138,11 @@ impl Actor for Validator {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ValidatorMessage::PendingTransaction { transaction } => {
-                log::info!("Received transaction to validate: {}", transaction.hash());
+                log::info!("Received transaction to validate: {}", transaction.hash_string());
                 // spin up thread 
                 let transaction_type = transaction.transaction_type();
                 match transaction_type {
-                    TransactionType::Send => {
+                    TransactionType::Send(_) => {
                         let account = if let Some(account) = check_account_cache(transaction.from()).await {
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
@@ -164,14 +167,14 @@ impl Actor for Validator {
                             });
                         }
                     }
-                    TransactionType::Call => {
+                    TransactionType::Call(_) => {
 
                         // get account
                         // build op
                         // install op
                     },
-                    TransactionType::BridgeIn => {
-                        let account = if let Some(account) = check_account_cache(transaction.from()).await {
+                    TransactionType::BridgeIn(_) => {
+                        let _account = if let Some(account) = check_account_cache(transaction.from()).await {
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
                             Some(account)
@@ -187,7 +190,7 @@ impl Actor for Validator {
                         // for address
                         // naively validate
                     },
-                    TransactionType::Deploy => {
+                    TransactionType::Deploy(_) => {
                         // get program
                         // build program
                         // validate sender sig
@@ -195,7 +198,7 @@ impl Actor for Validator {
                         // commit contract blob
                         //
                     },
-                    TransactionType::BridgeOut => {
+                    TransactionType::BridgeOut(_) => {
                         // get program
                         // check for corresponding program
                         // validate sender sig

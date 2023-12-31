@@ -1,6 +1,6 @@
-use crate::account::Address;
-use crate::certificate::RecoverableSignature;
-use ethereum_types::U256;
+use crate::{Transaction, Address};
+
+
 use tokio::time::Duration;
 use serde::{Serialize, Deserialize};
 
@@ -18,6 +18,7 @@ pub enum ActorType {
     AccountCache,
     BlobCache,
     PendingTransactions,
+    EoClient
 }
 
 impl ToString for ActorType {
@@ -32,7 +33,8 @@ impl ToString for ActorType {
             ActorType::DaClient => "da_client".to_string(),
             ActorType::AccountCache => "account_cache".to_string(),
             ActorType::BlobCache => "blob_cache".to_string(),
-            ActorType::PendingTransactions => "pending_transactions".to_string()
+            ActorType::PendingTransactions => "pending_transactions".to_string(),
+            ActorType::EoClient => "eo_client".to_string()
         }
     }
 }
@@ -40,21 +42,15 @@ impl ToString for ActorType {
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
     Call {
-        program_id: Address,
-        from: Address,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
+        transaction: Transaction 
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        sig: RecoverableSignature,
+        transaction: Transaction
     },
     Deploy {
-        program_id: Address,
-        sig: RecoverableSignature,
+        transaction: Transaction,
+    },
+    GetAccount {
+        address: Address 
     }
 }

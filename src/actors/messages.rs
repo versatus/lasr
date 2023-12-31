@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 use std::fmt::Display;
-use crate::{Account, ContractBlob, Certificate, Transaction, TransactionBuilder};
+use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
-use crate::account::{Token, Address, TokenDelta};
-use crate::certificate::RecoverableSignature;
+use crate::{Token, Address};
+
 use eigenda_client::batch::BatchHeaderHash;
-use eigenda_client::blob::DecodedBlob;
 use eigenda_client::proof::BlobVerificationProof;
 use eo_listener::EventType;
-use ethereum_types::U256;
+use ethereum_types::{U256, H256};
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use ractor_cluster::RactorMessage;
-use ractor::{RpcReplyPort};
+use ractor::RpcReplyPort;
 
 
 /// An error type for RPC Responses
@@ -24,6 +23,14 @@ impl Display for RpcResponseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum TransactionResponse {
+    SendResponse(Token),
+    CallResponse(Vec<Token>),
+    GetAccountResponse(Account),
+    DeployResponse
 }
 
 /// A message type that the RpcServer Actor can `handle`
@@ -49,10 +56,11 @@ pub enum RpcMessage {
         reply: RpcReplyPort<RpcMessage>
     },
     Response{
-        response: Result<Token, RpcResponseError>,
+        response: Result<TransactionResponse, RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>>,
     },
     DeploySuccess {
+        response: Result<(), RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>> 
     },
 }
@@ -108,24 +116,15 @@ pub enum RpcMessage {
 #[derive(Debug, RactorMessage)]
 pub enum SchedulerMessage {
     Call {
-        program_id: Address,
-        from: Address,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        sig: RecoverableSignature,
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     Deploy {
-        program_id: Address,
-        sig: RecoverableSignature,
+        transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
     ValidatorComplete {
@@ -146,6 +145,10 @@ pub enum SchedulerMessage {
     },
     EoEvent {
         event: EoEvent
+    },
+    GetAccount {
+        address: Address,
+        rpc_reply: RpcReplyPort<RpcMessage>
     }
 }
 
@@ -228,24 +231,13 @@ pub enum ValidatorMessage {
 #[derive(Debug, RactorMessage)]
 pub enum EngineMessage {
     Call {
-        program_id: Address,
-        from: Address,
-        op: String,
-        inputs: String,
-        sig: RecoverableSignature,
+        transaction: Transaction,
     },
     Send {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: U256,
-        content: Option<[u8; 32]>,
-        sig: RecoverableSignature,
+        transaction: Transaction,
     },
     Deploy {
-        program_id: Address,
-        from: Address,
-        sig: RecoverableSignature
+        transaction: Transaction,
     },
     EoEvent {
         event: EoEvent 
@@ -313,6 +305,10 @@ impl BridgeEvent {
     /// A getter for the `token_type` field in a bridge event
     pub fn token_type(&self) -> String {
         self.token_type.clone()
+    }
+    
+    pub fn bridge_event_id(&self) -> U256 {
+        self.bridge_event_id
     }
 }
 
@@ -402,12 +398,18 @@ pub enum EoMessage {
     },
     Settle {
         address: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128
     },
     GetAccountBlobIndex {
         address: Address,
         sender: OneshotSender<EoMessage>
+    },
+    GetAccountBalance {
+        program_id: Address,
+        address: Address,
+        sender: OneshotSender<EoMessage>,
+        token_type: u8,
     },
     GetContractBlobIndex {
         program_id: Address,
@@ -415,13 +417,23 @@ pub enum EoMessage {
     },
     AccountBlobIndexAcquired {
         address: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256, 
         blob_index: u128 
     },
     ContractBlobIndexAcquired {
         program_id: Address,
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128 
+    },
+    AccountBalanceAcquired {
+        program_id: Address,
+        address: Address,
+        balance: Option<U256>,
+    },
+    NftHoldingsAcquired {
+        program_id: Address,
+        address: Address,
+        holdings: Option<Vec<U256>>
     },
     AccountBlobIndexNotFound { 
         address: Address 
@@ -470,7 +482,7 @@ pub enum DaClientMessage {
         tx: OneshotSender<(Address, BlobVerificationProof)>
     },
     RetrieveBlob {
-        batch_header_hash: String,
+        batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
     },
@@ -485,7 +497,8 @@ pub enum AccountCacheMessage {
     Write { account: Account },
     Read { address: Address, tx: OneshotSender<Option<Account>> },
     Remove { address: Address },
-    Update { address: Address, delta: TokenDelta }
+    Update { account: Account },
+    TryGetAccount { address: Address, reply: RpcReplyPort<RpcMessage> }
 }
 
 #[derive(Debug, RactorMessage)]
@@ -512,4 +525,10 @@ pub enum PendingTransactionMessage {
         batch_header_hash: BatchHeaderHash,
         blob_index: u128
     },
+}
+
+#[derive(Debug, RactorMessage)]
+pub enum BatcherMessage {
+    AppendTransaction(Transaction),
+    GetNextBatch
 }
