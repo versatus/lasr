@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
-use crate::account::{Token, Address, TokenDelta};
+use crate::{Token, Address};
 
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
@@ -28,7 +28,7 @@ impl Display for RpcResponseError {
 #[derive(Debug, Clone)]
 pub enum TransactionResponse {
     SendResponse(Token),
-    CallResponse(Vec<TokenDelta>),
+    CallResponse(Vec<Token>),
     GetAccountResponse(Account),
     DeployResponse
 }
@@ -408,7 +408,8 @@ pub enum EoMessage {
     GetAccountBalance {
         program_id: Address,
         address: Address,
-        sender: OneshotSender<EoMessage>
+        sender: OneshotSender<EoMessage>,
+        token_type: u8,
     },
     GetContractBlobIndex {
         program_id: Address,
@@ -423,6 +424,16 @@ pub enum EoMessage {
         program_id: Address,
         batch_header_hash: H256,
         blob_index: u128 
+    },
+    AccountBalanceAcquired {
+        program_id: Address,
+        address: Address,
+        balance: Option<U256>,
+    },
+    NftHoldingsAcquired {
+        program_id: Address,
+        address: Address,
+        holdings: Option<Vec<U256>>
     },
     AccountBlobIndexNotFound { 
         address: Address 
@@ -514,4 +525,10 @@ pub enum PendingTransactionMessage {
         batch_header_hash: BatchHeaderHash,
         blob_index: u128
     },
+}
+
+#[derive(Debug, RactorMessage)]
+pub enum BatcherMessage {
+    AppendTransaction(Transaction),
+    GetNextBatch
 }

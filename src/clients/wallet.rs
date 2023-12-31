@@ -1,3 +1,4 @@
+#![allow(unused)]
 use ethereum_types::U256;
 use secp256k1::{SecretKey, Secp256k1, Message};
 use crate::{
@@ -100,11 +101,11 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         let transaction: Transaction = (payload, sig.clone()).into();
 
-        let token_deltas = self.client.call(
+        let _token = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        self.account_mut().apply_call_transaction(transaction, token_deltas)?;
+        // self.account_mut().apply_call_transaction(transaction, token)?;
 
         Ok(())
     }

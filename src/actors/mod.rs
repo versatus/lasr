@@ -10,7 +10,9 @@ mod account_cache;
 mod pending_transactions;
 mod blob_cache;
 mod executor;
+mod batcher;
 
+pub use batcher::*;
 pub use rpc_server::*;
 pub use scheduler::*;
 pub use engine::*;
@@ -280,4 +282,12 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
     let da_handler = create_handler!(retrieve_blob);
 
     handle_actor_response(rx, da_handler).await.ok()?
+}
+
+pub async fn get_account(address: Address) -> Option<Account> {
+    let mut account = check_account_cache(address).await;
+    if let None = &mut account {
+        account = check_da_for_account(address).await;
+    }
+    return account
 }

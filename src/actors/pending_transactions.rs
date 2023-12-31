@@ -62,7 +62,7 @@ impl DependencyGraph {
 
 #[derive(Debug)]
 pub struct PendingTransactions {
-    // User address -> ProgramId -> PendingTransactionThreadSender
+    // User address -> ProgramId -> DependencyGraph 
     pending: HashMap<Address, HashMap<Address, DependencyGraph>>,
 }
 

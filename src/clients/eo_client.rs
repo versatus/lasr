@@ -1,3 +1,4 @@
+#![allow(unused)]
 use async_trait::async_trait;
 use ethereum_types::U256;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
@@ -92,7 +93,6 @@ impl EoClient {
         let mut hasher = Keccak256::new();
         hasher.update(hex_address.as_bytes());
         let hash = hasher.finalize();
-
         let checksum_address: String = hex_address.char_indices().map(|(i, c)| {
             if c >= '0' && c <= '9' {
                 c.to_string()
@@ -133,13 +133,17 @@ impl Actor for EoClientActor {
             EoMessage::GetAccountBlobIndex { address, sender } => {
                 let blob = state.get_blob_index(address.into()).await;
                 if let Some((batch_header_hash, blob_index)) = blob {
-                    let _res = sender.send(
+                    let res = sender.send(
                         EoMessage::AccountBlobIndexAcquired { 
                             address,
                             batch_header_hash,
                             blob_index
                         }
                     );
+
+                    if let Err(e) = res {
+                        log::error!("{:?}", e);
+                    }
                 } else {
                     log::info!("unable to find blob index for address: 0x{:x}", address);
                     let _res = sender.send(
@@ -148,8 +152,39 @@ impl Actor for EoClientActor {
                 }
             }
             EoMessage::GetContractBlobIndex { program_id: _, sender: _ } => {
+                log::info!("Received request for contract blob index");
             }
-            EoMessage::GetAccountBalance { program_id: _, address: _, sender: _ } => {
+            EoMessage::GetAccountBalance { 
+                program_id, 
+                address, 
+                sender, 
+                token_type 
+            } => {
+                if token_type == 0 {
+                    let balance = state.get_eth_balance(address.into()).await;
+                    let res = sender.send(
+                        EoMessage::AccountBalanceAcquired { program_id, address, balance }
+                    );
+                    if let Err(e) = res {
+                        log::error!("{:?}", e);
+                    }
+                } else if token_type == 1 {
+                    let balance = state.get_erc20_balance(program_id.into(), address.into()).await;
+                    let res = sender.send(
+                        EoMessage::AccountBalanceAcquired { program_id, address, balance }
+                    );
+                    if let Err(e) = res {
+                        log::error!("{:?}", e);
+                    }
+                } else if token_type == 2 {
+                    let holdings = state.get_erc721_holdings(program_id.into(), address.into()).await;
+                    let res = sender.send(
+                        EoMessage::NftHoldingsAcquired { program_id, address, holdings }
+                    );
+                    if let Err(e) = res {
+                        log::error!("{:?}", e);
+                    }
+                }
             }
             _ => {}
         }

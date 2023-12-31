@@ -7,7 +7,7 @@ use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -62,13 +62,7 @@ impl Engine {
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
-        let (tx, rx) = oneshot();
-        let message = AccountCacheMessage::Read { address: address.clone(), tx }; 
-        let cache_actor = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
-            EngineError::Custom("unable to find AccountCacheActor in registry".to_string())
-        )?;
-        cache_actor.send_message(message);
-        return self.handle_cache_response(rx).await
+        Ok(check_account_cache(address.clone()).await)
     }
 
     async fn handle_cache_response(
@@ -147,6 +141,7 @@ impl Engine {
                 .transaction_type(TransactionType::BridgeIn(event.bridge_event_id()))
                 .value(event.amount())
                 .inputs(String::new())
+                .op(String::new())
                 .v(0)
                 .r([0; 32])
                 .s([0; 32])

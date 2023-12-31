@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, account::Token, actors::handle_actor_response, create_handler, TokenDelta, Transaction, Account, Address
+    rpc::LasrRpcServer, Token, actors::handle_actor_response, create_handler, Transaction, Account, Address
 };
 use jsonrpsee::core::Error as RpcError;
 use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
@@ -127,7 +127,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<TokenDelta>, RpcError> {
+    ) -> Result<Vec<Token>, RpcError> {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler

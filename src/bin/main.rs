@@ -37,7 +37,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
-    let eo_client = setup_eo_client().await?;
+    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
+        EoServerError::Other(err.to_string())
+    })?;
+
+    let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
+
+    let eo_client = setup_eo_client(web3_instance.clone()).await?;
 
     let blob_cache_actor = BlobCacheActor::new(); 
     let account_cache_actor = AccountCacheActor::new();
@@ -49,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_client_actor = DaClient::new(eigen_da_client);
-    let inner_eo_server = setup_eo_server().map_err(|e| {
+    let inner_eo_server = setup_eo_server(web3_instance.clone()).map_err(|e| {
         Box::new(e)
     })?;
 
@@ -132,24 +138,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-fn setup_eo_server() -> Result<EoListener, EoServerError> {
-
-    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
-        EoServerError::Other(err.to_string())
-    })?;
+fn setup_eo_server(web3_instance: web3::Web3<web3::transports::Http>) -> Result<EoListener, EoServerError> {
 
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
-    // Initialize the web3 instance
-    let web3: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
-
     let contract_address = eo_address.parse().map_err(|err| {
         EoServerError::Other(err.to_string())
     })?;
     let contract_abi = eo_listener::get_abi()?;
     let address = web3::types::Address::from(contract_address);
-    let contract = web3::contract::Contract::new(web3.eth(), address, contract_abi);
+    let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
     
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
@@ -178,7 +177,7 @@ fn setup_eo_server() -> Result<EoListener, EoServerError> {
 
     
     let eo_server = eo_listener::EoServerBuilder::default()
-        .web3(web3)
+        .web3(web3_instance)
         .eo_address(eo_address)
         .processed_blocks(BTreeSet::new())
         .contract(contract)
@@ -195,17 +194,12 @@ fn setup_eo_server() -> Result<EoListener, EoServerError> {
     Ok(eo_server)
 }
 
-async fn setup_eo_client() -> Result<EoClient, Box<dyn std::error::Error>> {
-    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
-        Box::new(err) as Box<dyn std::error::Error>
-    })?;
-
+async fn setup_eo_client(web3_instance: web3::Web3<web3::transports::Http>) -> Result<EoClient, Box<dyn std::error::Error>> {
     // Initialize the ExecutableOracle Address
+    //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
     // Initialize the web3 instance
-    let web3: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
-
     let contract_address = eo_address.parse().map_err(|err| {
         Box::new(
             err
@@ -215,14 +209,14 @@ async fn setup_eo_client() -> Result<EoClient, Box<dyn std::error::Error>> {
         Box::new(e) as Box<dyn std::error::Error>
     })?;
     let address = web3::types::Address::from(contract_address);
-    let contract = web3::contract::Contract::new(web3.eth(), address, contract_abi);
+    let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
 
     let secp = Secp256k1::new();
 
-    let (secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
+    let (_secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
 
     let user_address: Address = public_key.into();
-    EoClient::new(web3, contract, user_address).await.map_err(|e| {
+    EoClient::new(web3_instance, contract, user_address).await.map_err(|e| {
         Box::new(e) as Box<dyn std::error::Error>
     })
 }

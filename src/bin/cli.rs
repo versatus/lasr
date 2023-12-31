@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAc
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
+use ethereum_types::Address as EthereumAddress;
 use bip39::{Mnemonic, Language};
 use std::io::Read;
 
@@ -317,7 +318,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let secp = Secp256k1::new();
                                 let master = SecretKey::from_str(&sk)?; 
                                 let pubkey = master.public_key(&secp);
-                                dbg!(sk);
+                                let address: Address = pubkey.into();
+                                let eaddr: EthereumAddress = address.into();
+                                dbg!(sk, eaddr);
                                 (master, pubkey)
                             } 
                         };

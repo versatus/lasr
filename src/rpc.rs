@@ -1,7 +1,7 @@
 
 use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::core::Error;
-use crate::{Token, TokenDelta, Transaction, Account};
+use crate::{Token, Transaction, Account};
 
 #[rpc(client, server, namespace = "lasr")]
 #[async_trait::async_trait]
@@ -10,7 +10,7 @@ pub trait LasrRpc {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<TokenDelta>, Error>;
+    ) -> Result<Vec<Token>, Error>;
     
     #[method(name = "send")]
     async fn send(
