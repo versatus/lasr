@@ -96,16 +96,14 @@ impl AccountCache {
         let bytes = bincode::serialize(&self.cache).map_err(|e| {
             Box::new(e) as Box<dyn std::error::Error + Send>
         })?;
-        if let Some(size) = base64::encoded_len(bytes.len(), true) {
-            if size >= crate::MAX_BATCH_SIZE {
+        if base64::encode(bytes).len() >= crate::MAX_BATCH_SIZE {
+            self.build_batch()?;
+        } else if let Some(instant) = self.last_batch {
+            if Instant::now().duration_since(instant) > self.batch_interval {
                 self.build_batch()?;
-            } else if let Some(instant) = self.last_batch {
-                if Instant::now().duration_since(instant) > self.batch_interval {
-                    self.build_batch()?;
-                }
-            } else if let None = self.last_batch {
-                self.last_batch = Some(Instant::now());
             }
+        } else if let None = self.last_batch {
+            self.last_batch = Some(Instant::now());
         }
 
         Ok(())

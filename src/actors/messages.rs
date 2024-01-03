@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
@@ -476,13 +476,12 @@ pub enum EoMessage {
 pub enum DaClientMessage {
     StoreBatch {
         batch: String,
-        tx: OneshotSender<BlobResponse>,
+        tx: OneshotSender<Result<BlobResponse, std::io::Error>>,
     },
     StoreTransactionBlob, 
     ValidateBlob {
         request_id: String,
-        address: Address, 
-        tx: OneshotSender<(Address, BlobVerificationProof)>
+        tx: OneshotSender<(String/*request_id*/, BlobVerificationProof)>
     },
     RetrieveAccount {
         address: Address,
@@ -519,7 +518,11 @@ pub enum AccountCacheMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum BlobCacheMessage {
-    Cache,
+    Cache { 
+        blob_response: BlobResponse,
+        accounts: HashSet<Address>,
+        transactions: HashSet<Transaction>,
+    },
     Get,
     Remove
 }
@@ -546,5 +549,6 @@ pub enum PendingTransactionMessage {
 #[derive(Debug, RactorMessage)]
 pub enum BatcherMessage {
     AppendTransaction(Transaction),
-    GetNextBatch
+    GetNextBatch,
+    BlobVerificationProof { request_id: String, proof: BlobVerificationProof }
 }

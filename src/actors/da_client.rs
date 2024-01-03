@@ -5,7 +5,7 @@ use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::B
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender};
 use thiserror::Error;
 use tokio::task::JoinHandle;
-use crate::{Address, Batch};
+use crate::Batch;
 use crate::DaClientMessage;
 
 
@@ -74,19 +74,15 @@ impl Actor for DaClient {
             // Optimistically and naively store account blobs
             DaClientMessage::StoreBatch { batch, tx } => {
                 let blob_response = self.disperse_blobs(batch).await;
-                if let Ok(response) = blob_response {
-                    let _ = tx.send(response);
-                } else {
-                    log::error!("{:?}", blob_response);
-                }
+                let _ = tx.send(blob_response);
                 // for response in blob_responses {
                     // self.blob_cache_writer.send(response).await?;
                 // }
                 // Need to send blob responses somewhere to be stored,
                 // and checked for dispersal.
             },
-            DaClientMessage::ValidateBlob { request_id, address, tx } => {
-                let _ = validate_blob(self.client.clone(), request_id, address, tx).await;
+            DaClientMessage::ValidateBlob { request_id, tx } => {
+                let _ = validate_blob(self.client.clone(), request_id, tx).await;
                 // Spawn a tokio task to poll EigenDa for the validated blob
             },
             // Optimistically and naively retreive account blobs
@@ -117,8 +113,7 @@ async fn get_blob_status(
 async fn poll_blob_status(
     client: EigenDaGrpcClient, 
     request_id: String, 
-    address: Address,
-    tx: OneshotSender<(Address, BlobVerificationProof)>
+    tx: OneshotSender<(String, BlobVerificationProof)>
 ) -> Result<(), std::io::Error> {
     let mut status = get_blob_status(&client, &request_id).await?;
     while status.status().clone() != BlobResult::Confirmed {
@@ -127,18 +122,19 @@ async fn poll_blob_status(
         status = get_blob_status(&client, &request_id).await?;
     }
     let proof = status.info().blob_verification_proof(); 
-    let _ = tx.send((address, proof.clone()));
+    let _ = tx.send((request_id, proof.clone()));
     Ok(())
 }
 
 async fn validate_blob(
     client: EigenDaGrpcClient,
     request_id: String,
-    address: Address, 
-    tx: OneshotSender<(Address, BlobVerificationProof)>
+    tx: OneshotSender<(String, BlobVerificationProof)>
 ) -> JoinHandle<Result<(), std::io::Error>> {
     log::info!("spawning blob validation task");
-    tokio::task::spawn(async move { poll_blob_status(
-        client.clone(), request_id, address, tx).await
+    tokio::task::spawn(async move { 
+        poll_blob_status(
+            client.clone(), request_id, tx
+        ).await
     })
 }
