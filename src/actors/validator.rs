@@ -65,6 +65,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+            log::info!("transaction {} is valid, responding", tx.hash_string());
             let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
             actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())

@@ -8,7 +8,7 @@ use crate::{
     TransactionType, 
     Account, 
     RecoverableSignature, 
-    Transaction
+    Transaction, Token
 };
 
 pub type WalletError = Box<dyn std::error::Error + Send>;
@@ -30,14 +30,14 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
     pub async fn send(
         &mut self,
-        to: Address,
-        program_id: Address,
+        to: &Address,
+        program_id: &Address,
         value: U256,
-    ) -> WalletResult<()> {
+    ) -> WalletResult<Token> {
         let account = self.account();
         let address = self.address();
 
-        account.validate_balance(&program_id, value)?;
+        account.validate_balance(program_id, value)?;
 
         let payload = self.builder
             .transaction_type(TransactionType::Send(account.nonce()))
@@ -45,6 +45,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .to(to.into())
             .program_id(program_id.into())
             .inputs(String::new())
+            .op(String::new())
             .value(value)
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
@@ -58,13 +59,15 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         let transaction: Transaction = (payload, sig.clone()).into();
 
-        let _token = self.client.send(
-            transaction.clone()
-        ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+        let token: Token = bincode::deserialize(
+            &self.client.send(
+                transaction.clone()
+            ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        // self.account_mut().apply_send_transaction(transaction, token)?;
+        self.get_account(&self.address()).await?;
 
-        Ok(())
+        Ok(token)
     }
 
     pub async fn call(
@@ -105,7 +108,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        // self.account_mut().apply_call_transaction(transaction, token)?;
+        self.get_account(&self.address()).await?;
 
         Ok(())
     }
@@ -140,10 +143,34 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
+        self.get_account(&self.address()).await?;
+
         Ok(())
     }
 
-    fn address(&self) -> Address {
+    pub async fn get_account(&mut self, address: &Address) -> WalletResult<()> {
+        let account: Account = bincode::deserialize(
+            &self.client.get_account(format!("{:x}", address)).await.map_err(|e| {
+                Box::new(e) as Box<dyn std::error::Error + Send>
+            })?
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
+        self.account = account;
+
+        println!("\n");
+        println!("****************** Wallet Balances ********************");
+        println!("*       Token           |           Balance           *");
+        println!("* ----------------------|---------------------------- *");
+        for (id, token) in self.account().programs() {
+            println!("*    {:<23}      | {:>23}     *", id, token.balance());
+        }
+        println!("*******************************************************");
+        println!("\n");
+
+        Ok(())
+    }
+
+    pub fn address(&self) -> Address {
         self.address
     }
 
@@ -151,7 +178,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self.account
     }
 
-    fn account(&self) -> Account {
+    pub(crate) fn account(&self) -> Account {
         self.account.clone()
     }
 }

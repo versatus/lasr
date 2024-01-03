@@ -6,6 +6,7 @@ use crate::{Token, Address};
 
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
+use eigenda_client::response::BlobResponse;
 use eo_listener::EventType;
 use ethereum_types::{U256, H256};
 use ractor::concurrency::OneshotSender;
@@ -149,6 +150,10 @@ pub enum SchedulerMessage {
     GetAccount {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>
+    },
+    TransactionApplied {
+        transaction_hash: String,
+        token: Token
     }
 }
 
@@ -469,11 +474,9 @@ pub enum EoMessage {
 ///
 #[derive(Debug, RactorMessage)]
 pub enum DaClientMessage {
-    StoreAccountBlobs {
-        accounts: Vec<Account> 
-    },
-    StoreContractBlobs {
-        contracts: Vec<ContractBlob>
+    StoreBatch {
+        batch: String,
+        tx: OneshotSender<BlobResponse>,
     },
     StoreTransactionBlob, 
     ValidateBlob {
@@ -481,10 +484,23 @@ pub enum DaClientMessage {
         address: Address, 
         tx: OneshotSender<(Address, BlobVerificationProof)>
     },
-    RetrieveBlob {
+    RetrieveAccount {
+        address: Address,
         batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
+    },
+    RetrieveTransaction {
+        transaction_hash: [u8; 32],
+        batch_header_hash: H256,
+        blob_index: u128,
+        tx: OneshotSender<Option<Transaction>>,
+    },
+    RetrieveContract {
+        address: Address,
+        batch_header_hash: H256,
+        blob_index: u128,
+        tx: OneshotSender<Option<ContractBlob>>,
     },
     EoEvent {
         event: EoEvent

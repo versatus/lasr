@@ -3,13 +3,17 @@ use std::{collections::{HashMap, VecDeque, BTreeMap}, fmt::Display};
 
 use async_trait::async_trait;
 use base64::{Engine as _, engine::{self, general_purpose}, alphabet};
-use ractor::{Actor, ActorRef, ActorProcessingErr};
+use eigenda_client::response::BlobResponse;
+use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::oneshot};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
+use std::io::Write;
+use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response};
 
 const CUSTOM_ENGINE: engine::GeneralPurpose = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD);
+const BATCH_INTERVAL: u64 = 180;
 
 #[derive(Clone, Debug, Error)]
 pub enum BatcherError {
@@ -39,18 +43,75 @@ impl Batch {
         }
     }
 
-    pub(super) fn check_transaction_size(&self) -> Result<usize, BatcherError> {
-        let encoded = CUSTOM_ENGINE.encode(bincode::serialize(&self.transactions).map_err(|e| {
-            BatcherError::Custom(e.to_string())
-        })?);
+    pub fn get_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
+        if let Some(account) = self.accounts().get(&address.into()) {
+            return Some(account.clone())
+        }
 
-        Ok(encoded.as_bytes().len())
+        None
     }
 
-    pub(super) fn check_account_size(&self) -> Result<usize, BatcherError> {
-        let encoded = CUSTOM_ENGINE.encode(bincode::serialize(&self.accounts).map_err(|e| {
+    pub fn get_transaction(&self, id: impl Into<[u8; 32]>) -> Option<Transaction> {
+        if let Some(transaction) = self.transactions().get(&id.into()) {
+            return Some(transaction.clone())
+        }
+
+        None
+    }
+
+    pub(super) fn serialize_batch(&self) -> Result<Vec<u8>, BatcherError> {
+        bincode::serialize(&self).map_err(|e| {
             BatcherError::Custom(e.to_string())
-        })?);
+        })
+    }
+
+    pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
+        Ok(bincode::deserialize(
+            &Self::decompress_batch(
+                bytes
+            )?
+        ).map_err(|e| BatcherError::Custom(e.to_string()))?)
+    }
+
+    pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
+        let mut compressor = ZlibEncoder::new(Vec::new(), Compression::best());
+        compressor.write_all(&self.serialize_batch()?).map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+        let compressed = compressor.finish().map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        Ok(compressed)
+    }
+
+    pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
+        let mut decompressor = ZlibDecoder::new(Vec::new());
+        decompressor.write_all(&bytes[..]).map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+        let decompressed = decompressor.finish().map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        Ok(decompressed)
+    }
+
+    pub fn encode_batch(&self) -> Result<String, BatcherError> {
+        let encoded = CUSTOM_ENGINE.encode(self.compress_batch()?);
+
+        Ok(encoded)
+    }
+
+    pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
+        Self::deserialize_batch(
+            CUSTOM_ENGINE.decode(batch)
+                .map_err(|e| BatcherError::Custom(e.to_string()))?
+        )
+    }
+
+    pub(super) fn check_size(&self) -> Result<usize, BatcherError> {
+        let encoded = self.encode_batch()?;
 
         Ok(encoded.as_bytes().len())
     }
@@ -60,8 +121,10 @@ impl Batch {
         transaction: Transaction
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.insert_transaction(transaction)?;
-        test_batch.transactions_at_capacity()
+        let mut id: [u8; 32] = [0; 32];
+        id.copy_from_slice(&transaction.hash());
+        test_batch.transactions.insert(id, transaction.clone());
+        test_batch.at_capacity()
     }
 
     pub(super) fn account_would_exceed_capacity(
@@ -69,16 +132,12 @@ impl Batch {
         account: Account
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.insert_account(account)?;
-        test_batch.accounts_at_capacity()
+        test_batch.accounts.insert(account.address().into(), account);
+        test_batch.at_capacity()
     }
 
-    pub(super) fn transactions_at_capacity(&self) -> Result<bool, BatcherError> {
-        Ok(self.check_transaction_size()? >= 512 * 1024)
-    }
-
-    pub(super) fn accounts_at_capacity(&self) -> Result<bool, BatcherError> {
-        Ok(self.check_account_size()? >= 512 * 1024)
+    pub(super) fn at_capacity(&self) -> Result<bool, BatcherError> {
+        Ok(self.check_size()? >= 512 * 1024)
     }
 
     pub fn insert_transaction(&mut self, transaction: Transaction) -> Result<(), BatcherError> {
@@ -97,7 +156,7 @@ impl Batch {
     }
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
-        if !self.account_would_exceed_capacity(account.clone())? {
+        if !self.clone().account_would_exceed_capacity(account.clone())? {
             let mut id: [u8; 20] = account.address().into();
             self.accounts.insert(id, account.clone());
             return Ok(())
@@ -122,105 +181,171 @@ impl Batch {
 #[derive(Builder, Clone, Debug)]
 pub struct Batcher {
     parent: Batch,
-    children: VecDeque<Batch>
+    children: VecDeque<Batch>,
+    cache: HashMap<String /* RequestId*/, Batch>,
 }
 
 impl Batcher {
     pub fn new() -> Self {
        Self {
            parent: Batch::new(),
-           children: VecDeque::new()
+           children: VecDeque::new(),
+           cache: HashMap::new()
        }
     } 
 
-    pub(super) async fn cache_account(&self, account: Account) -> Result<(), Box<dyn std::error::Error>> {
+    pub(super) async fn cache_account(
+        &self,
+        account: Account
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let account_cache: ActorRef<AccountCacheMessage> = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire account cache actor".to_string()))
+        )?.into();
+
+        let message = AccountCacheMessage::Write { account: account.clone() };
+        account_cache.cast(message)?;
+
         Ok(())
     }
 
-    pub(super) async fn add_transaction_to_batch(&mut self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        let mut new_batch = Batch::new();
+    pub(super) async fn add_transaction_to_batch(
+        &mut self,
+        transaction: Transaction
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut res = self.parent.insert_transaction(transaction.clone());
-        let mut iter = self.children.iter_mut();
-        while let Err(_) = res {
-            if let Some(mut child) = iter.next() {
-                res = child.insert_transaction(transaction.clone());
-            } else {
-                new_batch.insert_transaction(transaction.clone());
-            }
-        }
-
-        if new_batch.transactions().len() > 0 {
-            self.children.push_back(new_batch)
+        if let Err(e) = res {
+            log::info!("{e}");
         }
 
         Ok(())
     }
 
-    pub(super) async fn add_account_to_batch(&mut self, account: Account) -> Result<(), Box<dyn std::error::Error>> {
+    pub(super) async fn add_account_to_batch(
+        &mut self,
+        account: Account
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.cache_account(account.clone()).await?;
-        let mut new_batch = Batch::new();
+        let mut new_batch = false; 
         let mut res = self.parent.insert_account(account.clone());
         let mut iter = self.children.iter_mut();
-        while let Err(_) = res {
+        while let Err(ref mut e) = res {
+            log::error!("{e}");
             if let Some(mut child) = iter.next() {
-                res = child.insert_account(account.clone())
+                res = child.insert_account(account.clone());
             } else {
-                new_batch.insert_account(account.clone());
+                new_batch = true;
             }
         }
-        if new_batch.accounts().len() > 0 {
-            self.children.push_back(new_batch);
+        
+        if new_batch {
+            let mut batch = Batch::new();
+            batch.insert_account(account.clone());
+            self.children.push_back(batch);
         }
 
         Ok(())
     }
 
-    pub(super) async fn add_transaction_to_account(&mut self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    pub(super) async fn add_transaction_to_account(
+        &mut self,
+        transaction: Transaction
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut from_account = get_account(transaction.from()).await;
-        let from_account = if let Some(mut account) = from_account {
-            let _ = account.apply_transaction(transaction.clone());
-            account
+        let (from_account, token) = if let Some(mut account) = from_account {
+            let token = account.apply_transaction(transaction.clone()).map_err(|e| e as Box<dyn std::error::Error>)?;
+            (account, token)
         } else {
             if !transaction.transaction_type().is_bridge_in() {
                 return Err(Box::new(BatcherError::Custom("sender account does not exist".to_string())))
             }
 
+            log::info!("transaction is first for account {:x} bridge_in, building account", transaction.from());
             let mut account = AccountBuilder::default()
                 .address(transaction.from())
                 .programs(BTreeMap::new())
                 .nonce(0.into())
                 .build()?;
+            let token = account.apply_transaction(
+                transaction.clone()
+            ).map_err(|e| e as Box<dyn std::error::Error>)?;
 
-            let _ = account.apply_transaction(transaction.clone());
-            account
+            (account, token)
+        };
+        
+        log::info!(
+            "applied transaction {} to account {:x}, informing scheduler",
+            transaction.clone().hash_string(),
+            from_account.address()
+        );
+
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
+            ActorType::Scheduler.to_string()
+        ).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
+        )?.into();
+            
+
+        let message = SchedulerMessage::TransactionApplied { 
+            transaction_hash: transaction.clone().hash_string(),
+            token: token.clone()
         };
 
-        let mut to_account = get_account(transaction.to()).await;
-        let to_account = if let Some(mut account) = to_account {
-            let mut account = AccountBuilder::default()
-                .address(transaction.to())
-                .programs(BTreeMap::new())
-                .nonce(0.into())
-                .build()?;
+        scheduler.cast(message)?;
 
-            let _ = account.apply_transaction(transaction.clone());
-            account
-        } else {
-            let mut account = AccountBuilder::default()
-                .address(transaction.from())
-                .programs(BTreeMap::new())
-                .nonce(0.into())
-                .build()?;
-
-            let _ = account.apply_transaction(transaction.clone());
-            account
-        };
-
+        log::info!("adding account to batch");
         self.add_account_to_batch(from_account).await?;
-        self.add_account_to_batch(to_account).await?;
+
+        if transaction.to() != transaction.from() {
+            let mut to_account = get_account(transaction.to()).await;
+            let to_account = if let Some(mut account) = to_account {
+                let _ = account.apply_transaction(transaction.clone());
+                account
+            } else {
+                log::info!("first transaction send to account {:x} building account", transaction.to());
+                let mut account = AccountBuilder::default()
+                    .address(transaction.to())
+                    .programs(BTreeMap::new())
+                    .nonce(0.into())
+                    .build()?;
+
+                log::info!("applying transaction to `to` account");
+                let _ = account.apply_transaction(transaction.clone());
+                account
+            };
+            log::info!("adding account to batch");
+            self.add_account_to_batch(to_account).await?;
+        }
+
+        log::info!("adding transaction to batch");
         self.add_transaction_to_batch(transaction).await?;
 
         Ok(())
+    }
+
+    async fn handle_next_batch_request(&mut self) -> Result<(), BatcherError> {
+        let da_client: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
+            BatcherError::Custom("unable to acquire DA client".to_string())
+        )?.into();
+
+        let (tx, rx) = oneshot();
+        let message = DaClientMessage::StoreBatch { batch: self.parent.encode_batch()?, tx };
+        da_client.cast(message).map_err(|e| BatcherError::Custom(e.to_string()))?;
+        let handler = |resp: BlobResponse| {
+            Ok(resp)
+        };
+
+        let blob_response = handle_actor_response(rx, handler).await.map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+        let parent = self.parent.clone();
+        self.cache.insert(blob_response.request_id(), parent);
+
+        if let Some(child) = self.children.pop_front() {
+            self.parent = child;
+            return Ok(())
+        } 
+
+        self.parent = Batch::new();
+        return Ok(())
     }
 }
 
@@ -248,9 +373,51 @@ impl Actor for BatcherActor {
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _message: Self::Msg,
-        _state: &mut Self::State,
+        message: Self::Msg,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        match message {
+            BatcherMessage::GetNextBatch => {
+                log::info!("sending batch to DA Client");
+                let res = state.handle_next_batch_request().await;
+                if let Err(e) = res {
+                    log::error!("{e}");
+                }
+            }
+            BatcherMessage::AppendTransaction(transaction) => {
+                log::info!("appending transaction to batch");
+                let res = state.add_transaction_to_account(transaction).await;
+                if let Err(e) = res {
+                    log::error!("{e}");
+                }
+            }
+        }
         Ok(())
     }
+}
+
+pub async fn batch_requestor(mut stopper: tokio::sync::mpsc::Receiver<()>) -> Result<(), Box<dyn std::error::Error + Send>> {
+    let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
+        ActorType::Batcher.to_string()
+    ).unwrap().into(); 
+
+    loop {
+        log::warn!("Sleeping for 180 seconds before requesting next batch");
+        tokio::time::sleep(tokio::time::Duration::from_secs(BATCH_INTERVAL)).await;
+        let message = BatcherMessage::GetNextBatch;
+        log::warn!("Requesting next batch");
+        batcher.cast(message).map_err(|e| {
+            Box::new(
+                BatcherError::Custom(
+                    e.to_string()
+                )
+            ) as Box<dyn std::error::Error + Send>
+        })?;
+
+        if let Some(_) = &stopper.recv().await {
+            break
+        }
+    }
+
+    Ok(())
 }

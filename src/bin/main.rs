@@ -1,3 +1,4 @@
+#![allow(unreachable_code)]
 use std::collections::BTreeSet;
 
 use eo_listener::EoServerError;
@@ -14,6 +15,7 @@ use lasr::TaskScheduler;
 use lasr::Engine;
 use lasr::Validator;
 use lasr::EoServer;
+use lasr::BatcherActor;
 use eo_listener::EoServer as EoListener;
 use lasr::DaClient;
 use lasr::rpc::LasrRpcServer;
@@ -55,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_client_actor = DaClient::new(eigen_da_client);
+    let batcher = BatcherActor;
     let inner_eo_server = setup_eo_server(web3_instance.clone()).map_err(|e| {
         Box::new(e)
     })?;
@@ -107,6 +110,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ()
     ).await.map_err(|e| Box::new(e))?;
 
+    let(_batcher_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Batcher.to_string()), 
+        batcher, 
+        ()
+    ).await.map_err(|e| Box::new(e))?;
+
     let (_account_cache_actor_ref, _) = Actor::spawn(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
@@ -127,13 +136,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(e)
     })?;
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
+
+    let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
     
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
+    tokio::spawn(lasr::batch_requestor(stop_rx));
 
     loop {}
 
-    #[allow(unreachable_code)]
+    _stop_tx.send(()).await?;
+
     Ok(())
 }
 

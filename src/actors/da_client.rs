@@ -1,11 +1,11 @@
 use std::{fmt::Display, time::Duration};
 
 use async_trait::async_trait;
-use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::BlobVerificationProof, status::{BlobStatus, BlobResult}, blob::{DecodedBlob, EncodedBlob}};
+use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::BlobVerificationProof, status::{BlobStatus, BlobResult}};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender};
 use thiserror::Error;
 use tokio::task::JoinHandle;
-use crate::{Account, Address};
+use crate::{Address, Batch};
 use crate::DaClientMessage;
 
 
@@ -42,25 +42,9 @@ impl DaClient {
         }
     }
 
-    async fn disperse_blobs(&self, accounts: Vec<Account>) -> Vec<(Address, BlobResponse)> {
-        let mut responses = Vec::new();
-        for account in accounts {
-            match bincode::serialize(&account) {
-                Ok(bytes) => {
-                    log::info!("serialized account is {} bytes", bytes.len());
-                    match self.client.disperse_blob(bytes, &0) {
-                        Ok(resp) => { 
-                            responses.push((account.address(), resp));
-                        }
-                        Err(e) => log::error!("failed to disperse blob: {}", e)
-                    }
-                }
-                Err(e) => {
-                    log::error!("failed to serialize account: {}", e);
-                }
-            }
-        }
-        responses
+    async fn disperse_blobs(&self, batch: String) -> Result<BlobResponse, std::io::Error> {
+        let response = self.client.disperse_blob(batch, &0)?;
+        Ok(response)
     }
 
 }
@@ -88,30 +72,34 @@ impl Actor for DaClient {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             // Optimistically and naively store account blobs
-            DaClientMessage::StoreAccountBlobs { accounts } => {
-                let _blob_responses = self.disperse_blobs(accounts).await;
+            DaClientMessage::StoreBatch { batch, tx } => {
+                let blob_response = self.disperse_blobs(batch).await;
+                if let Ok(response) = blob_response {
+                    let _ = tx.send(response);
+                } else {
+                    log::error!("{:?}", blob_response);
+                }
                 // for response in blob_responses {
                     // self.blob_cache_writer.send(response).await?;
                 // }
                 // Need to send blob responses somewhere to be stored,
                 // and checked for dispersal.
             },
-            DaClientMessage::StoreContractBlobs { .. /*contracts*/ } => {},
-            DaClientMessage::StoreTransactionBlob => {}, 
             DaClientMessage::ValidateBlob { request_id, address, tx } => {
                 let _ = validate_blob(self.client.clone(), request_id, address, tx).await;
                 // Spawn a tokio task to poll EigenDa for the validated blob
             },
             // Optimistically and naively retreive account blobs
-            DaClientMessage::RetrieveBlob { batch_header_hash, blob_index, tx } => {
+            DaClientMessage::RetrieveAccount { address, batch_header_hash, blob_index, tx } => {
                 let blob = self.client.retrieve_blob(&batch_header_hash.to_string().into(), blob_index)?;
-                let encoded_blob = EncodedBlob::from_str(&blob)?;
-                let decoded = DecodedBlob::from_encoded(encoded_blob)?;
-                let account: Account = bincode::deserialize(&decoded.data())?;
-                let _ = tx.send(Some(account)).map_err(|e| Box::new(
+                let batch: Batch = Batch::decode_batch(&blob)?;
+                let account = batch.get_account(address);
+                let _ = tx.send(account.clone()).map_err(|e| Box::new(
                         DaClientError::Custom(format!("{:?}", e))))?;
-                //log::info!("successfully decoded account blob: {:?}", account);
+                log::info!("successfully decoded account blob: {:?}", account);
             },
+            DaClientMessage::RetrieveTransaction { .. } => {},
+            DaClientMessage::RetrieveContract { .. } => {},
             _ => {}
         } 
         return Ok(())

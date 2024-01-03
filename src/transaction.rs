@@ -1,7 +1,7 @@
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};
-use crate::{TokenType, Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
+use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
 use std::fmt::{LowerHex, Display};
@@ -80,7 +80,7 @@ impl ToString for TransactionType {
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Payload {
     transaction_type: TransactionType,
-    token_type: TokenType,
+//    token_type: TokenType,
     from: [u8; 20],
     to: [u8; 20],
     program_id: [u8; 20],
@@ -94,9 +94,9 @@ impl Payload {
         self.transaction_type.clone()
     }
 
-    pub fn token_type(&self) -> TokenType {
-        self.token_type.clone()
-    }
+//    pub fn token_type(&self) -> TokenType {
+//        self.token_type.clone()
+//    }
 
     pub fn from(&self) -> [u8; 20] {
         self.from

@@ -1,24 +1,56 @@
 #![allow(unused)]
 use std::str::FromStr;
 
-use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser};
+use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}};
 
+use hex::ToHex;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
-use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient};
+use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
-use ethereum_types::Address as EthereumAddress;
+use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
 use std::io::Read;
 
 #[derive(Clone, Debug, ValueEnum)]
 enum Unit {
-    Echo = 1,
-    Beat = 1_000,
-    Note = 1_000_000,
-    Chord = 1_000_000_000,
-    Harmony = 1_000_000_000_000,
-    Melody = 1_000_000_000_000_000,
-    Verse = 1_000_000_000_000_000_000,
+    Echo, 
+    Beat,
+    Note,
+    Chord,
+    Harmony,
+    Melody,
+    Verse,
+}
+
+#[derive(Clone, Debug)]
+struct U256Wrapper(pub U256);
+
+impl FromStr for U256Wrapper {
+    type Err = uint::FromDecStrErr;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(U256Wrapper(
+            U256::from_dec_str(s)?
+        ))
+    }
+}
+
+impl std::ops::Mul<&Unit> for U256 {
+    type Output = U256;
+    fn mul(self, rhs: &Unit) -> Self::Output {
+        match rhs {
+            Unit::Echo => return self * U256::from(1 as u128),
+            Unit::Beat => self * U256::from(1_000 as u128),
+            Unit::Note => self * U256::from(1_000_000 as u128),
+            Unit::Chord => self * U256::from(1_000_000_000 as u128),
+            Unit::Harmony => self * U256::from(1_000_000_000_000 as u128),
+            Unit::Melody => self * U256::from(1_000_000_000_000_000 as u128),
+            Unit::Verse => self * U256::from(1_000_000_000_000_000_000 as u128)
+        }
+    }
+}
+
+fn parse_u256(s: &str) -> Result<U256, String> {
+    U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e))
 }
 
 #[derive(Debug, Subcommand)]
@@ -186,6 +218,8 @@ fn receiver_arg() -> Arg {
         .alias("receiver")
         .help("The receiver of the tokens being sent, should be a 40 character hexidecimal string, representing a 20 byte address")
         .required(true)
+        .value_name("Address")
+        .value_parser(value_parser!(Address))
 }
 
 fn program_id_arg() -> Arg {
@@ -196,6 +230,8 @@ fn program_id_arg() -> Arg {
         .help("A hexidecimal string representing the program id of the token that is being sent, defaults to 0 for native ETH tokens and 1 for native Verse tokens")
         .default_value("0")
         .default_missing_value("0")
+        .value_name("Address")
+        .value_parser(value_parser!(Address))
 }
 
 fn value_arg() -> Arg {
@@ -204,6 +240,8 @@ fn value_arg() -> Arg {
         .long("value")
         .aliases(["amount", "a", "amt", "nft-id"])
         .required(true)
+        .value_name("U256")
+        .value_parser(value_parser!(U256Wrapper))
         .help("the amount of the token to send")
 }
 
@@ -293,7 +331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let from_mnemonic = children.get_flag("from-mnemonic");
                     let from_secret_key = children.get_flag("from-secret-key");
                     
-                    let wallet = {
+                    let mut wallet = {
                         let (secret_key, public_key) = {
                             if from_file {
                                 let keypair_file = children.get_one::<String>("path").expect("required if from-file flag");
@@ -320,33 +358,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let pubkey = master.public_key(&secp);
                                 let address: Address = pubkey.into();
                                 let eaddr: EthereumAddress = address.into();
-                                dbg!(sk, eaddr);
+                                println!("************************************************************");
+                                println!("****************  DO NOT SHARE SECRET KEY  *****************");
+                                println!("************************************************************\n");
+                                println!("************************************************************");
+                                println!("******************     SECRET KEY        *******************\n");
+                                println!("{}\n", &sk);
+                                println!("************************************************************\n");
+                                println!("************************************************************");
+                                println!("******************       ADDRESS         *******************");
+                                println!("*******  0x{}  *******", &address.encode_hex::<String>());
+                                println!("************************************************************\n");
                                 (master, pubkey)
                             } 
                         };
 
                         let address: Address = public_key.into();
                         let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
-                        let account = client.get_account(format!("{:x}", address)).await?;
+                        let account: Account = bincode::deserialize(
+                            &client.get_account(format!("{:x}", address)).await?
+                        )?;
 
-                        let wallet_builder = WalletBuilder::default()
+                        WalletBuilder::default()
                             .sk(secret_key)
-                            .client(client)
-                            .address(address)
+                            .client(client.clone())
+                            .address(address.clone())
                             .builder(PayloadBuilder::default())
                             .account(account)
-                            .build();
-                    };
+                            .build()
+                    }?;
 
-                    let to = children.get_one::<String>("to").expect("required");
-                    let pid = children.get_one::<String>("program-id").expect("required");
-                    let value = children.get_one::<String>("value").expect("required");
+                    let address = wallet.address();
+
+                    wallet.get_account(&address).await;
+
+                    let to = children.get_one::<Address>("to").expect("required");
+                    let pid = children.get_one::<Address>("program-id").expect("required");
+                    let value = children.get_one::<U256Wrapper>("value").expect("required");
                     let unit = children.get_one::<Unit>("unit").expect("required");
 
-                    dbg!(to);
-                    dbg!(pid);
-                    dbg!(value);
-                    dbg!(unit);
+                    let amount = value.0 * unit; 
+
+                    let token = wallet.send(to, pid, amount).await;
+
+
                 }
                 _ => {}
 
