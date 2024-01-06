@@ -1,12 +1,12 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex}, ops::{AddAssign, SubAssign}, str::FromStr};
+use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
-use hex::FromHexError;
+use hex::{FromHexError, ToHex};
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 /// Represents a 20-byte Ethereum Compatible address.
@@ -18,20 +18,44 @@ pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
+impl Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hex_str: String = self.encode_hex();
+        write!(f, "0x{}...{}", &hex_str[0..4], &hex_str[hex_str.len() - 4..])
+    }
+}
+
 impl From<[u8; 20]> for Address {
     fn from(value: [u8; 20]) -> Self {
         Address(value)
     }
 }
 
+impl From<&[u8; 20]> for Address {
+    fn from(value: &[u8; 20]) -> Self {
+        Address(*value)
+    }
+}
+
+
 impl FromStr for Address {
     type Err = FromHexError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let hex_str = if s.starts_with("0x") {
+        let mut hex_str = if s.starts_with("0x") {
             &s[2..]
         } else {
             s
         };
+
+        if hex_str == "0" {
+            return Ok(Address::new([0u8; 20]))
+        }
+
+        if hex_str == "1" {
+            let mut inner: [u8; 20] = [0; 20];
+            inner[19] = 1;
+            return Ok(Address::new(inner))
+        }
 
         let decoded = hex::decode(hex_str)?;
         if decoded.len() != 20 {
@@ -53,6 +77,12 @@ impl AsRef<[u8]> for Address {
 impl From<Address> for [u8; 20] {
     fn from(value: Address) -> Self {
         value.0
+    }
+}
+
+impl From<&Address> for [u8; 20] {
+    fn from(value: &Address) -> Self {
+        value.0.to_owned()
     }
 }
 
@@ -121,6 +151,12 @@ impl From<PublicKey> for Address {
     }
 }
 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct AccountNonce {
+    bridge_nonce: U256,
+    send_nonce: U256,
+}
+
 /// Represents an LASR account.
 ///
 /// This structure contains details of an LASR account, including its address, associated
@@ -178,16 +214,32 @@ impl Account {
     pub(crate) fn apply_transaction(
         &mut self,
         transaction: Transaction
-    ) -> AccountResult<()> {
+    ) -> AccountResult<Token> {
         if let Some(mut token) = self.programs_mut().get_mut(&transaction.program_id()) {
             let new_token: Token = (token.clone(), transaction).try_into()?;
             *token = new_token;
-        } else if transaction.transaction_type().is_bridge_in() {
+            return Ok(token.clone())
+        }
+        
+        if transaction.transaction_type().is_bridge_in() {
             let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token);
+            self.insert_program(&token.program_id(), token.clone());
+            return Ok(token)
+        } 
+
+        if transaction.to() == self.address() {
+            let token: Token = transaction.into();
+            self.insert_program(&token.program_id(), token.clone());
+            return Ok(token) 
         }
 
-        Ok(())
+        return Err(
+            Box::new(
+                ToTokenError::Custom(
+                    "unable to convert transaction into token".to_string()
+                )
+            )
+        )
     }
 
     pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {

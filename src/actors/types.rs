@@ -18,7 +18,8 @@ pub enum ActorType {
     AccountCache,
     BlobCache,
     PendingTransactions,
-    EoClient
+    EoClient,
+    Batcher,
 }
 
 impl ToString for ActorType {
@@ -34,7 +35,8 @@ impl ToString for ActorType {
             ActorType::AccountCache => "account_cache".to_string(),
             ActorType::BlobCache => "blob_cache".to_string(),
             ActorType::PendingTransactions => "pending_transactions".to_string(),
-            ActorType::EoClient => "eo_client".to_string()
+            ActorType::EoClient => "eo_client".to_string(),
+            ActorType::Batcher => "batcher".to_string()
         }
     }
 }

@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, Token, actors::handle_actor_response, create_handler, Transaction, Account, Address
+    rpc::LasrRpcServer, Token, actors::handle_actor_response, create_handler, Transaction, Address
 };
 use jsonrpsee::core::Error as RpcError;
 use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
@@ -131,7 +131,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
-        println!("Received RPC `call` method");
+        log::info!("Received RPC `call` method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
         self.send_rpc_call_method_to_self(
@@ -159,8 +159,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn send(
         &self,
         transaction: Transaction
-    ) -> Result<Token, jsonrpsee::core::Error> {
-        println!("Received RPC send method");
+    ) -> Result<Vec<u8>, jsonrpsee::core::Error> {
+        log::info!("Received RPC send method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
 
@@ -177,8 +177,20 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }) {
             Ok(resp) => {
                 match resp {
-                    TransactionResponse::SendResponse(token) => return Ok(token),
-                    _ => return Err(jsonrpsee::core::Error::Custom("invalid response to `send` methond".to_string()))
+                    TransactionResponse::SendResponse(token) => {
+                        return Ok(
+                            bincode::serialize(&token).map_err(|e| {
+                                jsonrpsee::core::Error::Custom(e.to_string())
+                            })?,
+                        )
+                    },
+                    _ => {
+                        return Err(
+                            jsonrpsee::core::Error::Custom(
+                                "invalid response to `send` method".to_string()
+                            )
+                        )
+                    }
                 }
             }
             Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string()))
@@ -189,7 +201,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         &self,
         transaction: Transaction
     ) -> Result<(), jsonrpsee::core::Error> {
-        println!("Received RPC deploy method"); 
+        log::info!("Received RPC deploy method"); 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
 
@@ -210,8 +222,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn get_account(
         &self,
         address: String
-    ) -> Result<Account, jsonrpsee::core::Error> {
-        println!("Received RPC getAccount method");
+    ) -> Result<Vec<u8>, jsonrpsee::core::Error> {
+        log::info!("Received RPC getAccount method");
 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
@@ -230,7 +242,10 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }) {
             Ok(resp) => {
                 match resp {
-                    TransactionResponse::GetAccountResponse(account) => return Ok(account),
+                    TransactionResponse::GetAccountResponse(account) => {
+                        log::info!("received account response");
+                        return Ok(bincode::serialize(&account).map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))?)
+                    },
                     _ => return Err(jsonrpsee::core::Error::Custom("invalid response to `getAccount` methond".to_string()))
                 }
             }
@@ -250,7 +265,7 @@ impl LasrRpcServerImpl {
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
-        println!("Sending RPC call method to proxy actor");
+        log::info!("Sending RPC call method to proxy actor");
         self.proxy
             .cast(
                 RpcMessage::Request {
@@ -343,7 +358,7 @@ impl Actor for LasrRpcServerActor {
         message: Self::Msg,
         _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        println!("RPC Actor Received RPC Message");
+        log::info!("RPC Actor Received RPC Message");
         match message {
             RpcMessage::Request {
                 method, reply 

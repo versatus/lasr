@@ -3,7 +3,15 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use ractor::{ActorRef, Actor, ActorProcessingErr};
 use thiserror::Error;
-use crate::{Account, Transaction, TransactionType, check_account_cache, check_da_for_account, ActorType, PendingTransactionMessage};
+use crate::{
+    Account, 
+    Transaction, 
+    TransactionType, 
+    check_account_cache, 
+    check_da_for_account, 
+    ActorType, 
+    PendingTransactionMessage
+};
 
 use super::messages::ValidatorMessage;
 
@@ -35,7 +43,7 @@ impl ValidatorCore {
                     ) as Box<dyn std::error::Error + Send>
                 )
             }
-            let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            let pending_tx: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
                 ActorType::PendingTransactions.to_string()
             ).ok_or(
                 Box::new(
@@ -45,7 +53,7 @@ impl ValidatorCore {
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
             let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
-            actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            pending_tx.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
         }
     }
@@ -65,6 +73,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+            log::info!("transaction {} is valid, responding", tx.hash_string());
             let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
             actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())

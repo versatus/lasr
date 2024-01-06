@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use crate::{Account, ContractBlob, Certificate, Transaction};
 use crate::actors::types::RpcRequestMethod;
@@ -6,6 +6,7 @@ use crate::{Token, Address};
 
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
+use eigenda_client::response::BlobResponse;
 use eo_listener::EventType;
 use ethereum_types::{U256, H256};
 use ractor::concurrency::OneshotSender;
@@ -149,6 +150,10 @@ pub enum SchedulerMessage {
     GetAccount {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>
+    },
+    TransactionApplied {
+        transaction_hash: String,
+        token: Token
     }
 }
 
@@ -263,9 +268,9 @@ pub enum EngineMessage {
 #[derive(Builder, Clone, Debug)]
 #[allow(unused)]
 pub struct SettlementEvent {
-    user: EthereumAddress,
+    accounts: Vec<web3::ethabi::Token>,
     batch_header_hash: FixedBytes,
-    blob_index: String,
+    blob_index: U256,
     settlement_event_id: U256,
 }
 
@@ -397,7 +402,7 @@ pub enum EoMessage {
         content: Option<[u8; 32]> 
     },
     Settle {
-        address: Address,
+        accounts: HashSet<Address>,
         batch_header_hash: H256,
         blob_index: u128
     },
@@ -469,22 +474,32 @@ pub enum EoMessage {
 ///
 #[derive(Debug, RactorMessage)]
 pub enum DaClientMessage {
-    StoreAccountBlobs {
-        accounts: Vec<Account> 
-    },
-    StoreContractBlobs {
-        contracts: Vec<ContractBlob>
+    StoreBatch {
+        batch: String,
+        tx: OneshotSender<Result<BlobResponse, std::io::Error>>,
     },
     StoreTransactionBlob, 
     ValidateBlob {
         request_id: String,
-        address: Address, 
-        tx: OneshotSender<(Address, BlobVerificationProof)>
+        tx: OneshotSender<(String/*request_id*/, BlobVerificationProof)>
     },
-    RetrieveBlob {
+    RetrieveAccount {
+        address: Address,
         batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
+    },
+    RetrieveTransaction {
+        transaction_hash: [u8; 32],
+        batch_header_hash: H256,
+        blob_index: u128,
+        tx: OneshotSender<Option<Transaction>>,
+    },
+    RetrieveContract {
+        address: Address,
+        batch_header_hash: H256,
+        blob_index: u128,
+        tx: OneshotSender<Option<ContractBlob>>,
     },
     EoEvent {
         event: EoEvent
@@ -503,7 +518,11 @@ pub enum AccountCacheMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum BlobCacheMessage {
-    Cache,
+    Cache { 
+        blob_response: BlobResponse,
+        accounts: HashSet<Address>,
+        transactions: HashSet<Transaction>,
+    },
     Get,
     Remove
 }
@@ -530,5 +549,6 @@ pub enum PendingTransactionMessage {
 #[derive(Debug, RactorMessage)]
 pub enum BatcherMessage {
     AppendTransaction(Transaction),
-    GetNextBatch
+    GetNextBatch,
+    BlobVerificationProof { request_id: String, proof: BlobVerificationProof }
 }

@@ -34,28 +34,29 @@ impl EoServerWrapper {
     }
 
     pub async fn run(mut self) -> Result<(), EoServerError> {
-        let eo_actor: ActorCell = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
+        let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
             EoServerError::Custom(
                 "unable to acquire eo_actor".to_string()
             )
-        )?;
+        )?.into();
+
+        if let Err(e) = self.server.load_processed_blocks().await {
+            log::error!("unable to load processed blocks from file: {}", e);
+        }
 
         loop {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
                 if log.len() > 0 {
-                    let actor: ActorRef<EoMessage> = ractor::registry::where_is(
-                        ActorType::EoServer.to_string()
-                    ).ok_or(
-                        EoServerError::Custom("unable to acquire EO Server Actor".to_string())
-                    )?.into();
-                    actor.cast(
+                    eo_actor.cast(
                         EoMessage::Log { 
                             log_type: logs.event_type, 
                             log: log.to_vec() 
                     }).map_err(|e| {
                         EoServerError::Custom(e.to_string())
                     })?;
+
+                    self.server.save_blocks_processed();
                 } 
             } 
 
@@ -169,8 +170,8 @@ impl EoServer {
             for param in log.params {
                 match &param.name[..] {
                     "user" => {
-                        settlement_event.user(
-                            param.value.clone().into_address().ok_or(
+                        settlement_event.accounts(
+                            param.value.clone().into_array().ok_or(
                                 self.boxed_custom_eo_error(&param)
                             )?
                         );
@@ -184,7 +185,14 @@ impl EoServer {
                     },
                     "blobIndex" => {
                         settlement_event.blob_index(
-                            param.value.clone().into_string().ok_or(
+                            param.value.clone().into_uint().ok_or(
+                                self.boxed_custom_eo_error(&param)
+                            )?
+                        );
+                    },
+                    "blobEventId" => {
+                        settlement_event.settlement_event_id(
+                            param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
                             )?
                         );
@@ -232,22 +240,32 @@ impl Actor for EoServer {
             EoMessage::Log { log, log_type } => {
                 match log_type {
                     EventType::Bridge(_) => {
-                        self.handle_eo_event(
+                        let res = self.handle_eo_event(
                             self.parse_bridge_log(log)?.into()
-                        ).await?;
+                        ).await;
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {}", e);
+                        } else {
+                            log::info!("{:?}", res);
+                        }
                     },
                     EventType::Settlement(_) => {
-                        self.handle_eo_event(
+                        log::warn!("eo_server discovered Settlement event");
+                        let res = self.handle_eo_event(
                             self.parse_settlement_log(log)?.into()
-                        ).await?;
+                        ).await;
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {}", e);
+                        } else {
+                            log::info!("{:?}", res);
+                        }
                     }
                 }
             },
             EoMessage::Bridge { program_id, address, amount, content } => {
                 log::info!("Eo Server ready to bridge assets to EO contract");
-            },
-            EoMessage::Settle { address, batch_header_hash, blob_index } => {
-                log::info!("Eo server ready to settle blob index to EO contract");
             },
             _ => { log::info!("Eo Server received unhandled message"); }
         }

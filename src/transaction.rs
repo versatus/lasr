@@ -1,7 +1,7 @@
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};
-use crate::{TokenType, Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
+use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
 use std::fmt::{LowerHex, Display};
@@ -80,7 +80,7 @@ impl ToString for TransactionType {
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Payload {
     transaction_type: TransactionType,
-    token_type: TokenType,
+//    token_type: TokenType,
     from: [u8; 20],
     to: [u8; 20],
     program_id: [u8; 20],
@@ -94,9 +94,9 @@ impl Payload {
         self.transaction_type.clone()
     }
 
-    pub fn token_type(&self) -> TokenType {
-        self.token_type.clone()
-    }
+//    pub fn token_type(&self) -> TokenType {
+//        self.token_type.clone()
+//    }
 
     pub fn from(&self) -> [u8; 20] {
         self.from
@@ -311,6 +311,23 @@ impl TryFrom<(Token, Transaction)> for Token {
     type Error = Box<dyn std::error::Error + Send>;
     fn try_from(value: (Token, Transaction)) -> Result<Self, Self::Error> {
         if value.1.from() == value.0.owner_id() {
+            if value.1.transaction_type().is_bridge_in() {
+                return Ok(TokenBuilder::default()
+                    .program_id(value.0.program_id())
+                    .owner_id(value.0.owner_id())
+                    .balance(value.0.balance() + value.1.value())
+                    .metadata(value.0.metadata())
+                    .token_ids(value.0.token_ids())
+                    .allowance(value.0.allowance())
+                    .approvals(value.0.approvals())
+                    .data(value.0.data())
+                    .status(value.0.status())
+                    .build()
+                    .map_err(|e| {
+                        Box::new(e) as Box<dyn std::error::Error + Send>
+                    })?
+                )
+            }
             return Ok(TokenBuilder::default()
                 .program_id(value.0.program_id())
                 .owner_id(value.0.owner_id())

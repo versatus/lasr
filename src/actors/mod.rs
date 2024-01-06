@@ -272,7 +272,8 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
         ActorType::DaClient.to_string()
     )?.into();
 
-    let message = DaClientMessage::RetrieveBlob { 
+    let message = DaClientMessage::RetrieveAccount { 
+        address,
         batch_header_hash: blob_index.1.into(), 
         blob_index: blob_index.2, 
         tx 

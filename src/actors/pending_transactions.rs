@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use crate::{Address, PendingTransactionMessage, Transaction, ActorType, ValidatorMessage};
+use crate::{Address, PendingTransactionMessage, Transaction, ActorType, ValidatorMessage, BatcherMessage};
 use async_trait::async_trait;
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use std::fmt::Display;
@@ -167,6 +167,20 @@ impl PendingTransactions {
             log::info!("no more transactions for user removing address");
             self.pending.remove(&transaction.from());
         }
+
+        self.send_to_batcher(transaction).await?;
+
+        Ok(())
+    }
+
+    async fn send_to_batcher(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
+            Box::new(PendingTransactionError)
+        )?.into();
+
+        let message = BatcherMessage::AppendTransaction(transaction);
+
+        batcher.cast(message)?;
 
         Ok(())
     }

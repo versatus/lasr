@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use ractor::{concurrency::{OneshotReceiver, oneshot}, ActorProcessingErr};
-use crate::{Address, DaClientMessage, BlobCacheMessage, ActorType};
+use crate::{Address, DaClientMessage, BlobCacheMessage, ActorType, Transaction};
 use eigenda_client::response::BlobResponse;
 use eigenda_client::proof::BlobVerificationProof;
 use thiserror::Error;
@@ -14,8 +14,8 @@ use ractor::Actor;
 pub struct PendingBlobCache {
     //TODO(asmith) create an ergonimical RequestId struct for EigenDa 
     //Blob responses
-    queue: HashMap<Address, BlobResponse>,
-    receivers: FuturesUnordered<OneshotReceiver<(Address, BlobVerificationProof)>>,
+    queue: HashMap<String/*request_id*/, (HashSet<Address>, HashSet<Transaction>)>,
+    receivers: FuturesUnordered<OneshotReceiver<(String/*request_id*/, BlobVerificationProof)>>,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -38,23 +38,24 @@ impl PendingBlobCache {
     #[allow(unused)]
     fn handle_queue_removal(
         &mut self, 
-        address: Address, 
+        response: BlobResponse,
         proof: BlobVerificationProof
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.queue.remove(&address);
+        self.queue.remove(&response.request_id());
         Ok(())
     }
 
     #[allow(unused)]
     fn handle_queue_write(
         &mut self,
-        address: Address, 
-        response: BlobResponse
+        response: BlobResponse,
+        accounts: HashSet<Address>,
+        transactions: HashSet<Transaction>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(entry) = self.queue.get_mut(&address) {
-            *entry = response.clone();
+        if let Some(entry) = self.queue.get_mut(&response.request_id()) {
+            *entry = (accounts, transactions);
         } else {
-            self.queue.insert(address.clone(), response.clone());
+            self.queue.insert(response.request_id(), (accounts, transactions));
         }
         let (tx, rx) = oneshot();
         self.receivers.push(rx);
@@ -64,7 +65,6 @@ impl PendingBlobCache {
         let _ = da_actor.cast(
             DaClientMessage::ValidateBlob { 
                 request_id: response.request_id(),
-                address,
                 tx
             }
         )?;
@@ -103,9 +103,7 @@ impl Actor for BlobCacheActor {
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            BlobCacheMessage::Cache => {},
-            BlobCacheMessage::Get => {},
-            BlobCacheMessage::Remove => {},
+            _ => {}
         }
         Ok(())
     }

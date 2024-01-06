@@ -3,7 +3,9 @@ use ethereum_types::U256;
 use std::collections::BTreeMap;
 use std::ops::{AddAssign, SubAssign};
 
-use crate::Address;
+use crate::{Address, RecoverableSignature, Transaction};
+
+pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
 /// Represents a generic data container.
 ///
@@ -145,3 +147,24 @@ impl SubAssign for Token {
     }
 }
 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TokenWitness {
+    user: Address,
+    token: Address,
+    init: Token,
+    transactions: TransactionGraph,
+    finalized: Box<Token>,
+    sig: RecoverableSignature,
+    version: &'static str,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TransactionGraph {
+    transactions: BTreeMap<[u8; 32], GraphEntry>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GraphEntry {
+    transaction: Transaction,
+    dependencies: Vec<[u8; 32]> 
+}
