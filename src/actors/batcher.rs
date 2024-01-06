@@ -3,17 +3,19 @@ use std::{collections::{HashMap, VecDeque, BTreeMap}, fmt::Display};
 
 use async_trait::async_trait;
 use eigenda_client::{response::BlobResponse, proof::BlobVerificationProof};
+use ethereum_types::H256;
 use futures::stream::{FuturesUnordered, StreamExt};
-use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::{oneshot, OneshotReceiver}};
+use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::{oneshot, OneshotReceiver}, ActorCell};
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use tokio::{task::JoinHandle, sync::mpsc::{UnboundedSender, Sender, Receiver}};
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address};
 
 const BATCH_INTERVAL: u64 = 180;
+pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
 
 #[derive(Clone, Debug, Error)]
 pub enum BatcherError {
@@ -43,6 +45,13 @@ impl Batch {
         }
     }
 
+    pub fn empty(&self) -> bool {
+        let mut empty = false;
+        empty = self.transactions().is_empty();
+        empty = self.accounts().is_empty();
+        return empty
+    }
+
     pub fn get_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
         if let Some(account) = self.accounts().get(&address.into()) {
             return Some(account.clone())
@@ -70,7 +79,9 @@ impl Batch {
             &Self::decompress_batch(
                 bytes
             )?
-        ).map_err(|e| BatcherError::Custom(e.to_string()))?)
+        ).map_err(|e| {
+            BatcherError::Custom(format!("ERROR: batcher.rs 71 {}", e.to_string()))
+        })?)
     }
 
     pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
@@ -88,10 +99,18 @@ impl Batch {
     pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
         let mut decompressor = ZlibDecoder::new(Vec::new());
         decompressor.write_all(&bytes[..]).map_err(|e| {
-            BatcherError::Custom(e.to_string())
+            BatcherError::Custom(
+                format!(
+                    "ERROR: batcher.rs 92 {}", e.to_string()
+                )
+            )
         })?;
         let decompressed = decompressor.finish().map_err(|e| {
-            BatcherError::Custom(e.to_string())
+            BatcherError::Custom(
+                format!(
+                    "ERROR: batcher.rs 100 {}",e.to_string()
+                )
+            )
         })?;
 
         Ok(decompressed)
@@ -106,7 +125,11 @@ impl Batch {
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
         Self::deserialize_batch(
             base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(e.to_string()))?
+                .map_err(|e| {
+                    BatcherError::Custom(
+                        format!("ERROR: batcher.rs 118 {}", e.to_string())
+                    )
+                })?
         )
     }
 
@@ -183,61 +206,63 @@ pub struct Batcher {
     parent: Batch,
     children: VecDeque<Batch>,
     cache: HashMap<String /* request_id*/, Batch>,
-    receiver_handle: JoinHandle<Result<(), BatcherError>>,
     receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>
 }
 
 impl Batcher {
-    pub fn run_receivers(
+    pub async fn run_receivers(
         mut receiver: Receiver<OneshotReceiver<(String, BlobVerificationProof)>>,
-        mut pending_receivers: FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>
-    ) -> JoinHandle<Result<(), BatcherError>> {
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    new_pending = receiver.recv() => {
-                        match new_pending {
-                            Some(pending_rx) => {
-                                pending_receivers.push(pending_rx);
-                            },
-                            _ => {}
-                        }
-                    },
-                    next_proof = pending_receivers.next() => {
-                        match next_proof {
-                            Some(Ok((request_id, proof))) => {
-                                let batcher: ActorRef<BatcherMessage> = {
-                                    ractor::registry::where_is(
-                                        ActorType::Batcher.to_string()
-                                    ).ok_or(
-                                        BatcherError::Custom(
-                                            "unable to acquire batcher".to_string()
-                                        )
-                                    )?.into()
-                                };
-
-                                let message = BatcherMessage::BlobVerificationProof {
-                                    request_id,
-                                    proof
-                                };
-                            }
-                            _ => {}
-                        }
+    ) -> Result<(), BatcherError> {
+        let mut pending_receivers: PendingReceivers = FuturesUnordered::new(); 
+        log::info!("starting batch receivers");
+        loop {
+            tokio::select! {
+                new_pending = receiver.recv() => {
+                    match new_pending {
+                        Some(pending_rx) => {
+                            log::info!("batcher received a new receiver for a pending blob");
+                            pending_receivers.push(pending_rx);
+                        },
+                        _ => {}
                     }
-                }
-            }
+                },
+                next_proof = pending_receivers.next() => {
+                    match next_proof {
+                        Some(Ok((request_id, proof))) => {
+                            log::info!("batcher received blob verification proof");
+                            let batcher: ActorRef<BatcherMessage> = {
+                                ractor::registry::where_is(
+                                    ActorType::Batcher.to_string()
+                                ).ok_or(
+                                    BatcherError::Custom(
+                                        "unable to acquire batcher".to_string()
+                                    )
+                                )?.into()
+                            };
 
-        })
+                            let message = BatcherMessage::BlobVerificationProof {
+                                request_id,
+                                proof
+                            };
+
+                            batcher.cast(message).map_err(|e| {
+                                BatcherError::Custom(e.to_string())
+                            })?;
+                        }
+                        _ => {}
+                    }
+                },
+            }
+        }
     }
 
-    pub fn new() -> Self {
-        let (receiver_thread_tx, receiver) = tokio::sync::mpsc::channel(128);
-        let receiver_handle = Batcher::run_receivers(receiver, FuturesUnordered::new()); 
+    pub fn new(
+        receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>
+    ) -> Self {
         Self {
             parent: Batch::new(),
             children: VecDeque::new(),
             cache: HashMap::new(),
-            receiver_handle,
             receiver_thread_tx
        }
     } 
@@ -373,41 +398,50 @@ impl Batcher {
     }
 
     async fn handle_next_batch_request(&mut self) -> Result<(), BatcherError> {
-        let da_client: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
-            BatcherError::Custom("unable to acquire DA client".to_string())
-        )?.into();
+        if !self.parent.empty() {
+            let da_client: ActorRef<DaClientMessage> = ractor::registry::where_is(
+                ActorType::DaClient.to_string()
+            ).ok_or(
+                BatcherError::Custom("unable to acquire DA Actor".to_string())
+            )?.into();
 
-        let (tx, rx) = oneshot();
-        let message = DaClientMessage::StoreBatch { batch: self.parent.encode_batch()?, tx };
-        da_client.cast(message).map_err(|e| BatcherError::Custom(e.to_string()))?;
-        let handler = |resp: Result<BlobResponse, std::io::Error> | {
-            match resp {
-                Ok(r) => Ok(r),
-                Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>)
-            }
-        };
+            let (tx, rx) = oneshot();
+            let message = DaClientMessage::StoreBatch { batch: self.parent.encode_batch()?, tx };
+            da_client.cast(message).map_err(|e| BatcherError::Custom(e.to_string()))?;
+            let handler = |resp: Result<BlobResponse, std::io::Error> | {
+                match resp {
+                    Ok(r) => Ok(r),
+                    Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>)
+                }
+            };
 
-        let blob_response = handle_actor_response(rx, handler).await
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
+            let blob_response = handle_actor_response(rx, handler).await
+                .map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-        log::info!("Batcher received blob response: RequestId: {}", &blob_response.request_id());
-        let parent = self.parent.clone();
-        self.cache.insert(blob_response.request_id(), parent);
+            log::info!("Batcher received blob response: RequestId: {}", &blob_response.request_id());
+            let parent = self.parent.clone();
+            self.cache.insert(blob_response.request_id(), parent);
 
-        if let Some(child) = self.children.pop_front() {
-            self.parent = child;
+            if let Some(child) = self.children.pop_front() {
+                self.parent = child;
+                return Ok(())
+            } 
+
+            self.parent = Batch::new();
+
+            self.request_blob_validation(blob_response.request_id()).await?;
+
             return Ok(())
-        } 
+        }
 
-        self.parent = Batch::new();
+        log::warn!("batch is currently empty, skipping");
 
-        self.request_blob_validation(blob_response.request_id()).await?;
         return Ok(())
     }
 
     async fn request_blob_validation(&mut self, request_id: String) -> Result<(), BatcherError> {
         let (tx, rx) = oneshot();
-        self.receiver_thread_tx.send(rx);
+        self.receiver_thread_tx.send(rx).await;
         let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
             BatcherError::Custom("unable to acquire da client actor ref".to_string())
         )?.into();
@@ -426,7 +460,39 @@ impl Batcher {
         request_id: String,
         proof: BlobVerificationProof
     ) -> Result<(), BatcherError> {
-        todo!()
+        log::info!("received blob verification proof");
+        
+        let eo_client: ActorRef<EoMessage> = ractor::registry::where_is(
+            ActorType::EoClient.to_string()
+        ).ok_or(
+            BatcherError::Custom("unable to acquire eo client actor ref".to_string())
+        )?.into();
+
+        let accounts = self.cache.get(&request_id).ok_or(
+            BatcherError::Custom("request id not in cache".to_string())
+        )?.accounts.iter()
+            .map(|(addr, _)| addr.into())
+            .collect();
+        
+        let decoded = base64::decode(&proof.batch_metadata().batch_header_hash().to_string()).map_err(|e| {
+            BatcherError::Custom("unable to decode batch_header_hash()".to_string())
+        })?;
+
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&decoded);
+
+        let batch_header_hash = H256(bytes);
+
+        let blob_index = proof.blob_index();
+
+        let message = EoMessage::Settle { accounts, batch_header_hash, blob_index };
+
+        let res = eo_client.cast(message);
+        if let Err(e) = res {
+            log::error!("{}", e);
+        }
+
+        Ok(())
     }
 }
 
@@ -441,14 +507,14 @@ impl BatcherActor {
 impl Actor for BatcherActor {
     type Msg = BatcherMessage;
     type State = Batcher; 
-    type Arguments = ();
+    type Arguments = Batcher;
     
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
-        _: (),
+        myself: ActorRef<Self::Msg>,
+        args: Batcher,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(Batcher::new()) 
+        Ok(args) 
     }
 
     async fn handle(
@@ -481,25 +547,26 @@ impl Actor for BatcherActor {
     }
 }
 
-pub async fn batch_requestor(mut stopper: tokio::sync::mpsc::Receiver<()>) -> Result<(), Box<dyn std::error::Error + Send>> {
+pub async fn batch_requestor(mut stopper: tokio::sync::mpsc::Receiver<u8>) -> Result<(), Box<dyn std::error::Error + Send>> {
     let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
         ActorType::Batcher.to_string()
     ).unwrap().into(); 
 
     loop {
-        log::warn!("Sleeping for 180 seconds before requesting next batch");
+        log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
         tokio::time::sleep(tokio::time::Duration::from_secs(BATCH_INTERVAL)).await;
         let message = BatcherMessage::GetNextBatch;
-        log::warn!("Requesting next batch");
+        log::warn!("requesting next batch");
         batcher.cast(message).map_err(|e| {
             Box::new(
                 BatcherError::Custom(
                     e.to_string()
                 )
             ) as Box<dyn std::error::Error + Send>
-        })?;
+        });
 
-        if let Some(_) = &stopper.recv().await {
+        if let Ok(1) = &stopper.try_recv() {
+            log::error!("breaking the batch requestor loop");
             break
         }
     }

@@ -1,11 +1,13 @@
 #![allow(unreachable_code)]
 use std::collections::BTreeSet;
+use std::str::FromStr;
 
 use eo_listener::EoServerError;
 use lasr::AccountCacheActor;
 use lasr::ActorType;
 use lasr::Address;
 use lasr::BlobCacheActor;
+use lasr::DaSupervisor;
 use lasr::EoClient;
 use lasr::EoClientActor;
 use lasr::EoServerWrapper;
@@ -16,6 +18,7 @@ use lasr::Engine;
 use lasr::Validator;
 use lasr::EoServer;
 use lasr::BatcherActor;
+use lasr::Batcher;
 use eo_listener::EoServer as EoListener;
 use lasr::DaClient;
 use lasr::rpc::LasrRpcServer;
@@ -32,6 +35,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::Level::Info
     ).map_err(|e| EoServerError::Other(e.to_string()))?;
 
+    dotenv::dotenv().ok();
+
+    let (_, sk_string) = std::env::vars().find(|(k, _)| k == "SECRET_KEY").ok_or(
+        Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
+    )?;
+
+    let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(|e| Box::new(e))?;
+
+    dbg!(sk);
+
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default() 
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         .server_address("disperser-goerli.eigenda.xyz:443".to_string())
@@ -45,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
 
-    let eo_client = setup_eo_client(web3_instance.clone()).await?;
+    let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
 
     let blob_cache_actor = BlobCacheActor::new(); 
     let account_cache_actor = AccountCacheActor::new();
@@ -56,11 +69,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator_actor = Validator::new();
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
+    let da_supervisor = DaSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
-    let batcher = BatcherActor;
+    let batcher_actor = BatcherActor;
     let inner_eo_server = setup_eo_server(web3_instance.clone()).map_err(|e| {
         Box::new(e)
     })?;
+    
+    let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
+    let batcher = Batcher::new(receivers_thread_tx);
+    
+    tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
+
+    let (da_supervisor, _) = Actor::spawn(
+        Some("da_supervisor".to_string()),
+        da_supervisor,
+        ()
+    ).await.map_err(|e| Box::new(e))?;
 
     let (lasr_rpc_actor_ref, _) = Actor::spawn(
         Some(ActorType::RpcServer.to_string()), 
@@ -98,10 +123,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eo_client
     ).await.map_err(|e| Box::new(e))?;
 
-    let (_da_client_actor_ref, _) = Actor::spawn(
+    let (_da_client_actor_ref, _) = Actor::spawn_linked(
         Some(ActorType::DaClient.to_string()), 
         da_client_actor, 
-        ()
+        (),
+        da_supervisor.get_cell()
     ).await.map_err(|e| Box::new(e))?;
 
     let (_pending_transaction_actor_ref, _) = Actor::spawn(
@@ -112,8 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let(_batcher_actor_ref, _) = Actor::spawn(
         Some(ActorType::Batcher.to_string()), 
-        batcher, 
-        ()
+        batcher_actor, 
+        batcher
     ).await.map_err(|e| Box::new(e))?;
 
     let (_account_cache_actor_ref, _) = Actor::spawn(
@@ -145,7 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {}
 
-    _stop_tx.send(()).await?;
+    _stop_tx.send(1).await?;
 
     Ok(())
 }
@@ -207,10 +233,11 @@ fn setup_eo_server(web3_instance: web3::Web3<web3::transports::Http>) -> Result<
     Ok(eo_server)
 }
 
-async fn setup_eo_client(web3_instance: web3::Web3<web3::transports::Http>) -> Result<EoClient, Box<dyn std::error::Error>> {
+async fn setup_eo_client(web3_instance: web3::Web3<web3::transports::Http>, sk: web3::signing::SecretKey) -> Result<EoClient, Box<dyn std::error::Error>> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
+
     let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
     // Initialize the web3 instance
     let contract_address = eo_address.parse().map_err(|err| {
@@ -229,7 +256,7 @@ async fn setup_eo_client(web3_instance: web3::Web3<web3::transports::Http>) -> R
     let (_secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
 
     let user_address: Address = public_key.into();
-    EoClient::new(web3_instance, contract, user_address).await.map_err(|e| {
+    EoClient::new(web3_instance, contract, user_address, sk).await.map_err(|e| {
         Box::new(e) as Box<dyn std::error::Error>
     })
 }

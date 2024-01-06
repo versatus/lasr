@@ -169,8 +169,8 @@ impl EoServer {
             for param in log.params {
                 match &param.name[..] {
                     "user" => {
-                        settlement_event.user(
-                            param.value.clone().into_address().ok_or(
+                        settlement_event.accounts(
+                            param.value.clone().into_array().ok_or(
                                 self.boxed_custom_eo_error(&param)
                             )?
                         );
@@ -184,7 +184,14 @@ impl EoServer {
                     },
                     "blobIndex" => {
                         settlement_event.blob_index(
-                            param.value.clone().into_string().ok_or(
+                            param.value.clone().into_uint().ok_or(
+                                self.boxed_custom_eo_error(&param)
+                            )?
+                        );
+                    },
+                    "blobEventId" => {
+                        settlement_event.settlement_event_id(
+                            param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
                             )?
                         );
@@ -232,22 +239,32 @@ impl Actor for EoServer {
             EoMessage::Log { log, log_type } => {
                 match log_type {
                     EventType::Bridge(_) => {
-                        self.handle_eo_event(
+                        let res = self.handle_eo_event(
                             self.parse_bridge_log(log)?.into()
-                        ).await?;
+                        ).await;
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {}", e);
+                        } else {
+                            log::info!("{:?}", res);
+                        }
                     },
                     EventType::Settlement(_) => {
-                        self.handle_eo_event(
+                        log::warn!("eo_server discovered Settlement event");
+                        let res = self.handle_eo_event(
                             self.parse_settlement_log(log)?.into()
-                        ).await?;
+                        ).await;
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {}", e);
+                        } else {
+                            log::info!("{:?}", res);
+                        }
                     }
                 }
             },
             EoMessage::Bridge { program_id, address, amount, content } => {
                 log::info!("Eo Server ready to bridge assets to EO contract");
-            },
-            EoMessage::Settle { address, batch_header_hash, blob_index } => {
-                log::info!("Eo server ready to settle blob index to EO contract");
             },
             _ => { log::info!("Eo Server received unhandled message"); }
         }

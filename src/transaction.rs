@@ -311,6 +311,23 @@ impl TryFrom<(Token, Transaction)> for Token {
     type Error = Box<dyn std::error::Error + Send>;
     fn try_from(value: (Token, Transaction)) -> Result<Self, Self::Error> {
         if value.1.from() == value.0.owner_id() {
+            if value.1.transaction_type().is_bridge_in() {
+                return Ok(TokenBuilder::default()
+                    .program_id(value.0.program_id())
+                    .owner_id(value.0.owner_id())
+                    .balance(value.0.balance() + value.1.value())
+                    .metadata(value.0.metadata())
+                    .token_ids(value.0.token_ids())
+                    .allowance(value.0.allowance())
+                    .approvals(value.0.approvals())
+                    .data(value.0.data())
+                    .status(value.0.status())
+                    .build()
+                    .map_err(|e| {
+                        Box::new(e) as Box<dyn std::error::Error + Send>
+                    })?
+                )
+            }
             return Ok(TokenBuilder::default()
                 .program_id(value.0.program_id())
                 .owner_id(value.0.owner_id())

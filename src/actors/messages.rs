@@ -268,9 +268,9 @@ pub enum EngineMessage {
 #[derive(Builder, Clone, Debug)]
 #[allow(unused)]
 pub struct SettlementEvent {
-    user: EthereumAddress,
+    accounts: Vec<web3::ethabi::Token>,
     batch_header_hash: FixedBytes,
-    blob_index: String,
+    blob_index: U256,
     settlement_event_id: U256,
 }
 
@@ -402,7 +402,7 @@ pub enum EoMessage {
         content: Option<[u8; 32]> 
     },
     Settle {
-        address: Address,
+        accounts: HashSet<Address>,
         batch_header_hash: H256,
         blob_index: u128
     },

@@ -31,6 +31,13 @@ impl From<[u8; 20]> for Address {
     }
 }
 
+impl From<&[u8; 20]> for Address {
+    fn from(value: &[u8; 20]) -> Self {
+        Address(*value)
+    }
+}
+
+
 impl FromStr for Address {
     type Err = FromHexError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -142,6 +149,12 @@ impl From<PublicKey> for Address {
 
         Address(address)
     }
+}
+
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct AccountNonce {
+    bridge_nonce: U256,
+    send_nonce: U256,
 }
 
 /// Represents an LASR account.

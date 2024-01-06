@@ -1,11 +1,17 @@
 #![allow(unused)]
+use std::collections::HashSet;
+use std::str::FromStr;
+
 use async_trait::async_trait;
+use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
+use secp256k1::SecretKey;
 use web3::contract::{Contract, Options};
-use web3::types::{Address as EthereumAddress, H256};
+use web3::types::{Address as EthereumAddress, H256, TransactionReceipt, TransactionId};
 use web3::transports::Http;
 use web3::Web3;
+use web3::ethabi::Token as EthAbiToken;
 use sha3::{Digest, Keccak256};
 use hex;
 
@@ -18,7 +24,8 @@ pub struct EoClientActor;
 pub struct EoClient {
     contract: Contract<Http>,
     web3: Web3<Http>,
-    address: EthereumAddress
+    address: EthereumAddress,
+    sk: web3::signing::SecretKey
 }
 
 impl EoClient {
@@ -26,11 +33,12 @@ impl EoClient {
         web3: Web3<Http>,
         contract: Contract<Http>,
         address: Address,
+        sk: web3::signing::SecretKey,
     ) -> web3::Result<Self> {
         let address = EoClient::parse_checksum_address(address)?;
         
         Ok(
-            EoClient { contract, web3, address }
+            EoClient { contract, web3, address, sk }
         )
     }
 
@@ -107,6 +115,71 @@ impl EoClient {
 
         format!("0x{}", checksum_address)
     }
+
+    pub(super) async fn settle_batch(
+        &mut self, 
+        accounts: HashSet<Address>,
+        batch_header_hash: H256,
+        blob_index: u128
+    ) -> Result<H256, web3::Error> {
+        log::info!("attempting to settle batch");
+        let eth_addresses: Vec<EthereumAddress> = accounts.iter().filter_map(|a| {
+            EoClient::parse_checksum_address(a.clone()).ok()
+        }).collect();
+
+        log::info!("parsed addresses for batch settlement");
+        let addresses: Vec<EthAbiToken> = eth_addresses.iter().map(|a| EthAbiToken::Address(a.clone())).collect();
+
+        let n_accounts = addresses.len();
+
+        let accounts = EthAbiToken::Array(
+            addresses
+        );
+
+        let blob_index = EthAbiToken::Tuple(
+            vec![
+                EthAbiToken::FixedBytes(batch_header_hash.0.to_vec()), 
+                EthAbiToken::Uint(blob_index.into())
+            ]
+        );
+
+        let mut options = Options {
+            gas: Some(web3::types::U256::from(((50_000 * n_accounts) + 50_000))),
+            ..Options::default()
+        };
+
+        log::info!("sending transaction");
+        let res = self.contract.signed_call(
+            "settleBlobIndex", 
+            (accounts, blob_index),
+            options,
+            &mut self.sk.clone()
+        ).await;
+
+        log::info!("checking result");
+        if let Err(e) = &res {
+            log::error!("eo_client encountered error: {}", e);
+        } else if let Ok(hash) = &res {
+            log::info!("eo_client settled batch: {:?}", res);
+            let mut receipt = None;
+            while receipt.is_none() {
+                receipt = self.web3.eth().transaction_receipt(hash.clone()).await?;
+            }
+
+            if let Some(receipt) = receipt {
+                if receipt.status == Some(web3::types::U64::from(0)) {
+                    log::error!("transaction failed");
+                    return Err(
+                        web3::Error::InvalidResponse(
+                            format!("transaction failed: {:?}", receipt)
+                        )
+                    )
+                }
+            }
+        }
+
+        return res
+    }
 }
 
 #[async_trait]
@@ -133,16 +206,18 @@ impl Actor for EoClientActor {
             EoMessage::GetAccountBlobIndex { address, sender } => {
                 let blob = state.get_blob_index(address.into()).await;
                 if let Some((batch_header_hash, blob_index)) = blob {
-                    let res = sender.send(
-                        EoMessage::AccountBlobIndexAcquired { 
-                            address,
-                            batch_header_hash,
-                            blob_index
-                        }
-                    );
+                    if !batch_header_hash.is_zero() {
+                        let res = sender.send(
+                            EoMessage::AccountBlobIndexAcquired { 
+                                address,
+                                batch_header_hash,
+                                blob_index
+                            }
+                        );
 
-                    if let Err(e) = res {
-                        log::error!("{:?}", e);
+                        if let Err(e) = res {
+                            log::error!("{:?}", e);
+                        }
                     }
                 } else {
                     log::info!("unable to find blob index for address: 0x{:x}", address);
@@ -184,6 +259,15 @@ impl Actor for EoClientActor {
                     if let Err(e) = res {
                         log::error!("{:?}", e);
                     }
+                }
+            }
+            EoMessage::Settle { accounts, batch_header_hash, blob_index } => {
+
+                let tx_hash = state.settle_batch(accounts, batch_header_hash, blob_index).await; 
+                if let Ok(h) = &tx_hash {
+                    log::info!("settled transaction to EO with tx: {:?}", h);
+                } else {
+                    log::error!("{:?}", &tx_hash);
                 }
             }
             _ => {}

@@ -53,6 +53,8 @@ base64 = "0.13"
 bip39 = "2.0.0"
 uint = "0.9.5"
 flate2 = "1.0.28"
+async-recursion = "1.0.5"
+dotenv = "0.15.0"
 
 [dev-dependencies]
 simple_logger = "4.3.0"

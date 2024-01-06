@@ -221,6 +221,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd55a5ba1179988837d24ab4c7cc8ed6efdeff578ede0416b4225a5fca35bd0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.39",
+]
+
+[[package]]
 name = "async-std"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -794,6 +805,12 @@ dependencies = [
  "block-buffer 0.10.4",
  "crypto-common",
 ]
+
+[[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
 name = "eigenda_client"
@@ -1728,6 +1745,7 @@ dependencies = [
 name = "lasr"
 version = "0.1.0"
 dependencies = [
+ "async-recursion",
  "async-std",
  "async-trait",
  "base64 0.13.1",
@@ -1735,6 +1753,7 @@ dependencies = [
  "bip39",
  "clap",
  "derive_builder",
+ "dotenv",
  "eigenda_client",
  "eo_listener",
  "erased-serde",

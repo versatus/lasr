@@ -153,7 +153,7 @@ pub struct TokenWitness {
     token: Address,
     init: Token,
     transactions: TransactionGraph,
-    finalized: Token,
+    finalized: Box<Token>,
     sig: RecoverableSignature,
     version: &'static str,
 }
