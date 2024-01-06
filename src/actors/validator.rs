@@ -1,9 +1,17 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot};
+use ractor::{ActorRef, Actor, ActorProcessingErr};
 use thiserror::Error;
-use crate::{Account, Transaction, TransactionType, check_account_cache, check_da_for_account, ActorType, PendingTransactionMessage, EoMessage};
+use crate::{
+    Account, 
+    Transaction, 
+    TransactionType, 
+    check_account_cache, 
+    check_da_for_account, 
+    ActorType, 
+    PendingTransactionMessage
+};
 
 use super::messages::ValidatorMessage;
 

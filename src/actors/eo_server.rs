@@ -34,28 +34,29 @@ impl EoServerWrapper {
     }
 
     pub async fn run(mut self) -> Result<(), EoServerError> {
-        let eo_actor: ActorCell = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
+        let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoServer.to_string()).ok_or(
             EoServerError::Custom(
                 "unable to acquire eo_actor".to_string()
             )
-        )?;
+        )?.into();
+
+        if let Err(e) = self.server.load_processed_blocks().await {
+            log::error!("unable to load processed blocks from file: {}", e);
+        }
 
         loop {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
                 if log.len() > 0 {
-                    let actor: ActorRef<EoMessage> = ractor::registry::where_is(
-                        ActorType::EoServer.to_string()
-                    ).ok_or(
-                        EoServerError::Custom("unable to acquire EO Server Actor".to_string())
-                    )?.into();
-                    actor.cast(
+                    eo_actor.cast(
                         EoMessage::Log { 
                             log_type: logs.event_type, 
                             log: log.to_vec() 
                     }).map_err(|e| {
                         EoServerError::Custom(e.to_string())
                     })?;
+
+                    self.server.save_blocks_processed();
                 } 
             } 
 

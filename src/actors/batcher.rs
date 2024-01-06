@@ -9,6 +9,7 @@ use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, c
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use tokio::{task::JoinHandle, sync::mpsc::{UnboundedSender, Sender, Receiver}};
+use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
@@ -34,7 +35,7 @@ pub struct BatcherActor;
 #[derive(Builder, Clone, Debug, Serialize, Deserialize)]
 pub struct Batch {
     transactions: HashMap<[u8; 32], Transaction>,
-    accounts: HashMap<[u8; 20], Account>
+    accounts: HashMap<[u8; 20], Account>,
 }
 
 impl Batch {

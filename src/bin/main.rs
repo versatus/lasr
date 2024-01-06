@@ -1,5 +1,6 @@
 #![allow(unreachable_code)]
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use eo_listener::EoServerError;
@@ -41,6 +42,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
     )?;
 
+    let (_, block_processed_path) = std::env::vars().find(|(k, _)| k == "BLOCKS_PROCESSED_PATH").ok_or(
+        Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
+    )?;
+
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(|e| Box::new(e))?;
 
     dbg!(sk);
@@ -72,7 +77,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_supervisor = DaSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor;
-    let inner_eo_server = setup_eo_server(web3_instance.clone()).map_err(|e| {
+    let inner_eo_server = setup_eo_server(
+        web3_instance.clone(),
+        &block_processed_path
+    ).map_err(|e| {
         Box::new(e)
     })?;
     
@@ -177,7 +185,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-fn setup_eo_server(web3_instance: web3::Web3<web3::transports::Http>) -> Result<EoListener, EoServerError> {
+fn setup_eo_server(
+    web3_instance: web3::Web3<web3::transports::Http>,
+    path: &str,
+) -> Result<EoListener, EoServerError> {
 
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
@@ -228,12 +239,16 @@ fn setup_eo_server(web3_instance: web3::Web3<web3::transports::Http>) -> Result<
         .blob_settled_filter(blob_settled_filter)
         .blob_settled_event(blob_settled_event)
         .bridge_event(bridge_event)
+        .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
         .build()?;
     
     Ok(eo_server)
 }
 
-async fn setup_eo_client(web3_instance: web3::Web3<web3::transports::Http>, sk: web3::signing::SecretKey) -> Result<EoClient, Box<dyn std::error::Error>> {
+async fn setup_eo_client(
+    web3_instance: web3::Web3<web3::transports::Http>, 
+    sk: web3::signing::SecretKey
+) -> Result<EoClient, Box<dyn std::error::Error>> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3

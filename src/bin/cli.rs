@@ -1,10 +1,10 @@
 #![allow(unused)]
 use std::str::FromStr;
 
-use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}};
+use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}, ArgMatches};
 
 use hex::ToHex;
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
 use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
@@ -278,6 +278,18 @@ fn send_command() -> Command {
         )
 }
 
+fn get_account_command() -> Command {
+    Command::new("get-account")
+        .about("gets the account given a secret key or mnemonic")
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+}
+
 fn wallet_command() -> Command {
     Command::new("wallet")
         .about("a wallet cli for interacting with the LASR network as a user")
@@ -295,6 +307,9 @@ fn wallet_command() -> Command {
         )
         .subcommand(
             send_command()
+        )
+        .subcommand(
+            get_account_command()
         )
 }
 
@@ -326,67 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(("send", children)) => {
                     println!("received `wallet send` command");
                     let values = children.ids();
-
-                    let from_file = children.get_flag("from-file");
-                    let from_mnemonic = children.get_flag("from-mnemonic");
-                    let from_secret_key = children.get_flag("from-secret-key");
-                    
-                    let mut wallet = {
-                        let (secret_key, public_key) = {
-                            if from_file {
-                                let keypair_file = children.get_one::<String>("path").expect("required if from-file flag");
-                                dbg!(keypair_file);
-                                let mut file = std::fs::File::open(keypair_file)?;
-                                let mut contents = String::new();
-                                file.read_to_string(&mut contents);
-                                let keypair: Keypair = serde_json::from_str(&contents)?;
-                                let master = keypair.secret_key();
-                                let pubkey = keypair.public_key();
-                                (master, pubkey)
-                            } else if from_mnemonic {
-                                let phrase = children.get_one::<String>("mnemonic").expect("required if from-mnemonic flag");
-                                let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase)?;  
-                                let seed = mnemonic.to_seed("");
-                                let secp = Secp256k1::new();
-                                let master = SecretKey::from_slice(&seed[0..32])?;
-                                let pubkey = master.public_key(&secp);
-                                (master, pubkey)
-                            } else {
-                                let sk = children.get_one::<String>("secret-key").expect("required if from-secret-key flag");
-                                let secp = Secp256k1::new();
-                                let master = SecretKey::from_str(&sk)?; 
-                                let pubkey = master.public_key(&secp);
-                                let address: Address = pubkey.into();
-                                let eaddr: EthereumAddress = address.into();
-                                println!("************************************************************");
-                                println!("****************  DO NOT SHARE SECRET KEY  *****************");
-                                println!("************************************************************\n");
-                                println!("************************************************************");
-                                println!("******************     SECRET KEY        *******************\n");
-                                println!("{}\n", &sk);
-                                println!("************************************************************\n");
-                                println!("************************************************************");
-                                println!("******************       ADDRESS         *******************");
-                                println!("*******  0x{}  *******", &address.encode_hex::<String>());
-                                println!("************************************************************\n");
-                                (master, pubkey)
-                            } 
-                        };
-
-                        let address: Address = public_key.into();
-                        let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
-                        let account: Account = bincode::deserialize(
-                            &client.get_account(format!("{:x}", address)).await?
-                        )?;
-
-                        WalletBuilder::default()
-                            .sk(secret_key)
-                            .client(client.clone())
-                            .address(address.clone())
-                            .builder(PayloadBuilder::default())
-                            .account(account)
-                            .build()
-                    }?;
+                    let mut wallet = get_wallet(children).await?;
 
                     let address = wallet.address();
 
@@ -400,8 +355,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let amount = value.0 * unit; 
 
                     let token = wallet.send(to, pid, amount).await;
-
-
+                }
+                Some(("get-account", children)) => {
+                    let mut wallet = get_wallet(children).await?;
+                    let address = wallet.address();
+                    wallet.get_account(&address).await;
                 }
                 _ => {}
 
@@ -412,4 +370,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn std::error::Error>> {
+    let values = children.ids();
+
+    let from_file = children.get_flag("from-file");
+    let from_mnemonic = children.get_flag("from-mnemonic");
+    let from_secret_key = children.get_flag("from-secret-key");
+    
+    let mut wallet = {
+        let (secret_key, public_key) = {
+            if from_file {
+                let keypair_file = children.get_one::<String>("path").expect("required if from-file flag");
+                dbg!(keypair_file);
+                let mut file = std::fs::File::open(keypair_file)?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents);
+                let keypair: Keypair = serde_json::from_str(&contents)?;
+                let master = keypair.secret_key();
+                let pubkey = keypair.public_key();
+                (master, pubkey)
+            } else if from_mnemonic {
+                let phrase = children.get_one::<String>("mnemonic").expect("required if from-mnemonic flag");
+                let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase)?;  
+                let seed = mnemonic.to_seed("");
+                let secp = Secp256k1::new();
+                let master = SecretKey::from_slice(&seed[0..32])?;
+                let pubkey = master.public_key(&secp);
+                (master, pubkey)
+            } else {
+                let sk = children.get_one::<String>("secret-key").expect("required if from-secret-key flag");
+                let secp = Secp256k1::new();
+                let master = SecretKey::from_str(&sk)?; 
+                let pubkey = master.public_key(&secp);
+                let address: Address = pubkey.into();
+                let eaddr: EthereumAddress = address.into();
+                println!("************************************************************");
+                println!("****************  DO NOT SHARE SECRET KEY  *****************");
+                println!("************************************************************\n");
+                println!("************************************************************");
+                println!("******************     SECRET KEY        *******************\n");
+                println!("{}\n", &sk);
+                println!("************************************************************\n");
+                println!("************************************************************");
+                println!("******************       ADDRESS         *******************");
+                println!("*******  0x{}  *******", &address.encode_hex::<String>());
+                println!("************************************************************\n");
+                (master, pubkey)
+            } 
+        };
+
+        let address: Address = public_key.into();
+        let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
+        let account: Account = bincode::deserialize(
+            &client.get_account(format!("{:x}", address)).await?
+        )?;
+
+        WalletBuilder::default()
+            .sk(secret_key)
+            .client(client.clone())
+            .address(address.clone())
+            .builder(PayloadBuilder::default())
+            .account(account)
+            .build().map_err(|e| {
+                Box::new(e) as Box<dyn std::error::Error>
+            })
+    };
+
+    wallet
 }
