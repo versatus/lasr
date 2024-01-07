@@ -89,7 +89,6 @@ impl Actor for DaClient {
                 let batch_header_hash = base64::encode(&batch_header_hash.0);
                 let res = self.client.retrieve_blob(&batch_header_hash.into(), blob_index);
                 if let Ok(blob) = res {
-                    dbg!(&blob);
                     let encoded_blob = EncodedBlob::from_str(&blob);
                     if let Ok(blob) = encoded_blob {
                         let res = Batch::decode_batch(&blob.data());

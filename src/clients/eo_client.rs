@@ -1,13 +1,17 @@
 #![allow(unused)]
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::str::FromStr;
 
 use async_trait::async_trait;
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
+use futures::Future;
+use futures::stream::{FuturesUnordered, Stream, StreamExt};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use secp256k1::SecretKey;
+use tokio::sync::mpsc::Receiver;
 use web3::contract::{Contract, Options};
+use web3::helpers::CallFuture;
 use web3::types::{Address as EthereumAddress, H256, TransactionReceipt, TransactionId};
 use web3::transports::Http;
 use web3::Web3;
@@ -15,17 +19,19 @@ use web3::ethabi::Token as EthAbiToken;
 use sha3::{Digest, Keccak256};
 use hex;
 
-use crate::{Address, EoMessage};
+use crate::{Address, EoMessage, EoServerError, ActorType, HashOrError};
+
 
 #[derive(Clone, Debug)]
 pub struct EoClientActor;
 
-#[derive(Builder, Clone)]
 pub struct EoClient {
     contract: Contract<Http>,
     web3: Web3<Http>,
     address: EthereumAddress,
-    sk: web3::signing::SecretKey
+    //TODO: read this in from dotenv when signing
+    sk: web3::signing::SecretKey,
+    pending: HashMap<(H256, u128), tokio::task::JoinHandle<()>>
 }
 
 impl EoClient {
@@ -38,8 +44,28 @@ impl EoClient {
         let address = EoClient::parse_checksum_address(address)?;
         
         Ok(
-            EoClient { contract, web3, address, sk }
+            EoClient { contract, web3, address, sk, pending: HashMap::new() }
         )
+    }
+
+    pub(super) fn insert_pending(
+        &mut self,
+        blob_info: (H256, u128), 
+        handle: tokio::task::JoinHandle<()>
+    ) -> Result<(), EoServerError> {
+        let _ = self.pending.insert(blob_info, handle).ok_or(
+            EoServerError::Custom(
+                "eo_client.rs: 58: error attempting to insert blob info handle".to_string()
+            )
+        );
+        Ok(())
+    }
+
+    pub(super) fn remove_pending(
+        &mut self,
+        blob_info: (H256, u128),
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        self.pending.remove(&blob_info)
     }
 
     fn parse_checksum_address(address: Address) -> Result<EthereumAddress, web3::Error> {
@@ -121,64 +147,131 @@ impl EoClient {
         accounts: HashSet<Address>,
         batch_header_hash: H256,
         blob_index: u128
-    ) -> Result<H256, web3::Error> {
-        log::info!("attempting to settle batch");
-        let eth_addresses: Vec<EthereumAddress> = accounts.iter().filter_map(|a| {
-            EoClient::parse_checksum_address(a.clone()).ok()
-        }).collect();
+    ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
+        
+        let eo_client: ActorRef<EoMessage> = ractor::registry::where_is(ActorType::EoClient.to_string()).ok_or(
+            Box::new(
+                EoServerError::Custom(
+                    "eo_client.rs: 161: unable to acquire eo_client in settle_batch function".to_string()
+                )
+            ) as Box<dyn std::error::Error>
+        )?.into();
 
-        log::info!("parsed addresses for batch settlement");
-        let addresses: Vec<EthAbiToken> = eth_addresses.iter().map(|a| EthAbiToken::Address(a.clone())).collect();
+        let mut sk = self.sk.clone();
+        let mut contract = self.contract.clone();
+        let mut web3 = self.web3.clone();
 
-        let n_accounts = addresses.len();
+        Ok(tokio::task::spawn(async move {
 
-        let accounts = EthAbiToken::Array(
-            addresses
-        );
+            log::info!("attempting to settle batch");
+            let eth_addresses: Vec<EthereumAddress> = accounts.clone().iter().filter_map(|a| {
+                EoClient::parse_checksum_address(a.clone()).ok()
+            }).collect();
 
-        let blob_index = EthAbiToken::Tuple(
-            vec![
-                EthAbiToken::FixedBytes(batch_header_hash.0.to_vec()), 
-                EthAbiToken::Uint(blob_index.into())
-            ]
-        );
+            log::info!("parsed addresses for batch settlement");
+            let addresses: Vec<EthAbiToken> = eth_addresses.iter().map(|a| EthAbiToken::Address(a.clone())).collect();
 
-        let mut options = Options {
-            gas: Some(web3::types::U256::from(((50_000 * n_accounts) + 50_000))),
-            ..Options::default()
-        };
+            let n_accounts = addresses.len();
 
-        log::info!("sending transaction");
-        let res = self.contract.signed_call(
-            "settleBlobIndex", 
-            (accounts, blob_index),
-            options,
-            &mut self.sk.clone()
-        ).await;
+            let eth_accounts = EthAbiToken::Array(
+                addresses.clone()
+            );
 
-        log::info!("checking result");
-        if let Err(e) = &res {
-            log::error!("eo_client encountered error: {}", e);
-        } else if let Ok(hash) = &res {
-            log::info!("eo_client settled batch: {:?}", res);
-            let mut receipt = None;
-            while receipt.is_none() {
-                receipt = self.web3.eth().transaction_receipt(hash.clone()).await?;
-            }
+            let blob_info = EthAbiToken::Tuple(
+                vec![
+                    EthAbiToken::FixedBytes(batch_header_hash.clone().0.to_vec()), 
+                    EthAbiToken::Uint(blob_index.clone().into())
+                ]
+            );
 
-            if let Some(receipt) = receipt {
-                if receipt.status == Some(web3::types::U64::from(0)) {
-                    log::error!("transaction failed");
-                    return Err(
-                        web3::Error::InvalidResponse(
-                            format!("transaction failed: {:?}", receipt)
-                        )
-                    )
+            let mut options = Options {
+                gas: Some(web3::types::U256::from(((50_000 * n_accounts) + 50_000))),
+                ..Options::default()
+            };
+
+            log::info!("sending transaction");
+            let res = tokio::time::timeout(
+                tokio::time::Duration::new(15, 0),
+                contract.signed_call(
+                    "settleBlobIndex", 
+                    (eth_accounts, blob_info),
+                    options,
+                    &mut sk
+                )
+            ).await;
+
+            match res {
+                Ok(Ok(hash)) => {
+                    log::info!("received transaction hash for settlement transaction");
+                    log::info!("for batch_header_hash: {:?}, blob_index: {:?}", &batch_header_hash, &blob_index);
+                    log::info!("transaction_hash: {:?}", &hash);
+                    let mut receipt = None;
+
+                    while receipt.is_none() {
+                        receipt = web3.eth().transaction_receipt(hash.clone()).await.unwrap_or_else(|e| {
+                            log::error!("{}", e);
+                            None
+                        });
+                    }
+
+                    let message = if receipt.clone().unwrap().status == Some(web3::types::U64::from(1)) {
+                        let message = EoMessage::SettleSuccess {
+                            batch_header_hash,
+                            blob_index,
+                            accounts,
+                            hash: HashOrError::Hash(hash),
+                            receipt,
+                        };
+                        
+                        message
+                    } else {
+                        let message = EoMessage::SettleFailure {
+                            batch_header_hash,
+                            blob_index,
+                            accounts,
+                            hash: HashOrError::Hash(hash),
+                            receipt,
+                        };
+                        message
+                    };
+
+                    let res = eo_client.cast(message);
+                    match res {
+                        Err(e) => log::error!("{}", e),
+                        _ => {}
+                    }
+                },
+                Ok(Err(e)) => {
+                    log::info!("encountered error attempting to settle batch: {}", e);
+                    let message = EoMessage::SettleFailure {
+                        batch_header_hash,
+                        blob_index,
+                        accounts,
+                        hash: HashOrError::Error(e),
+                        receipt: None,
+                    };
+                    let res = eo_client.cast(message);
+                    match res {
+                        Err(e) => log::error!("{}", e),
+                        _ => {}
+                    }
+                }
+                Err(timeout) => {
+                    log::info!("settlement transaction timed out, try again: {}", timeout);
+                    let message = EoMessage::SettleTimedOut {
+                        batch_header_hash,
+                        blob_index,
+                        accounts,
+                        elapsed: timeout
+                    };
+                    let res = eo_client.cast(message);
+                    match res {
+                        Err(e) => log::error!("{}", e),
+                        _ => {}
+                    }
                 }
             }
-        }
-
-        return res
+        }))
     }
 }
 
@@ -193,12 +286,12 @@ impl Actor for EoClientActor {
         _myself: ActorRef<Self::Msg>,
         args: EoClient,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(args.clone())
+        Ok(args)
     }
 
     async fn handle(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
@@ -262,12 +355,32 @@ impl Actor for EoClientActor {
                 }
             }
             EoMessage::Settle { accounts, batch_header_hash, blob_index } => {
-
-                let tx_hash = state.settle_batch(accounts, batch_header_hash, blob_index).await; 
-                if let Ok(h) = &tx_hash {
-                    log::info!("settled transaction to EO with tx: {:?}", h);
+                let res = state.settle_batch(accounts, batch_header_hash, blob_index).await; 
+                if let Ok(handle) = res {
+                    state.insert_pending((batch_header_hash, blob_index), handle);
                 } else {
-                    log::error!("{:?}", &tx_hash);
+                    log::error!("eo_client.rs: 355: encountered error attempting to settle batch"); 
+                }
+            }
+            EoMessage::SettleSuccess { batch_header_hash, blob_index, accounts, hash, receipt } => {
+                if let Some(handle) = state.remove_pending((batch_header_hash, blob_index)) {
+                    let res = handle.await;
+                    if let Err(e) = res {
+                        log::error!("eo_client.rs: 369: JoinHandle after SettleSuccess message returned an error: {}", e);
+                    }
+                }
+            }
+            EoMessage::SettleFailure { batch_header_hash, blob_index, accounts, hash, receipt } => {
+                log::error!("eo_client.rs: 374: settlement of batch_header_hash: {:?}, blob_index: {:?} failed", &batch_header_hash, &blob_index);
+                log::error!("transaction receipt: {:?}", receipt);
+            }
+            EoMessage::SettleTimedOut { batch_header_hash, blob_index, accounts, elapsed } => {
+                log::error!("eo_client.rs: 378: settlement of batch_header_hash: {:?}, blob_index: {:?} timed out", &batch_header_hash, &blob_index);
+                log::error!("time elapsed: {:?}", elapsed);
+                let message = EoMessage::Settle { accounts, batch_header_hash, blob_index };
+                let res = myself.cast(message);
+                if let Err(e) = res {
+                    log::error!("eo_client.rs: 383: {}", e);
                 }
             }
             _ => {}

@@ -11,6 +11,7 @@ use eo_listener::EventType;
 use ethereum_types::{U256, H256};
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
+use web3::types::TransactionReceipt;
 use ractor_cluster::RactorMessage;
 use ractor::RpcReplyPort;
 
@@ -344,6 +345,12 @@ impl Into<EoEvent> for Vec<BridgeEvent> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum HashOrError {
+    Hash(H256),
+    Error(web3::Error),
+}
+
 /// A message type that the `EoServer` can `handle
 ///
 /// Variants
@@ -449,6 +456,26 @@ pub enum EoMessage {
     AccountCached {
         address: Address,
         removal_tx: OneshotSender<Address>
+    },
+    SettleSuccess {
+        batch_header_hash: H256,
+        blob_index: u128,
+        accounts: HashSet<Address>,
+        hash: HashOrError,
+        receipt: Option<TransactionReceipt>,
+    },
+    SettleFailure {
+        batch_header_hash: H256,
+        blob_index: u128,
+        accounts: HashSet<Address>,
+        hash: HashOrError,
+        receipt: Option<TransactionReceipt>,
+    },
+    SettleTimedOut {
+        batch_header_hash: H256,
+        blob_index: u128,
+        accounts: HashSet<Address>,
+        elapsed: tokio::time::error::Elapsed
     },
     CommTest
 }

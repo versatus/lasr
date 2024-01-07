@@ -1,3 +1,4 @@
 .env
 /target
 /eigenda
+blocks_processed.dat
