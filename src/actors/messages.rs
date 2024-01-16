@@ -579,3 +579,14 @@ pub enum BatcherMessage {
     GetNextBatch,
     BlobVerificationProof { request_id: String, proof: BlobVerificationProof }
 }
+
+#[derive(Debug, RactorMessage)]
+pub enum ExecutorMessage {
+    Retrieve(String /*ContentId*/),
+    Create(String /*ContentId*/, String, Option<Vec<String>>),
+    Start(String /*ContentId*/),
+    Exec(String /*ContentId*/, Option<String>/*Op*/, Option<Vec<String>>/*Inputs*/, [u8; 32] /*TransactionId*/),
+    Kill(String /*ContentId*/),
+    Delete(String /*ContentId*/),
+    Results(String /*ContentId*/, String, /*Outputs*/),
+}

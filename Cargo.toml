@@ -13,6 +13,10 @@ path = "src/bin/main.rs"
 name = "cli"
 path = "src/bin/cli.rs"
 
+[[bin]]
+name = "compute"
+path = "src/bin/compute.rs"
+
 [dependencies]
 secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand" ] }
 ethereum-types = "0.14.1"
@@ -55,6 +59,12 @@ uint = "0.9.5"
 flate2 = "1.0.28"
 async-recursion = "1.0.5"
 dotenv = "0.15.0"
+oci-spec = "0.6.4"
+fs_extra = "1.3.0"
+tokio-rayon = "2.1.0"
+ipfs-api = "0.17.0"
+ipfs-api-backend-hyper = "0.6"
+criterion = { version = "0.5.1", features = [ "async_tokio", "async_futures" ] }
 
 [dev-dependencies]
 simple_logger = "4.3.0"

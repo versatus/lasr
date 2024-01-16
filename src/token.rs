@@ -77,6 +77,86 @@ pub struct Token {
     status: Status,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TokenField {
+    ProgramId,
+    OwnerId,
+    Balance,
+    Metadata,
+    TokenIds,
+    Allowance,
+    Approvals,
+    Data,
+    Status,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TokenFieldValue {
+    Balance(BalanceValue),
+    Metadata(MetadataValue),
+    TokenIds(TokenIdValue),
+    Allowance(AllowanceValue),
+    Approvals(ApprovalsValue),
+    Data(DataValue),
+    Status(StatusValue),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BalanceValue {
+    Credit(U256),
+    Debit(U256),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MetadataValue {
+    ReplaceAll(Metadata),
+    ReplaceSlice(usize, usize, Vec<u8>),
+    ReplaceByte(usize, u8),
+    Extend(Metadata),
+    Push(u8),
+    Pop,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TokenIdValue {
+    Push(U256),
+    Extend(Vec<U256>),
+    Insert(usize, U256),
+    Pop,
+    Remove(U256),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AllowanceValue {
+    Insert(Address, U256),
+    Extend(Vec<(Address, U256)>),
+    Remove(Address, U256),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ApprovalsValue {
+    Insert(Address, U256),
+    Extend(Vec<(Address, U256)>),
+    Remove(Address, U256),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DataValue {
+    ReplaceAll(ArbitraryData),
+    ReplaceSlice(usize, usize, Vec<u8>),
+    ReplaceByte(usize, u8),
+    Extend(Metadata),
+    Push(u8),
+    Pop,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StatusValue {
+    Reverse,
+    Lock,
+    Unlock,
+}
+
 impl Token {
     pub fn program_id(&self) -> Address {
         self.program_id.clone()
@@ -155,7 +235,7 @@ pub struct TokenWitness {
     transactions: TransactionGraph,
     finalized: Box<Token>,
     sig: RecoverableSignature,
-    version: &'static str,
+    version: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
