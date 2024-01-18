@@ -4,4 +4,6 @@
 /base_image
 /containers
 /payload
+/json_repr
+/src/bin/json_repr.rs
 blocks_processed.dat
