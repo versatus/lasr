@@ -1,8 +1,10 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-
-use crate::{Address, ContractBlob, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields};
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
+
+/// This file contains types the protocol uses to prepare data, structure it 
+/// and call out to a particular compute payload.
 
 /// The inputs type for a contract call
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,6 +106,24 @@ pub enum Instruction {
         amount: Option<U256>,
         token_ids: Vec<U256>,
     },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OpParamTypes {
+    Address,
+    String,
+    Tuple,
+    FixedArray(usize),
+    Array,
+    FixedBytes(usize),
+    Bool,
+    Uint,
+    Int,
+    BigUint,
+    BigInt,
+    GiantUint,
+    GiantInt,
+    Mapping,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,8 +241,8 @@ pub enum Required {
 //TODO(asmith) create a enum to represent the types without the inner
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CallMap {
-    calling_program: String,
-    original_caller: String,
+    calling_program: TransactionFields,
+    original_caller: TransactionFields,
     program_id: String, 
     inputs: String, 
 }

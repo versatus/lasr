@@ -168,6 +168,20 @@ pub struct Transaction {
     s: [u8; 32],
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TransactionFields {
+    TransactionType,
+    From,
+    To,
+    ProgramId,
+    Op,
+    Inputs,
+    Value,
+    V,
+    R,
+    S,
+}
+
 impl Transaction {
     pub fn program_id(&self) -> Address {
         self.program_id.into()
