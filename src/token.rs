@@ -135,9 +135,9 @@ pub enum AllowanceValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ApprovalsValue {
-    Insert(Address, U256),
-    Extend(Vec<(Address, U256)>),
-    Remove(Address, U256),
+    Insert(Address, Option<U256>),
+    Extend(Vec<(Address, Option<U256>)>),
+    Remove(Address, Option<U256>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]

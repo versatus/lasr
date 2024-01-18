@@ -115,6 +115,8 @@ impl Actor for TaskScheduler {
         match message {
             SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
+                // Send to executor, when executor returns send to validator for validation 
+                // engine for creation and batcher for application to accounts
             },
             SchedulerMessage::Send { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");

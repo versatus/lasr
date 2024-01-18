@@ -75,6 +75,8 @@ impl Actor for ExecutorActor {
                 if let Err(e) = res {
                     log::error!("Error executor.rs: 73: {e}");
                 }
+                // If payload has a constructor method/function should be executed
+                // to return a Create instruction.
             },
             ExecutorMessage::Start(_content_id) => {
                 // Warm up/start a container image

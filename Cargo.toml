@@ -17,6 +17,22 @@ path = "src/bin/cli.rs"
 name = "compute"
 path = "src/bin/compute.rs"
 
+[[example]]
+name = "fungible_token"
+path = "examples/fungible_token/fungible_token.rs"
+
+[[example]]
+name = "escrow"
+path = "examples/escrow/escrow.rs"
+
+[[example]]
+name = "swap"
+path = "examples/swap/swap.rs"
+
+[[example]]
+name = "blackjack"
+path = "examples/blackjack/blackjack.rs"
+
 [dependencies]
 secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand" ] }
 ethereum-types = "0.14.1"
@@ -65,6 +81,7 @@ tokio-rayon = "2.1.0"
 ipfs-api = "0.17.0"
 ipfs-api-backend-hyper = "0.6"
 criterion = { version = "0.5.1", features = [ "async_tokio", "async_futures" ] }
+toml = { version = "0.8.8", features = [ "preserve_order" ] }
 
 [dev-dependencies]
 simple_logger = "4.3.0"
