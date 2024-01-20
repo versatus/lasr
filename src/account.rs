@@ -6,7 +6,7 @@ use hex::{FromHexError, ToHex};
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 /// Represents a 20-byte Ethereum Compatible address.
@@ -155,6 +155,62 @@ impl From<PublicKey> for Address {
 pub struct AccountNonce {
     bridge_nonce: U256,
     send_nonce: U256,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Namespace(String);
+
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProgramAccount {
+    namespace: Namespace,
+    programs: BTreeMap<Namespace, Token>,
+    metadata: Metadata,
+    data: ArbitraryData,
+}
+
+impl ProgramAccount {
+    pub fn new(
+        namespace: Namespace,
+        programs: Option<BTreeMap<Namespace, Token>>,
+        metadata: Option<Metadata>,
+        data: Option<ArbitraryData>
+    ) -> Self {
+        let programs = if let Some(p) = programs {
+            p.clone()
+        } else {
+            BTreeMap::new()
+        };
+
+        let metadata = if let Some(m) = metadata {
+            m.clone()
+        } else {
+            Metadata::new()
+        };
+
+        let data = if let Some(d) = data {
+            d.clone()
+        } else {
+            ArbitraryData::new()
+        };
+
+        Self { namespace, programs, metadata, data }
+    }
+
+    pub fn namespace(&self) -> Namespace {
+        self.namespace.clone()
+    }
+
+    pub fn programs(&self) -> BTreeMap<Namespace, Token> {
+        self.programs.clone()
+    }
+
+    pub fn metadata(&self) -> Metadata {
+        self.metadata.clone()
+    }
+
+    pub fn data(&self) -> ArbitraryData {
+        self.data.clone()
+    }
 }
 
 /// Represents an LASR account.

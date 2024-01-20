@@ -93,7 +93,7 @@ impl Actor for DaClient {
                     if let Ok(blob) = encoded_blob {
                         let res = Batch::decode_batch(&blob.data());
                         if let Ok(batch) = &res {
-                            let account = batch.get_account(address);
+                            let account = batch.get_user_account(address);
                             let _ = tx.send(account.clone()).map_err(|e| Box::new(
                                     DaClientError::Custom(format!("{:?}", e))))?;
                             log::info!("successfully decoded account blob: {:?}", account);

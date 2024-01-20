@@ -1,21 +1,30 @@
 use std::{collections::HashMap, path::Path};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage};
+use crate::{OciManager, ExecutorMessage, Outputs};
+use serde::{Serialize, Deserialize};
 
 // This will be a weighted LRU cache that captures the size of the 
 // containers and kills/deletes LRU containers
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynCache;
 
 #[allow(unused)]
 pub struct ExecutionEngine {
     manager: OciManager,
     ipfs_client: ipfs_api::IpfsClient,
-    handles: HashMap<(String, [u8; 32]), tokio::task::JoinHandle<std::io::Result<String>>>,
+    handles: HashMap<(String, [u8; 32]), tokio::task::JoinHandle<std::io::Result<Outputs>>>,
     cache: DynCache
 }
 
 impl ExecutionEngine {
+    pub fn new(
+        manager: OciManager,  
+        ipfs_client: ipfs_api::IpfsClient,
+    ) -> Self  {
+        Self { manager, ipfs_client, handles: HashMap::new(), cache: DynCache }
+    }
+
     pub(super) async fn create_bundle(
         &self,
         content_id: impl AsRef<Path>,
@@ -34,7 +43,7 @@ impl ExecutionEngine {
         content_id: impl AsRef<Path> + Send,
         op: Option<String>,
         inputs: Option<Vec<String>>,
-    ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
+    ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<Outputs>>> {
         let handle = self.manager.run_container(content_id, op, inputs).await?;
         Ok(handle)
     }

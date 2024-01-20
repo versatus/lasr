@@ -62,7 +62,7 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
         redeemer: [u8; 20],
         deposit_token_address: [u8; 20],
         deposit_id: Option<[u8; 32]>,
-        conditions: impl AsRef<[u8]>, 
+        condition_proof: impl AsRef<[u8]>, 
         item_address: [u8; 20],
         item: U256
     ) -> Vec<Instruction>;

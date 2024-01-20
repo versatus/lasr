@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use std::process::Stdio;
-use crate::Inputs;
+use crate::{Inputs, Outputs};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -99,7 +99,7 @@ impl OciManager {
         content_id: impl AsRef<Path> + Send, 
         op: Option<String>,
         inputs: Option<Vec<String>>,
-    ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
+    ) -> Result<tokio::task::JoinHandle<Result<Outputs, std::io::Error>>, std::io::Error> {
         let container_path = self.bundler.get_container_path(&content_id)
             .as_ref()
             .to_string_lossy()
@@ -154,8 +154,10 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             }).await?;
             let output = child.wait_with_output().await?;
-            let res = String::from_utf8_lossy(&output.stdout).into_owned();
-            log::info!("result from container: {container_id} = {res}");
+            let res: Outputs = serde_json::from_slice(&output.stdout).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?;
+            log::info!("result from container: {container_id} = {:#?}", res);
 
             Ok::<_, std::io::Error>(res)
         }))

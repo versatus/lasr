@@ -68,7 +68,7 @@ maturity = { source = "read" }
 
 [[contract.ops.revoke.required]]
 type = "Call"
-details = { calling_program = "Address", original_caller = "Address", program_id = "Address", inputs = "" }
+details = { calling_program = "this", original_caller = "depositor_address", program_id = "lasr.program-namespace.random-number-generator", inputs = "" }
 
 [[contract.ops.revoke.required]]
 type = "Read"

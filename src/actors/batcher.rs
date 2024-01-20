@@ -13,7 +13,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -35,27 +35,30 @@ pub struct BatcherActor;
 #[derive(Builder, Clone, Debug, Serialize, Deserialize)]
 pub struct Batch {
     transactions: HashMap<[u8; 32], Transaction>,
-    accounts: HashMap<[u8; 20], Account>,
+    user_accounts: HashMap<[u8; 20], Account>,
+    program_accounts: HashMap<Namespace, ProgramAccount>,
 }
 
 impl Batch {
     pub fn new() -> Self {
         Self {
             transactions: HashMap::new(),
-            accounts: HashMap::new(),
+            user_accounts: HashMap::new(),
+            program_accounts: HashMap::new(),
         }
     }
 
     pub fn empty(&self) -> bool {
         let mut empty = false;
         empty = self.transactions().is_empty();
-        empty = self.accounts().is_empty();
+        empty = self.user_accounts().is_empty();
+        empty = self.program_accounts().is_empty();
         return empty
     }
 
-    pub fn get_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
-        if let Some(account) = self.accounts().get(&address.into()) {
-            return Some(account.clone())
+    pub fn get_user_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
+        if let Some(ua) = self.user_accounts().get(&address.into()) {
+            return Some(ua.clone())
         }
 
         None
@@ -64,6 +67,14 @@ impl Batch {
     pub fn get_transaction(&self, id: impl Into<[u8; 32]>) -> Option<Transaction> {
         if let Some(transaction) = self.transactions().get(&id.into()) {
             return Some(transaction.clone())
+        }
+
+        None
+    }
+
+    pub fn get_program_account(&self, id: Namespace) -> Option<ProgramAccount> {
+        if let Some(pa) = self.program_accounts().get(&id) {
+            return Some(pa.clone())
         }
 
         None
@@ -151,12 +162,21 @@ impl Batch {
         test_batch.at_capacity()
     }
 
-    pub(super) fn account_would_exceed_capacity(
+    pub(super) fn user_account_would_exceed_capacity(
         &self,
         account: Account
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.accounts.insert(account.address().into(), account);
+        test_batch.user_accounts.insert(account.address().into(), account);
+        test_batch.at_capacity()
+    }
+
+    pub(super) fn program_account_would_exceed_capacity(
+        &self,
+        program_account: ProgramAccount
+    ) -> Result<bool, BatcherError> {
+        let mut test_batch = self.clone();
+        test_batch.program_accounts.insert(program_account.namespace(), program_account);
         test_batch.at_capacity()
     }
 
@@ -180,9 +200,9 @@ impl Batch {
     }
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
-        if !self.clone().account_would_exceed_capacity(account.clone())? {
+        if !self.clone().user_account_would_exceed_capacity(account.clone())? {
             let mut id: [u8; 20] = account.address().into();
-            self.accounts.insert(id, account.clone());
+            self.user_accounts.insert(id, account.clone());
             return Ok(())
         }
 
@@ -197,8 +217,12 @@ impl Batch {
         self.transactions.clone()
     }
 
-    pub fn accounts(&self) -> HashMap<[u8; 20], Account> {
-        self.accounts.clone()
+    pub fn user_accounts(&self) -> HashMap<[u8; 20], Account> {
+        self.user_accounts.clone()
+    }
+
+    pub fn program_accounts(&self) -> HashMap<Namespace, ProgramAccount> {
+        self.program_accounts.clone()
     }
 }
 
@@ -471,7 +495,7 @@ impl Batcher {
 
         let accounts = self.cache.get(&request_id).ok_or(
             BatcherError::Custom("request id not in cache".to_string())
-        )?.accounts.iter()
+        )?.user_accounts.iter()
             .map(|(addr, _)| addr.into())
             .collect();
         
