@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAc
 
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
-use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo};
+use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo, Namespace};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
@@ -121,7 +121,6 @@ fn from_file_arg() -> Arg {
         .long("from-file")
         .aliases(["ff", "from_file", "fromfile", "load"])
         .action(ArgAction::SetTrue)
-        .requires("path")
         .required(false)
         .conflicts_with("from-mnemonic")
         .conflicts_with("from-secret-key")
@@ -149,8 +148,9 @@ fn wallet_index_arg() -> Arg {
         .long("wallet-index")
         .aliases(["index", "wallet", "walletindex", "wi", "i"])
         .help("The index in the array in the keypair file of the wallet that the user would like to use")
-        .value_parser(value_parser!(u8))
-        .default_missing_value("0")
+        .value_parser(value_parser!(usize))
+        .required(false)
+        .default_value("0")
 }
 
 fn from_file_group() -> ArgGroup {
@@ -250,16 +250,16 @@ fn receiver_arg() -> Arg {
         .long("to")
         .alias("receiver")
         .help("The receiver of the tokens being sent, should be a 40 character hexidecimal string, representing a 20 byte address")
-        .required(true)
         .value_name("Address")
         .value_parser(value_parser!(Address))
+        .required(true)
 }
 
 fn program_id_arg() -> Arg {
-    Arg::new("program-id")
-        .short('i')
-        .long("program-id")
-        .aliases(["pid", "prog-id", "program_id", "prog_id", "id", "token", "token-id", "token_id", "tid"])
+    Arg::new("content-namespace")
+        .short('c')
+        .long("content-namespace")
+        .aliases(["pid", "prog-id", "program_id", "prog_id", "id", "token", "token-id", "token_id", "tid", "content-id", "cid", "content-namespace", "cns"])
         .help("A hexidecimal string representing the program id of the token that is being sent, defaults to 0 for native ETH tokens and 1 for native Verse tokens")
         .default_value("0")
         .default_missing_value("0")
@@ -275,6 +275,7 @@ fn value_arg() -> Arg {
         .required(true)
         .value_name("U256")
         .value_parser(value_parser!(U256Wrapper))
+        .default_value("0")
         .help("the amount of the token to send")
 }
 
@@ -284,7 +285,7 @@ fn unit_arg() -> Arg {
         .long("unit")
         .default_value("echo")
         .value_parser(value_parser!(Unit))
-        .required(true)
+        .required(false)
         .help("The unit of tokens to be applied to the value")
 }
 
@@ -322,7 +323,7 @@ fn call_command() -> Command {
     Command::new("call")
         .about("creates, signs and sends a contract or compute transaction to the RPC server the wallet is configured to interact with")
         .arg(from_file_arg())
-        .arg(keyfile_path_arg())
+        .arg(keyfile_path_arg().required(false))
         .arg(wallet_index_arg())
         .arg(from_mnemonic_arg())
         .arg(mnemonic_arg())
@@ -332,6 +333,8 @@ fn call_command() -> Command {
         .arg(program_id_arg())
         .arg(function_arg())
         .arg(inputs_arg())
+        .arg(value_arg().required(false))
+        .arg(unit_arg().required(false))
 }
 
 fn send_command() -> Command {
@@ -379,6 +382,12 @@ fn wallet_command() -> Command {
         )
         .subcommand(
             send_command()
+        )
+        .subcommand(
+            call_command()
+        )
+        .subcommand(
+            register_program_command()
         )
         .subcommand(
             get_account_command()
@@ -465,7 +474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     wallet.get_account(&address).await;
 
                     let to = children.get_one::<Address>("to").expect("required");
-                    let pid = children.get_one::<Address>("program-id").expect("required");
+                    let pid = children.get_one::<Address>("content-namespace").expect("required");
                     let value = children.get_one::<U256Wrapper>("value").expect("required");
                     let unit = children.get_one::<Unit>("unit").expect("required");
 
@@ -477,11 +486,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let values = children.ids();
                     let mut wallet = get_wallet(children).await?;
                     let address = wallet.address();
-
+                    dbg!("attempting to get account");
                     wallet.get_account(&address).await;
 
+                    dbg!("parsing cli args");
                     let to = children.get_one::<Address>("to").expect("required");
-                    let pid = children.get_one::<Address>("program-id").expect("required");
+                    let pid = children.get_one::<Address>("content-namespace").expect("required");
                     let value = children.get_one::<U256Wrapper>("value").expect("required");
                     let op = children.get_one::<String>("op").expect("required");
                     let inputs = children.get_one::<String>("inputs").expect("required");
@@ -489,7 +499,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let amount = value.0 * unit;
 
+                    dbg!("submitting transaction");
                     let tokens = wallet.call(pid, to, amount, op, inputs).await;
+                    dbg!("call result: {:?}", tokens);
 
                 }
                 Some(("register-program", children)) => {
@@ -528,13 +540,14 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         let (secret_key, public_key) = {
             if from_file {
                 let keypair_file = children.get_one::<String>("path").expect("required if from-file flag");
-                dbg!(keypair_file);
+                let wallet_index = children.get_one::<usize>("wallet-index").expect("required or default");
                 let mut file = std::fs::File::open(keypair_file)?;
                 let mut contents = String::new();
                 file.read_to_string(&mut contents);
-                let keypair: Keypair = serde_json::from_str(&contents)?;
-                let master = keypair.secret_key();
-                let pubkey = keypair.public_key();
+                let keypair_file: Vec<WalletInfo> = serde_json::from_str(&contents)?;
+                let wallet_info = &keypair_file[*wallet_index];
+                let master = wallet_info.secret_key();
+                let pubkey = wallet_info.public_key();
                 (master, pubkey)
             } else if from_mnemonic {
                 let phrase = children.get_one::<String>("mnemonic").expect("required if from-mnemonic flag");
@@ -568,9 +581,13 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
 
         let address: Address = public_key.into();
         let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
-        let account: Account = bincode::deserialize(
-            &client.get_account(format!("{:x}", address)).await?
-        )?;
+        let res = &client.get_account(format!("{:x}", address)).await;
+        let account = if let Ok(account_bytes) = res {
+            let account: Account = bincode::deserialize(account_bytes)?;
+            account
+        } else {
+            Account::new(address, None)
+        };
 
         WalletBuilder::default()
             .sk(secret_key)

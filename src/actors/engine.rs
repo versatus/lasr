@@ -7,7 +7,7 @@ use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -153,7 +153,26 @@ impl Engine {
     }
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
-        self.set_pending_transaction(transaction).await?;
+        self.inform_executor(transaction).await?;
+        Ok(())
+    }
+
+    async fn inform_executor(&self, transaction: Transaction) -> Result<(), EngineError> {
+        let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
+            ActorType::Executor.to_string()
+        ).ok_or(
+            EngineError::Custom("engine.rs 161: Error: unable to acquire executor".to_string())
+        )?.into();
+        let mut transaction_id = [0u8; 32];
+        transaction_id.copy_from_slice(&transaction.hash()[..]);
+        let message = ExecutorMessage::Exec {
+            program_id: transaction.to(), 
+            op: transaction.op(), 
+            inputs: transaction.inputs(),
+            transaction_id, 
+        };
+        actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
+
         Ok(())
     }
 
@@ -162,7 +181,7 @@ impl Engine {
         Ok(())
     }
 
-    async fn handle_deploy(&self, transaction: Transaction) -> Result<(), EngineError> {
+    async fn handle_register_program(&self, transaction: Transaction) -> Result<(), EngineError> {
         self.set_pending_transaction(transaction).await?;
         Ok(())
     }
@@ -212,8 +231,8 @@ impl Actor for Engine {
             EngineMessage::Send { transaction } => {
                 self.handle_send(transaction).await;
             },
-            EngineMessage::Deploy { transaction } => {
-                self.handle_deploy(transaction).await;
+            EngineMessage::RegisterProgram { transaction } => {
+                self.handle_register_program(transaction).await;
             }
             _ => {}
         }

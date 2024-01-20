@@ -51,7 +51,7 @@ pub enum RpcRequestMethod {
     Send {
         transaction: Transaction
     },
-    Deploy {
+    RegisterProgram {
         transaction: Transaction,
     },
     GetAccount {

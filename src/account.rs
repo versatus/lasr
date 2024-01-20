@@ -160,6 +160,20 @@ pub struct AccountNonce {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Namespace(String);
 
+impl FromStr for Namespace {
+    type Err = Box<dyn std::error::Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let string = s.to_string();
+        Ok(Self(string))
+    }
+}
+
+impl From<String> for Namespace {
+    fn from(value: String) -> Self {
+        Self(value.clone())
+    }
+}
+
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProgramAccount {
     namespace: Namespace,
@@ -325,5 +339,9 @@ impl Account {
             return Ok(())
         }
         return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn increment_nonce(&mut self) {
+        self.nonce += 1.into();
     }
 }

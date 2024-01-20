@@ -85,24 +85,24 @@ macro_rules! create_handler {
         }
     };
 
-    (rpc_response, deploy) => {
+    (rpc_response, registerProgram) => {
         |resp| {
             match resp {
-                RpcMessage::DeploySuccess { response, .. } => {
+                RpcMessage::RegistrationSuccess { response, .. } => {
                     match response {
                         Ok(()) => {
                             return Ok(())
                         }
                         _ => {
                             return Err(Box::new(RpcError::Custom(
-                                "Received an invalid type in response to RPC `deploy` method".to_string()
+                                "Received an invalid type in response to RPC `registerProgram` method".to_string()
                             )) as Box<dyn std::error::Error>);
                         }
                     }
                 }
                 _ => {
                     return Err(Box::new(RpcError::Custom(
-                        "Received an invalid type in response to RPC `deploy` method".to_string()
+                        "Received an invalid type in response to RPC `registerProgram` method".to_string()
                     )) as Box<dyn std::error::Error>);
                 }
             }
@@ -141,7 +141,7 @@ macro_rules! create_handler {
         }
     };
 
-    (engine_response, deploy) => {
+    (engine_response, registerProgram) => {
         |resp| match resp {
         }
     };

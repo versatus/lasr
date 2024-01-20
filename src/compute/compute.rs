@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use std::process::Stdio;
-use crate::{Inputs, Outputs};
+use crate::{Inputs, Outputs, ProgramSchema};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -97,8 +97,8 @@ impl OciManager {
     pub async fn run_container(
         &self,
         content_id: impl AsRef<Path> + Send, 
-        op: Option<String>,
-        inputs: Option<Vec<String>>,
+        op: String,
+        inputs: Vec<String>,
     ) -> Result<tokio::task::JoinHandle<Result<Outputs, std::io::Error>>, std::io::Error> {
         let container_path = self.bundler.get_container_path(&content_id)
             .as_ref()
@@ -109,17 +109,8 @@ impl OciManager {
             .to_string_lossy()
             .into_owned();
 
-        let op_string = if let Some(op_string) = op {
-            op_string
-        } else {
-            String::new()
-        };
-
-        let inputs_vec = if let Some(inputs_vec) = inputs {
-            inputs_vec
-        } else {
-            vec![]
-        };
+        let op_string = op; 
+        let inputs_vec = inputs; 
 
         let inputs = Inputs {
             op: op_string, inputs: inputs_vec
@@ -313,6 +304,23 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_root_path = container_path.as_ref().join(Self::CONTAINER_ROOT);
         let container_bin_path = container_root_path.join(Self::CONTAINER_BIN);
         container_bin_path
+    }
+
+    pub fn get_program_schema(&self, content_id: impl AsRef<Path>) -> std::io::Result<ProgramSchema> {
+        let payload_path = self.get_payload_path(content_id);
+        let schema_path = self.get_schema_path(payload_path)?;
+        let mut buf: Vec<u8> = Vec::new();
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(false)
+            .append(false)
+            .truncate(false)
+            .create(false)
+            .open(schema_path);
+    }
+
+    fn get_schema_path(&self, payload_path: impl AsRef<Path>) -> std::io:Result<Path> {
+        todo!()
     }
 }
 

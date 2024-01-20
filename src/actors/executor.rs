@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, Outputs};
+use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema};
 use serde::{Serialize, Deserialize};
 
 // This will be a weighted LRU cache that captures the size of the 
@@ -41,11 +41,20 @@ impl ExecutionEngine {
     pub(super) async fn execute(
         &self,
         content_id: impl AsRef<Path> + Send,
-        op: Option<String>,
-        inputs: Option<Vec<String>>,
+        op: String,
+        inputs: Vec<String>,
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<Outputs>>> {
         let handle = self.manager.run_container(content_id, op, inputs).await?;
         Ok(handle)
+    }
+
+    pub(super) async fn get_config(
+        &self,
+        content_id: impl AsRef<Path> + Send,
+        op: String,
+        inputs: Vec<String>,
+    ) -> std::io::Result<ProgramSchema> {
+        let config_file = self.manager.get_config(content_id);
     }
 }
 
@@ -90,15 +99,22 @@ impl Actor for ExecutorActor {
             ExecutorMessage::Start(_content_id) => {
                 // Warm up/start a container image
             }
-            ExecutorMessage::Exec(content_id, op, inputs, tx_id) => {
+            ExecutorMessage::Exec {
+                program_id, op, inputs, transaction_id
+            } => {
                 // Run container
-                let res = state.execute(&content_id, op, inputs).await;
-                if let Err(e) = &res {
-                    log::error!("Error executor.rs: 83: {e}");
-                };
-                if let Ok(handle) = res {
-                    state.handles.insert((content_id, tx_id), handle);
-                }
+                //parse inputs
+                let inputs = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&inputs);
+                // get config
+                let config = state.get_config();
+                dbg!(&inputs);
+                //let res = state.execute(program_id, op, inputs).await;
+                //if let Err(e) = &res {
+                //    log::error!("Error executor.rs: 83: {e}");
+                //};
+                //if let Ok(handle) = res {
+                //    state.handles.insert((program_id.to_string(), transaction_id), handle);
+                //}
             },
             ExecutorMessage::Kill(_content_id) => {
                 // Kill a container that is running

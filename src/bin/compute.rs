@@ -38,8 +38,8 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_1.run_container(
             "testContainerPy",
-            Some("getName".to_string()),
-            Some(vec!["Andrew".to_string(), "Smith".to_string()])
+            "getName".to_string(),
+            vec!["Andrew".to_string(), "Smith".to_string()]
         ).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerPy ran in: {:?}", elapsed);
@@ -57,7 +57,7 @@ async fn main() -> Result<(), std::io::Error> {
         task_manager_2.customize_spec("testContainerRs", "/hello-world", None)?;
 
         let start = std::time::Instant::now();
-        let _ = task_manager_2.run_container("testContainerRs", None, None).await?.await??;
+        let _ = task_manager_2.run_container("testContainerRs", "".to_string(), vec![]).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerRs ran in: {:?}", elapsed);
 

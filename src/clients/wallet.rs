@@ -172,6 +172,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .inputs(String::new())
             .op(String::new())
             .value(value)
+            .nonce(account.nonce())
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
@@ -191,6 +192,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         self.get_account(&self.address()).await?;
+        self.increment_nonce();
 
         Ok(token)
     }
@@ -207,16 +209,22 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let account = self.account();
         let address = self.address();
 
-        account.validate_balance(&program_id, value)?;
+        dbg!("validating balance");
 
+        if value > 0.into() {
+            account.validate_balance(&program_id, value)?;
+        }
+
+        dbg!("building transaciton payload");
         let payload = self.builder 
-            .transaction_type(TransactionType::Send(account.nonce()))
+            .transaction_type(TransactionType::Call(account.nonce()))
             .from(address.into())
             .to(to.into())
             .program_id(program_id.into())
             .inputs(inputs.to_string())
             .op(op.to_string())
             .value(value)
+            .nonce(account.nonce())
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
@@ -225,10 +233,13 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         let context = Secp256k1::new();
 
+        dbg!("signing transaaction");
         let sig: RecoverableSignature = context.sign_ecdsa_recoverable(&msg, &self.sk).into();
 
+        dbg!("packaging transaaction");
         let transaction: Transaction = (payload, sig.clone()).into();
 
+        dbg!("submitting transaction to RPC");
         let tokens = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
@@ -243,7 +254,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let address = self.address();
 
         let payload = self.builder 
-            .transaction_type(TransactionType::Deploy(account.nonce()))
+            .transaction_type(TransactionType::RegisterProgram(account.nonce()))
             .from(address.into())
             .to([0; 20])
             .program_id([0; 20])
@@ -301,6 +312,10 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
     fn account_mut(&mut self) -> &mut Account {
         &mut self.account
+    }
+
+    fn increment_nonce(&mut self) {
+        self.account_mut().increment_nonce();
     }
 
     pub(crate) fn account(&self) -> Account {

@@ -195,7 +195,7 @@ impl Hash for OpParams {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Config {
+pub struct ProgramSchema {
     pub contract: Contract
 }
 
@@ -238,7 +238,6 @@ pub enum Required {
     Unlock(LockPair),
 }
 
-//TODO(asmith) create a enum to represent the types without the inner
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CallMap {
     calling_program: TransactionFields,
@@ -247,14 +246,12 @@ pub struct CallMap {
     inputs: String, 
 }
 
-//TODO(asmith) create a enum to represent the types without the inner
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReadMap {
     items: Vec<(String, String, String)>, 
     contract_blobs: Option<Vec<String>> 
 }
 
-//TODO(asmith) create a enum to represent the types without the inner
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LockPair {
     account: String,
@@ -284,7 +281,7 @@ mod test {
     fn test_config_parsing() {
         let config_path = Path::new("./examples/escrow/config.toml");
         let toml_str = fs::read_to_string(config_path).expect("Failed to read config.toml");
-        let config: Config = toml::from_str(&toml_str).expect("Failed to parse config.toml");
+        let config: ProgramSchema = toml::from_str(&toml_str).expect("Failed to parse config.toml");
         dbg!(config);
     }
 }

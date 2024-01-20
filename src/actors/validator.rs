@@ -92,7 +92,7 @@ impl ValidatorCore {
     }
 
     #[allow(unused)]
-    async fn validate_deploy(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
+    async fn validate_register_program(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
         |_tx| Ok(false)
     }
 }
@@ -200,7 +200,7 @@ impl Actor for Validator {
                         // for address
                         // naively validate
                     },
-                    TransactionType::Deploy(_) => {
+                    TransactionType::RegisterProgram(_) => {
                         // get program
                         // build program
                         // validate sender sig

@@ -25,7 +25,7 @@ pub enum TransactionType {
     Send(U256),
     Call(U256),
     BridgeOut(U256),
-    Deploy(U256)
+    RegisterProgram(U256)
 }
 
 impl TransactionType {
@@ -57,9 +57,9 @@ impl TransactionType {
         }
     }
 
-    pub fn is_deploy(&self) -> bool {
+    pub fn is_register_program(&self) -> bool {
         match self {
-            TransactionType::Deploy(_) => true,
+            TransactionType::RegisterProgram(_) => true,
             _ => false
         }
     }
@@ -72,7 +72,7 @@ impl ToString for TransactionType {
             TransactionType::Send(n) => format!("send{n}"),
             TransactionType::Call(n) => format!("call{n}"),
             TransactionType::BridgeOut(n) => format!("bridgeOut{n}"),
-            TransactionType::Deploy(n) => format!("deploy{n}"),
+            TransactionType::RegisterProgram(n) => format!("deploy{n}"),
         }
     }
 }
@@ -200,6 +200,10 @@ impl Transaction {
 
     pub fn transaction_type(&self) -> TransactionType {
         self.transaction_type.clone()
+    }
+
+    pub fn op(&self) -> String {
+        self.op.to_string()
     }
 
     pub fn inputs(&self) -> String {

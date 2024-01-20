@@ -59,7 +59,7 @@ pub struct ContractBlob {
     hash: ContractHash,
     abi: Abi,
     address: Address,
-    deployment_certificate: Certificate,
+    registeration_certificate: Certificate,
     statics: BTreeMap<StaticTopicHash, StaticValue>,
     constants: BTreeMap<ConstantTopicHash, ConstantValue>
 }
