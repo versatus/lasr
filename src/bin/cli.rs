@@ -418,28 +418,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             std::fs::create_dir_all(dir_path).expect("unable to create directory for keyfile");
                         }
                         let overwrite = children.get_one::<bool>("overwrite").expect("required or default");
-                        let mut file = if *overwrite {
-                            let mut f = std::fs::OpenOptions::new()
-                                .write(true)
-                                .read(true)
-                                .truncate(true)
-                                .create(true)
-                                .open(path)
-                                .expect("unable to open file to write WalletInfo");
-                            f
+                        let mut file_buffer = Vec::new();
+                        let mut existing = if path.exists() {
+                            std::fs::File::open(path).expect("file cant be opened")
+                                .read_to_end(&mut file_buffer).expect("file should exist");
+                            let mut inner = if &file_buffer.len() > &0 {
+                                serde_json::from_slice::<Vec<WalletInfo>>(&file_buffer)
+                                    .expect("keypair file has been corrupted")
+                            } else {
+                                Vec::new()
+                            };
+                                inner
                         } else {
-                            let mut f = std::fs::OpenOptions::new()
-                                .write(true)
-                                .read(true)
-                                .append(true)
-                                .create(true)
-                                .open(path)
-                                .expect("unable to open file to write WalletInfo");
-                            f
+                            Vec::new()
                         };
+                        
+                        let mut file = std::fs::OpenOptions::new()
+                            .write(true)
+                            .read(true)
+                            .create(true)
+                            .truncate(true)
+                            .open(path)
+                            .expect("unable to open file to write WalletInfo");
 
+                        existing.push(wallet_info);
                         file.write_all(
-                            serde_json::to_string_pretty(&wallet_info)
+                            serde_json::to_string_pretty(&existing)
                                 .expect("unable to serialize wallet info")
                                 .as_bytes()
                         ).expect("unable to write wallet info to file");

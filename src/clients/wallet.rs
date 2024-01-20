@@ -3,7 +3,7 @@ use bip39::{Mnemonic, Language};
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use ethereum_types::U256;
 use secp256k1::{SecretKey, Secp256k1, Message, Keypair, hashes::{sha256, Hash}, PublicKey};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use sha3::{Digest, Sha3_256};
 use crate::{
     LasrRpcClient,
@@ -27,13 +27,35 @@ where
     serializer.serialize_str(&hex_repr)
 }
 
+fn deserialize_from_hex<'de, D>(deserializer: D) -> Result<Address, D::Error> 
+where 
+    D: Deserializer<'de>
+{
+    let s = String::deserialize(deserializer)?;
+    if s.len() != 42 {
+        return Err(serde::de::Error::custom("Invalid length"))
+    }
+
+    if !s.starts_with("0x") {
+        return Err(serde::de::Error::custom("'0x' prefix missing"))
+    }
+
+    let bytes = hex::decode(&s[2..]).map_err(serde::de::Error::custom)?;
+    let mut arr = [0u8; 20];
+    arr.copy_from_slice(&bytes[0..20]);
+    Ok(Address::from(arr))
+}
+
 #[derive(Builder, Clone, Serialize, Deserialize)]
 pub struct WalletInfo {
     mnemonic: Mnemonic,
     keypair: Keypair,
     secret_key: SecretKey,
     public_key: PublicKey,
-    #[serde(serialize_with = "serialize_as_hex")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_from_hex"
+    )]
     address: Address
 }
 
