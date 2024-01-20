@@ -1,11 +1,11 @@
 #![allow(unused)]
 use std::str::FromStr;
-
+use std::io::Write;
 use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}, ArgMatches};
 
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
-use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account};
+use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
@@ -55,32 +55,6 @@ fn parse_u256(s: &str) -> Result<U256, String> {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Creates, signs and sends a `call` transaction to the LASR RPC 
-    /// node this wallet interacts with
-    Call {
-        #[arg(short, long, required=false)]
-        wallet: u8,
-        #[arg(short, long, required=false)]
-        to: String, 
-        #[arg(long, required=true)]
-        program_id: String,
-        #[arg(short, long, required=true)]
-        op: String,
-        #[arg(short, long, required=true)]
-        inputs: String,
-        #[arg(short, long, required=true)]
-        value: u128,
-        #[arg(short, long, required=false)]
-        unit: Unit,
-    },
-    /// Creates, signs and sends a `deploy` transaction to the LASR RPC
-    /// node this wallet interacts with
-    Deploy {
-        #[arg(short, long, required=false)]
-        wallet: u8,
-       #[arg(short, long, required=true)] 
-        content_id: String
-    },
     BridgeOut,
     GetBalance {
         address: String,
@@ -93,6 +67,30 @@ fn new_wallet_command() -> Command {
     Command::new("new")
         .about("creates a new keypair, provides the mnemonic, secret key, public key, and address to the user")
         .propagate_version(true)
+        .arg(
+            seed_arg()
+                .required(false)
+        )
+        .arg(
+            passphrase_arg()
+                .required(false)
+        )
+        .arg(
+            mnemonic_size_arg()
+                .required(false)
+        )
+        .arg(
+            keyfile_path_arg()
+                .required(false)
+        )
+        .arg(
+            save_to_file_arg()
+                .required(false)
+        )
+        .arg(
+            overwrite_path_arg()
+                .required(false)
+        )
 }
 
 fn from_mnemonic_command() -> Command {
@@ -100,13 +98,7 @@ fn from_mnemonic_command() -> Command {
         .about("creates/loads a wallet keypair from a mnemonic")
         .arg_required_else_help(true)
         .arg(
-            Arg::new("mnemonic")
-                .short('m')
-                .long("mnemonic")
-                .help("a series of either 12 or 24 words")
-                .action(
-                    ArgAction::Append
-                )
+            mnemonic_arg()
                 .required(true)
         )
 }
@@ -137,10 +129,18 @@ fn from_file_arg() -> Arg {
 
 fn keyfile_path_arg() -> Arg {
     Arg::new("path")
-        .short('p')
         .long("path")
         .help("The path to the keypair file used to load the wallet")
-        .default_value("../../keypair.json")
+        .default_value(".lasr/wallet/keypair.json")
+}
+
+fn overwrite_path_arg() -> Arg {
+    Arg::new("overwrite")
+        .long("overwrite")
+        .aliases(["replace"])
+        .default_value("false")
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
 }
 
 fn wallet_index_arg() -> Arg {
@@ -211,6 +211,39 @@ fn from_secret_key_group() -> ArgGroup {
         .args(["from-secret-key", "secret-key"])
 }
 
+fn mnemonic_size_arg() -> Arg {
+    Arg::new("mnemonic-size")
+        .short('n')
+        .long("size")
+        .value_parser(value_parser!(usize))
+        .help("The size of the mnemonic phrase, can be 12 or 24, defaults to 12")
+}
+
+fn seed_arg() -> Arg {
+    Arg::new("seed")
+        .short('s')
+        .long("seed")
+        .value_parser(value_parser!(u128))
+        .help("A 128-bit number to generate an entropy from. WARNING: only provide this if you know what you are doing")
+}
+
+fn passphrase_arg() -> Arg {
+    Arg::new("passphrase")
+        .short('p')
+        .long("passphrase")
+        .help("A user selected passphrase that is used to generate a random seed")
+}
+
+fn save_to_file_arg() -> Arg {
+    Arg::new("save")
+        .short('o')
+        .long("save")
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
+        .help("Save the wallet info to a file")
+        .default_value("false")
+}
+
 fn receiver_arg() -> Arg {
     Arg::new("to")
         .short('t')
@@ -252,6 +285,53 @@ fn unit_arg() -> Arg {
         .default_value("echo")
         .value_parser(value_parser!(Unit))
         .required(true)
+        .help("The unit of tokens to be applied to the value")
+}
+
+fn function_arg() -> Arg {
+    Arg::new("op")
+        .long("op")
+        .aliases(["function", "fn", "func", "def", "method", "call"])
+        .required(true)
+        .help("the operation or function in the contract being called that will be executed")
+}
+
+fn inputs_arg() -> Arg {
+    Arg::new("inputs")
+        .short('i')
+        .long("inputs")
+        .aliases(["params", "function-inputs", "op-inputs", "op-params"])
+        .required(true)
+        .help("a json string that represents the inputs to the function, i.e. function parameters/arguments for the function in the contract that will be called")
+}
+
+fn register_program_command() -> Command {
+    Command::new("register-program")
+        .aliases(["deploy", "rp", "register", "reg-prog", "prog", "deploy-prog", "register-contract", "deploy-contract", "rc", "dc"])
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(inputs_arg())
+}
+
+fn call_command() -> Command {
+    Command::new("call")
+        .about("creates, signs and sends a contract or compute transaction to the RPC server the wallet is configured to interact with")
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(receiver_arg())
+        .arg(program_id_arg())
+        .arg(function_arg())
+        .arg(inputs_arg())
 }
 
 fn send_command() -> Command {
@@ -264,18 +344,10 @@ fn send_command() -> Command {
         .arg(mnemonic_arg())
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
-        .arg(
-            receiver_arg()
-        )
-        .arg(
-            program_id_arg()
-        )
-        .arg(
-            value_arg()
-        )
-        .arg(
-            unit_arg()
-        )
+        .arg(receiver_arg())
+        .arg(program_id_arg())
+        .arg(value_arg())
+        .arg(unit_arg())
 }
 
 fn get_account_command() -> Command {
@@ -330,7 +402,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(("wallet", sub)) => {
             match sub.subcommand() {
                 Some(("new", children)) => {
-                    println!("received `wallet new` command");
+                    let values = children.ids();
+                    let seed = children.get_one::<u128>("seed");
+                    let passphrase = children.get_one::<String>("passphrase");
+                    let size = children.get_one::<usize>("mnemonic-size");
+                    let wallet_info = Wallet::<HttpClient>::new(seed, passphrase, size)
+                        .expect("Unable to acquire WalletInfo");
+                    pretty_print_wallet_info(&wallet_info);
+
+                    let save = children.get_one::<bool>("save");
+                    if let Some(true) = save {
+                        let path = std::path::Path::new(children.get_one::<String>("path").expect("required or default"));
+                        let dir_path = path.parent().expect("dir has no parent");
+                        if !dir_path.exists() {
+                            std::fs::create_dir_all(dir_path).expect("unable to create directory for keyfile");
+                        }
+                        let overwrite = children.get_one::<bool>("overwrite").expect("required or default");
+                        let mut file = if *overwrite {
+                            let mut f = std::fs::OpenOptions::new()
+                                .write(true)
+                                .read(true)
+                                .truncate(true)
+                                .create(true)
+                                .open(path)
+                                .expect("unable to open file to write WalletInfo");
+                            f
+                        } else {
+                            let mut f = std::fs::OpenOptions::new()
+                                .write(true)
+                                .read(true)
+                                .append(true)
+                                .create(true)
+                                .open(path)
+                                .expect("unable to open file to write WalletInfo");
+                            f
+                        };
+
+                        file.write_all(
+                            serde_json::to_string_pretty(&wallet_info)
+                                .expect("unable to serialize wallet info")
+                                .as_bytes()
+                        ).expect("unable to write wallet info to file");
+                    }
                 }
                 Some(("mnemonic", children)) => {
                     println!("received `wallet mnemonic` command");
@@ -355,6 +468,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let amount = value.0 * unit; 
 
                     let token = wallet.send(to, pid, amount).await;
+                }
+                Some(("call", children)) => {
+                    let values = children.ids();
+                    let mut wallet = get_wallet(children).await?;
+                    let address = wallet.address();
+
+                    wallet.get_account(&address).await;
+
+                    let to = children.get_one::<Address>("to").expect("required");
+                    let pid = children.get_one::<Address>("program-id").expect("required");
+                    let value = children.get_one::<U256Wrapper>("value").expect("required");
+                    let op = children.get_one::<String>("op").expect("required");
+                    let inputs = children.get_one::<String>("inputs").expect("required");
+                    let unit = children.get_one::<Unit>("unit").expect("required");
+
+                    let amount = value.0 * unit;
+
+                    let tokens = wallet.call(pid, to, amount, op, inputs).await;
+
+                }
+                Some(("register-program", children)) => {
+                    let mut wallet = get_wallet(children).await?;
+                    let address = wallet.address();
+                    wallet.get_account(&address).await;
+                    let inputs = children.get_one::<String>("inputs").expect("required");
+                    let _ = wallet.register_program(inputs).await;
+                    wallet.get_account(&address).await;
+
                 }
                 Some(("get-account", children)) => {
                     let mut wallet = get_wallet(children).await?;
@@ -439,4 +580,26 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
     };
 
     wallet
+}
+
+fn pretty_print_wallet_info(wallet_info: &WalletInfo) {
+    println!("************************************************************");
+    println!("****************  DO NOT SHARE MNEMONIC PHRASE *************");
+    println!("************************************************************");
+    println!("************************************************************");
+    println!("******************     MNEMONIC PHRASE     *****************\n");
+    println!("{}\n", &wallet_info.mnemonic());
+    println!("****************  DO NOT SHARE SECRET KEY  *****************");
+    println!("************************************************************\n");
+    println!("************************************************************");
+    println!("******************     SECRET KEY        *******************\n");
+    println!("{}\n", &wallet_info.secret_key().display_secret());
+    println!("************************************************************\n");
+    println!("************************************************************\n");
+    println!("******************     PUBLIC KEY       ********************\n");
+    println!("{}\n", &wallet_info.public_key().to_string());
+    println!("************************************************************");
+    println!("******************       ADDRESS         *******************");
+    println!("*******  0x{}  *******", &wallet_info.address().encode_hex::<String>());
+    println!("************************************************************\n");
 }

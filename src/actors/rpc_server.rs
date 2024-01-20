@@ -197,9 +197,9 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }
     }
 
-    async fn deploy(
+    async fn register_program(
         &self,
-        transaction: Transaction
+        transaction: Transaction 
     ) -> Result<(), jsonrpsee::core::Error> {
         log::info!("Received RPC deploy method"); 
         let (tx, rx) = oneshot();

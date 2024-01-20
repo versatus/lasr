@@ -62,6 +62,7 @@ impl ValidatorCore {
         |tx, account| {
             account.validate_program_id(&tx.program_id())?;
             account.validate_balance(&tx.program_id(), tx.value())?;
+            account.validate_nonce(tx.nonce())?;
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
             let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(

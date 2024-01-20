@@ -87,16 +87,13 @@ pub struct Payload {
     op: String,
     inputs: String,
     value: U256,
+    nonce: U256,
 }
 
 impl Payload {
     pub fn transaction_type(&self) -> TransactionType {
         self.transaction_type.clone()
     }
-
-//    pub fn token_type(&self) -> TokenType {
-//        self.token_type.clone()
-//    }
 
     pub fn from(&self) -> [u8; 20] {
         self.from
@@ -120,6 +117,10 @@ impl Payload {
 
     pub fn value(&self) -> U256 {
         self.value
+    }
+
+    pub fn nonce(&self) -> U256 {
+        self.nonce
     }
 
     pub fn hash_string(&self) -> String {
@@ -163,6 +164,7 @@ pub struct Transaction {
     op: String,
     inputs: String,
     value: U256,
+    nonce: U256,
     v: i32,
     r: [u8; 32],
     s: [u8; 32],
@@ -177,6 +179,7 @@ pub enum TransactionFields {
     Op,
     Inputs,
     Value,
+    Nonce,
     V,
     R,
     S,
@@ -205,6 +208,10 @@ impl Transaction {
 
     pub fn value(&self) -> U256 {
         self.value
+    }
+
+    pub fn nonce(&self) -> U256 {
+        self.nonce
     }
 
     pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
@@ -281,6 +288,7 @@ impl Default for Transaction {
             op: String::new(),
             inputs: String::new(),
             value: 0.into(),
+            nonce: 0.into(),
             v: 0,
             r: [0; 32],
             s: [0; 32]
@@ -298,6 +306,7 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
             op: value.0.op(),
             inputs: value.0.inputs(), 
             value: value.0.value(), 
+            nonce: value.0.nonce(),
             v: value.1.get_v(), 
             r: value.1.get_r(), 
             s: value.1.get_s(),

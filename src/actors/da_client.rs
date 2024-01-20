@@ -181,7 +181,7 @@ impl Actor for DaSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State
     ) -> Result<(), ActorProcessingErr> {
-        log::error!("Received a supervision event: {:?}", message);
+        log::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
                 log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());

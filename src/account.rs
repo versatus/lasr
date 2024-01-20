@@ -319,4 +319,11 @@ impl Account {
 
         return Err(Box::new(AccountCacheError))
     }
+
+    pub(crate) fn validate_nonce(&self, nonce: U256) -> AccountResult<()> {
+        if nonce > self.nonce {
+            return Ok(())
+        }
+        return Err(Box::new(AccountCacheError))
+    }
 }

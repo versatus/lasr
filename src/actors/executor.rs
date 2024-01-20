@@ -78,8 +78,8 @@ impl Actor for ExecutorActor {
                 // Build container
             },
             ExecutorMessage::Create(content_id, entrypoint, program_args) => {
-                // Build the container spec and create the 
-                // sandbox container image
+                // Build the container spec and create the container image 
+                log::info!("Receieved request to create container image");
                 let res = state.create_bundle(content_id, entrypoint, program_args).await;
                 if let Err(e) = res {
                     log::error!("Error executor.rs: 73: {e}");

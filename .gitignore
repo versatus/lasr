@@ -6,4 +6,5 @@
 /payload
 /json_repr
 /src/bin/json_repr.rs
+/.lasr
 blocks_processed.dat
