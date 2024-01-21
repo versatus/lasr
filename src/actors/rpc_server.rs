@@ -112,7 +112,7 @@ impl LasrRpcServerActor {
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         match msg {
-            RpcMessage::RegistrationSuccess { .. }=> { 
+            RpcMessage::Response { .. }=> { 
                 reply.send(msg).map_err(|e| RpcError::Custom(format!("{:?}", e)))?;
                 Ok(())
             }
@@ -213,11 +213,32 @@ impl LasrRpcServer for LasrRpcServerImpl {
         
         let handler = create_handler!(rpc_response, registerProgram);
 
-        handle_actor_response(rx, handler).await.map_err(|e| {
+        match handle_actor_response(rx, handler).await.map_err(|e| {
             RpcError::Custom(
                 format!("Error: {}", e)
             )
-        })
+        }) {
+            Ok(resp) => {
+                match resp {
+                    TransactionResponse::RegisterProgramResponse(opt) => {
+                        match opt {
+                            None => return Ok(()),
+                            Some(e) => return Err(RpcError::Custom(e)) 
+                        }
+                    },
+                    _ => {
+                        return Err(RpcError::Custom(
+                            "received invalid response for `registerProgram` method".to_string()
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(RpcError::Custom(
+                    e.to_string()
+                ))
+            }
+        }
     }
 
     async fn get_account(
@@ -375,15 +396,6 @@ impl Actor for LasrRpcServerActor {
                 let message = RpcMessage::Response { response, reply: None };
                 self.handle_response_data(message, reply).await?;
             },
-            RpcMessage::RegistrationSuccess { response, reply } => {
-                let reply = reply.ok_or(
-                    Box::new(
-                        RpcError::Custom("Unable to acquire rpc reply sender in RpcMessage::Response".to_string())
-                    )
-                )?;
-                let msg = RpcMessage::RegistrationSuccess { response, reply: None  };
-                self.handle_register_program_response_data(msg, reply).await?;
-            }
         }
 
         Ok(())

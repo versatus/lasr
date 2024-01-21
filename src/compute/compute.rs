@@ -1,11 +1,12 @@
 use std::{ffi::OsStr, fmt::Display};
 use std::path::Path;
+use ractor::ActorRef;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use std::process::Stdio;
 use std::io::Read;
-use crate::{Inputs, Outputs, ProgramSchema};
+use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -104,8 +105,9 @@ impl OciManager {
 
     pub async fn run_container(
         &self,
-        content_id: impl AsRef<Path> + Send, 
+        content_id: impl AsRef<Path> + Send + 'static, 
         inputs: Inputs,
+        transaction_id: Option<[u8; 32]>,
     ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
         let container_path = self.bundler.get_container_path(&content_id)
             .as_ref()
@@ -152,6 +154,19 @@ impl OciManager {
             //    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             //})?;
             log::info!("result from container: {container_id} = {:#?}", res);
+
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to acquire Executor actor from inside container execution thread"
+                )
+            )?.into();
+
+            let message = ExecutorMessage::Results {
+                content_id: content_id.as_ref().to_string_lossy().into_owned(), transaction_id 
+            };
+
+            actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
             Ok::<_, std::io::Error>(res)
         }))
@@ -205,6 +220,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_path = self.get_container_path(&content_id);
         let container_root = self.container_root_path(&container_path);
         let payload_path = self.get_payload_path(&content_id);
+        log::info!("Attempting to copy {:?} to {:?}", &payload_path.as_ref().canonicalize(), &container_root.as_ref().canonicalize());
         if let Err(e) = copy_dir(payload_path, container_root).await {
             log::error!("Error adding payload: {e}");
         };
@@ -250,7 +266,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 })?
         };
         
-        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint.to_string())];
+        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint)];
         if let Some(pargs) = program_args {
             args.extend(pargs);
         }
@@ -310,7 +326,8 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
     }
 
     pub fn get_program_schema(&self, content_id: impl AsRef<Path>) -> std::io::Result<ProgramSchema> {
-        let payload_path = self.get_payload_path(content_id);
+        log::info!("ContentId: {:?}", content_id.as_ref().to_string_lossy());
+        let payload_path = self.get_payload_path(&content_id);
         let schema_path = self.get_schema_path(payload_path).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to find schema".to_string())
         )?;
@@ -324,13 +341,14 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .open(schema_path)?.read_to_string(&mut str)?;
         
         let schema = toml::from_str(&str).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to parse schema file")
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Error: compute.rs: 328: unable to parse schema file {e}"))
         })?;
 
         Ok(schema)
     }
 
     fn get_schema_path(&self, payload_path: impl AsRef<Path>) -> Option<String> {
+        log::info!("search for entries in {:?}", payload_path.as_ref().canonicalize());
         if let Ok(entries) = std::fs::read_dir(payload_path.as_ref()) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();

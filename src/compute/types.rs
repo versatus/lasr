@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount, Namespace, ProgramField, ProgramFieldValue};
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
@@ -68,6 +68,122 @@ pub struct ReadParams {
     pub items: Vec<(Address, Address, TokenField)>,
     pub contract_blobs: Vec<Address>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum AddressOrNamespace {
+    Address(Address),
+    Namespace(Namespace),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateInstruction {
+    program_namespace: AddressOrNamespace,
+    program_id: AddressOrNamespace,
+    program_owner: Address,
+    total_supply: U256,
+    initialized_supply: U256,
+    distribution: Vec<TokenDistribution>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokenDistribution {
+    to: AddressOrNamespace,
+    amount: U256,
+    update_fields: Vec<TokenOrProgramUpdateField>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TokenOrProgramUpdateField {
+    TokenUpdateField(TokenUpdateField),
+    ProgramUpdateField(ProgramUpdateField)
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TokenOrProgramUpdate {
+    TokenUpdate(TokenUpdate),
+    ProgramUpdate(ProgramUpdate),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokenUpdateField {
+    field: TokenField,
+    value: TokenFieldValue
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramUpdateField {
+    field: ProgramField,
+    value: ProgramFieldValue 
+}
+
+impl ProgramUpdateField {
+    pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
+        Self { field, value }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateInstruction {
+    updates: Vec<TokenOrProgramUpdate>
+}
+
+impl UpdateInstruction {
+    pub fn new(updates: Vec<TokenOrProgramUpdate>) -> Self {
+        Self { updates }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokenUpdate {
+    account: AddressOrNamespace,
+    token: AddressOrNamespace,
+    updates: Vec<TokenUpdateField>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProgramUpdate {
+    account: AddressOrNamespace,
+    updates: Vec<ProgramUpdateField>
+}
+
+impl ProgramUpdate {
+    pub fn new(account: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
+        Self { account, updates }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransferInstruction {
+    token_namespace: AddressOrNamespace,
+    from: AddressOrNamespace,
+    to: AddressOrNamespace,
+    amount: Option<U256>,
+    token_ids: Vec<U256>
+}
+
+impl TransferInstruction {
+    pub fn new(
+        token_namespace: AddressOrNamespace,
+        from: AddressOrNamespace,
+        to: AddressOrNamespace,
+        amount: Option<U256>,
+        token_ids: Vec<U256>
+    ) -> Self {
+        Self { token_namespace, from, to, amount, token_ids }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BurnInstruction {
+    token_namespace: AddressOrNamespace,
+    owner: Address,
+    amount: Option<U256>,
+    token_ids: Vec<U256>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LogInstruction(pub ContractLogType);
+
 /// An enum representing the instructions that a program can return 
 /// to the protocol. Also represent types that tell the protocol what  
 /// the pre-requisites of a given function call are.
@@ -75,39 +191,28 @@ pub struct ReadParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Instruction {
     /// The return type created by the construction method of a contract 
-    Create {
-        program_namespace: Address,
-        program_id: Address,
-        program_owner: Address,
-        total_supply: U256,
-        initialized_supply: U256,
-        distribution: Vec<(Address, U256, Vec<(TokenField, TokenFieldValue)>)>
-    },
+    Create(CreateInstruction),
     /// Tells the protocol to update a field, should almost never be used  
     /// to add balance to a token or add a token id (for Non-fungible or Data tokens)
     /// should prrimarily be used to update approvals, allowances, metadata, arbitrary data
     /// etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used 
     /// to lock value
-    Update {
-        // AccountAddress, ProgramId, Vec<TokenField to update, TokenFieldValue to Provide>
-        items: Vec<(Address, Address, Vec<(TokenField, TokenFieldValue)>)>,
-    },
+    Update(UpdateInstruction),
     /// Tells the protocol to subtract balance of one address/token pair and add to different
     /// address 
-    Transfer {
-        program_id: Address,
-        from: Address,
-        to: Address,
-        amount: Option<U256>,
-        token_ids: Vec<U256>,
-    },
+    Transfer(TransferInstruction), 
     /// Tells the protocol to burn a token (amount or id for NFT/Data tokens)
-    Burn {
-        program_id: Address,
-        owner_address: Address,
-        amount: Option<U256>,
-        token_ids: Vec<U256>,
-    },
+    Burn(BurnInstruction),
+    /// Tells the protocol to log something
+    Log(LogInstruction) 
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ContractLogType {
+    Info(String),
+    Error(String),
+    Warn(String),
+    Debug(String)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -299,6 +404,7 @@ impl ProgramSchema {
         Ok(Vec::new())
     }
 
+    #[allow(unused)]
     pub(crate) fn parse_op_inputs(&self, op: &str, json_inputs: &str) -> std::io::Result<()> {
         let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")

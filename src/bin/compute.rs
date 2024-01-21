@@ -45,7 +45,8 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_1.run_container(
             "testContainerPy",
-            inputs
+            inputs,
+            None,
         ).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerPy ran in: {:?}", elapsed);
@@ -71,7 +72,8 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_2.run_container(
             "testContainerRs",
-            inputs
+            inputs,
+            None
         ).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerRs ran in: {:?}", elapsed);

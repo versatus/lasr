@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required};
+use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType};
 use serde::{Serialize, Deserialize};
 
 // This will be a weighted LRU cache that captures the size of the 
@@ -13,7 +13,7 @@ pub struct DynCache;
 pub struct ExecutionEngine {
     manager: OciManager,
     ipfs_client: ipfs_api::IpfsClient,
-    handles: HashMap<(String, [u8; 32]), tokio::task::JoinHandle<std::io::Result<Outputs>>>,
+    handles: HashMap<(String, Option<[u8; 32]>), tokio::task::JoinHandle<std::io::Result<String>>>,
     cache: DynCache
 }
 
@@ -31,19 +31,24 @@ impl ExecutionEngine {
         entrypoint: String,
         program_args: Option<Vec<String>>
     ) -> std::io::Result<()> {
+        log::info!("creating bundle for {:?}", &content_id.as_ref().to_str());
         self.manager.bundle(&content_id, crate::BaseImage::Bin).await?;
+        log::info!("adding payload for {:?}", &content_id.as_ref().to_str());
         self.manager.add_payload(&content_id).await?;
+        log::info!("writing base spec {:?}", &content_id.as_ref().to_str());
         self.manager.base_spec(&content_id).await?;
+        log::info!("customizing spec {:?}", &content_id.as_ref().to_str());
         self.manager.customize_spec(&content_id, &entrypoint, program_args)?;
         Ok(())
     }
 
     pub(super) async fn execute(
         &self,
-        content_id: impl AsRef<Path> + Send,
+        content_id: impl AsRef<Path> + Send + 'static,
         inputs: Inputs,
+        transaction_id: Option<[u8; 32]>
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self.manager.run_container(content_id, inputs).await?;
+        let handle = self.manager.run_container(content_id, inputs, transaction_id).await?;
         Ok(handle)
     }
 
@@ -54,8 +59,8 @@ impl ExecutionEngine {
         self.manager.get_program_schema(content_id)
     }
 
-    pub(super) fn parse_inputs(&self, schema: ProgramSchema, inputs: String) -> std::io::Result<Inputs> {
-        unimplemented!()
+    pub(super) fn parse_inputs(&self, _schema: &ProgramSchema, op: String, inputs: String) -> std::io::Result<Inputs> {
+        return Ok(Inputs { version: 1, account_info: None, op, inputs } )
     }
 
     pub(super) fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
@@ -82,6 +87,34 @@ impl ExecutionEngine {
 }
 
 pub struct ExecutorActor;
+
+impl ExecutorActor {
+    fn respond_with_registration_error(&self, transaction_hash: String, error_string: String) -> std::io::Result<()> {
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
+        )?.into();
+
+        let message = SchedulerMessage::RegistrationFailure { transaction_hash, error_string };
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        Ok(())
+    }
+
+    fn respond_with_registration_success(&self, transaction_hash: String) -> std::io::Result<()> {
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
+        )?.into();
+
+        let message = SchedulerMessage::RegistrationSuccess { transaction_hash };
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        Ok(())
+    }
+}
 
 #[async_trait]
 impl Actor for ExecutorActor {
@@ -110,6 +143,7 @@ impl Actor for ExecutorActor {
                 // Build container
             },
             ExecutorMessage::Create { 
+                transaction_hash,
                 program_id, 
                 entrypoint, 
                 program_args,
@@ -117,35 +151,48 @@ impl Actor for ExecutorActor {
             } => {
                 // Build the container spec and create the container image 
                 log::info!("Receieved request to create container image");
-                let res = state.create_bundle(program_id.to_string(), entrypoint, program_args).await;
+                let res = state.create_bundle(program_id.to_full_string(), entrypoint, program_args).await;
                 if let Err(e) = res {
-                    log::error!("Error executor.rs: 73: {e}");
+                    log::error!("Error: executor.rs: 153: {e}");
+                    if let Err(e) = self.respond_with_registration_error(transaction_hash, e.to_string()) {
+                        log::error!("Error: executor.rs: 156: {e}");
+                    };
+                } else {
+                    if let Err(e) = self.respond_with_registration_success(transaction_hash) {
+                        log::error!("Error: executor.rs: 160: {e}");
+                    };
                 }
                 // If payload has a constructor method/function should be executed
                 // to return a Create instruction.
+                //
+
             },
             ExecutorMessage::Start(_content_id) => {
                 // Warm up/start a container image
             }
             ExecutorMessage::Exec {
-                program_id, op, inputs, .. 
+                program_id, op, inputs, transaction_id 
             } => {
                 // Run container
-                //parse inputs
+                // parse inputs
                 // get config
-                let schema_result = state.get_program_schema(program_id.to_string()); 
+                let schema_result = state.get_program_schema(program_id.to_full_string()); 
                 if let Ok(schema) = &schema_result {
                     let pre_requisites = schema.get_prerequisites(&op);
                     if let Ok(reqs) = &pre_requisites {
                         let _ = state.handle_prerequisites(reqs);
                         dbg!(&inputs);
-                        //let res = state.execute(program_id, op, inputs).await;
-                        //if let Err(e) = &res {
-                        //    log::error!("Error executor.rs: 83: {e}");
-                        //};
-                        //if let Ok(handle) = res {
-                            //state.handles.insert((program_id.to_string(), transaction_id), handle);
-                        //}
+                        let inputs_res = state.parse_inputs(schema, op, inputs);
+                        if let Ok(inputs) = inputs_res {
+                            let res = state.execute(program_id.to_full_string(), inputs, Some(transaction_id)).await;
+                            if let Err(e) = &res {
+                                log::error!("Error executor.rs: 83: {e}");
+                            };
+                            if let Ok(handle) = res {
+                                log::info!("result successful, placing handle in handles");
+                                state.handles.insert((program_id.to_full_string(), Some(transaction_id)), handle);
+                            }
+                        }
                     }
 
                     if let Err(e) = &pre_requisites {
@@ -162,8 +209,15 @@ impl Actor for ExecutorActor {
             ExecutorMessage::Delete(_content_id) => {
                 // Delete a container
             },
-            ExecutorMessage::Results(_content_id, _outputs) => {
+            ExecutorMessage::Results { content_id, transaction_id } => {
                 // Handle the results of an execution
+                log::info!("Received results for execution of container: content_id: {:?}, transaction_id: {:?}", content_id, transaction_id);
+                dbg!(&state.handles);
+                if let Some(handle) = state.handles.remove(&(content_id, transaction_id)) {
+                    let res = handle.await;
+                    log::info!("container results from ExecutorActor: {:?}", res);
+                }
+                log::info!("Forwarding results to engine to handle application");
             },
         }
 

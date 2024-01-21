@@ -88,11 +88,11 @@ macro_rules! create_handler {
     (rpc_response, registerProgram) => {
         |resp| {
             match resp {
-                RpcMessage::RegistrationSuccess { response, .. } => {
+                RpcMessage::Response { response, .. } => {
                     match response {
-                        Ok(()) => {
-                            return Ok(())
-                        }
+                        Ok(resp) => {
+                            return Ok(resp)
+                        },
                         _ => {
                             return Err(Box::new(RpcError::Custom(
                                 "Received an invalid type in response to RPC `registerProgram` method".to_string()

@@ -1,114 +1,34 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
+use std::{collections::{BTreeMap, HashMap, HashSet}, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
+
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
 /// This structure is used to store Ethereum Compatible addresses, which are 
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
-impl Display for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let hex_str: String = self.encode_hex();
-        write!(f, "0x{}...{}", &hex_str[0..4], &hex_str[hex_str.len() - 4..])
-    }
-}
-
-impl From<[u8; 20]> for Address {
-    fn from(value: [u8; 20]) -> Self {
-        Address(value)
-    }
-}
-
-impl From<&[u8; 20]> for Address {
-    fn from(value: &[u8; 20]) -> Self {
-        Address(*value)
-    }
-}
-
-
-impl FromStr for Address {
-    type Err = FromHexError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut hex_str = if s.starts_with("0x") {
-            &s[2..]
-        } else {
-            s
-        };
-
-        if hex_str == "0" {
-            return Ok(Address::new([0u8; 20]))
-        }
-
-        if hex_str == "1" {
-            let mut inner: [u8; 20] = [0; 20];
-            inner[19] = 1;
-            return Ok(Address::new(inner))
-        }
-
-        let decoded = hex::decode(hex_str)?;
-        if decoded.len() != 20 {
-            return Err(FromHexError::InvalidStringLength);
-        }
-
-        let mut inner: [u8; 20] = [0; 20];
-        inner.copy_from_slice(&decoded);
-        Ok(Address::new(inner))
-    }
-}
-
-impl AsRef<[u8]> for Address {
-    fn as_ref(&self) -> &[u8] {
-        &self.0[..]
-    }
-}
-
-impl From<Address> for [u8; 20] {
-    fn from(value: Address) -> Self {
-        value.0
-    }
-}
-
-impl From<&Address> for [u8; 20] {
-    fn from(value: &Address) -> Self {
-        value.0.to_owned()
-    }
-}
-
-impl From<Address> for ethereum_types::H160 {
-    fn from(value: Address) -> Self {
-        ethereum_types::H160(value.0)
-    }
-}
-
-impl LowerHex for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for byte in self.0 {
-            write!(f, "{:02x}", byte)?;
-        }
-        Ok(())
-    }
-}
-impl From<ethereum_types::H160> for Address {
-    fn from(value: ethereum_types::H160) -> Self {
-        Address::new(value.0)
-    }
-}
-
 impl Address {
-    fn new(bytes: [u8; 20]) -> Address {
+    /// Creates a new address from a 20 byte array
+    pub fn new(bytes: [u8; 20]) -> Address {
         Address(bytes)
+    }
+
+    /// Converts the inner Address to a full hexadecimal string
+    /// this exists because in the Disply implementation we abbreviate the 
+    /// address
+    pub fn to_full_string(&self) -> String {
+        format!("0x{:x}", self)
     }
 }
 
@@ -129,43 +49,7 @@ impl AccountHash {
     }
 }
 
-impl From<PublicKey> for Address {
-    /// Converts a `PublicKey` into an `Address`.
-    ///
-    /// This function takes a public key, serializes it, and then performs Keccak256
-    /// hashing to derive the Ethereum address. It returns the last 20 bytes of the hash
-    /// as the address.
-    fn from(value: PublicKey) -> Self {
-        let serialized_pk = value.serialize_uncompressed();
-
-        let mut hasher = Keccak256::new();
-
-        hasher.update(&serialized_pk[1..]);
-
-        let result = hasher.finalize();
-        let address_bytes = &result[result.len() - 20..];
-        let mut address = [0u8; 20];
-        address.copy_from_slice(address_bytes);
-
-        Address(address)
-    }
-}
-
-impl From<[u8; 32]> for Address {
-    fn from(value: [u8; 32]) -> Self {
-        let mut hasher = Keccak256::new();
-
-        hasher.update(&value[0..]);
-
-        let result = hasher.finalize();
-        let address_bytes = &result[result.len() - 20..];
-        let mut address = [0u8; 20];
-        address.copy_from_slice(address_bytes);
-
-        Address(address)
-    }
-}
-
+/// This is currently not used
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct AccountNonce {
     bridge_nonce: U256,
@@ -173,12 +57,15 @@ pub struct AccountNonce {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Namespace(String);
+pub struct ProgramNamespace(Namespace, Address);
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Namespace(pub String);
 
 impl FromStr for Namespace {
     type Err = Box<dyn std::error::Error>;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let string = s.to_string();
+        let string = s.to_string(); 
         Ok(Self(string))
     }
 }
@@ -189,10 +76,31 @@ impl From<String> for Namespace {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ProgramField {
+    LinkedPrograms,
+    Metadata,
+    Data,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ProgramFieldValue {
+    LinkedPrograms(LinkedProgramsValue),
+    Metadata(MetadataValue),
+    Data(DataValue),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum LinkedProgramsValue {
+    Insert(Address, Token),
+    Extend(Vec<(Address, Token)>),
+}
+
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProgramAccount {
     namespace: Namespace,
-    linked_programs: BTreeMap<Namespace, Token>,
+    linked_programs: BTreeMap<Address, Token>,
+    //TODO(asmith): Store Metadata in the Namespace
     metadata: Metadata,
     data: ArbitraryData,
 }
@@ -200,7 +108,7 @@ pub struct ProgramAccount {
 impl ProgramAccount {
     pub fn new(
         namespace: Namespace,
-        linked_programs: Option<BTreeMap<Namespace, Token>>,
+        linked_programs: Option<BTreeMap<Address, Token>>,
         metadata: Option<Metadata>,
         data: Option<ArbitraryData>
     ) -> Self {
@@ -229,7 +137,7 @@ impl ProgramAccount {
         self.namespace.clone()
     }
 
-    pub fn linked_programs(&self) -> BTreeMap<Namespace, Token> {
+    pub fn linked_programs(&self) -> BTreeMap<Address, Token> {
         self.linked_programs.clone()
     }
 
@@ -360,3 +268,129 @@ impl Account {
         self.nonce += 1.into();
     }
 }
+
+impl Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hex_str: String = self.encode_hex();
+        write!(f, "0x{}...{}", &hex_str[0..4], &hex_str[hex_str.len() - 4..])
+    }
+}
+
+impl From<[u8; 20]> for Address {
+    fn from(value: [u8; 20]) -> Self {
+        Address(value)
+    }
+}
+
+impl From<&[u8; 20]> for Address {
+    fn from(value: &[u8; 20]) -> Self {
+        Address(*value)
+    }
+}
+
+
+impl FromStr for Address {
+    type Err = FromHexError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut hex_str = if s.starts_with("0x") {
+            &s[2..]
+        } else {
+            s
+        };
+
+        if hex_str == "0" {
+            return Ok(Address::new([0u8; 20]))
+        }
+
+        if hex_str == "1" {
+            let mut inner: [u8; 20] = [0; 20];
+            inner[19] = 1;
+            return Ok(Address::new(inner))
+        }
+
+        let decoded = hex::decode(hex_str)?;
+        if decoded.len() != 20 {
+            return Err(FromHexError::InvalidStringLength);
+        }
+
+        let mut inner: [u8; 20] = [0; 20];
+        inner.copy_from_slice(&decoded);
+        Ok(Address::new(inner))
+    }
+}
+
+impl AsRef<[u8]> for Address {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
+impl From<Address> for [u8; 20] {
+    fn from(value: Address) -> Self {
+        value.0
+    }
+}
+
+impl From<&Address> for [u8; 20] {
+    fn from(value: &Address) -> Self {
+        value.0.to_owned()
+    }
+}
+
+impl From<Address> for ethereum_types::H160 {
+    fn from(value: Address) -> Self {
+        ethereum_types::H160(value.0)
+    }
+}
+
+impl LowerHex for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
+    }
+}
+impl From<ethereum_types::H160> for Address {
+    fn from(value: ethereum_types::H160) -> Self {
+        Address::new(value.0)
+    }
+}
+
+impl From<PublicKey> for Address {
+    /// Converts a `PublicKey` into an `Address`.
+    ///
+    /// This function takes a public key, serializes it, and then performs Keccak256
+    /// hashing to derive the Ethereum address. It returns the last 20 bytes of the hash
+    /// as the address.
+    fn from(value: PublicKey) -> Self {
+        let serialized_pk = value.serialize_uncompressed();
+
+        let mut hasher = Keccak256::new();
+
+        hasher.update(&serialized_pk[1..]);
+
+        let result = hasher.finalize();
+        let address_bytes = &result[result.len() - 20..];
+        let mut address = [0u8; 20];
+        address.copy_from_slice(address_bytes);
+
+        Address(address)
+    }
+}
+
+impl From<[u8; 32]> for Address {
+    fn from(value: [u8; 32]) -> Self {
+        let mut hasher = Keccak256::new();
+
+        hasher.update(&value[0..]);
+
+        let result = hasher.finalize();
+        let address_bytes = &result[result.len() - 20..];
+        let mut address = [0u8; 20];
+        address.copy_from_slice(address_bytes);
+
+        Address(address)
+    }
+}
+

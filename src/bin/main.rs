@@ -41,6 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::Level::Info
     ).map_err(|e| EoServerError::Other(e.to_string()))?;
 
+    log::info!("Current Working Directory: {:?}", std::env::current_dir());
+
     dotenv::dotenv().ok();
 
     //TODO(asmith): Move this to be read in when and where needed and dropped 
@@ -72,9 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
         .runtime("/usr/local/bin/runsc".to_string())
-        .base_images("./base_images".to_string())
+        .base_images("./base_image".to_string())
         .containers("./containers".to_string())
-        .payload_path("./payloads".to_string())
+        .payload_path("./payload".to_string())
         .build()?;
 
     let oci_manager = OciManager::new(bundler);

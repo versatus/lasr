@@ -32,6 +32,12 @@ impl AsRef<[u8]> for ArbitraryData {
     }
 }
 
+impl From<Vec<u8>> for ArbitraryData {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value.clone())
+    }
+}
+
 /// Represents metadata as a byte vector.
 ///
 /// This structure is designed to encapsulate metadata, stored as a vector of bytes.
@@ -145,7 +151,7 @@ pub enum DataValue {
     ReplaceAll(ArbitraryData),
     ReplaceSlice(usize, usize, Vec<u8>),
     ReplaceByte(usize, u8),
-    Extend(Metadata),
+    Extend(ArbitraryData),
     Push(u8),
     Pop,
 }

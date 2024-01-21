@@ -221,7 +221,7 @@ impl Engine {
             return Err(EngineError::Custom("invalid length for content id".to_string()))
         };
 
-        let entrypoint = format!("{program_id}/{program_id}");
+        let entrypoint = format!("{}", program_id.to_full_string());
         let program_args = if let Some(v) = json.get("programArgs") {
             match v {
                 Value::Array(arr) => {
@@ -270,6 +270,7 @@ impl Engine {
         };
 
         let message = ExecutorMessage::Create {
+            transaction_hash: transaction.hash_string(),
             program_id, 
             entrypoint, 
             program_args,

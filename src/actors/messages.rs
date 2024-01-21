@@ -32,7 +32,7 @@ pub enum TransactionResponse {
     SendResponse(Token),
     CallResponse(Vec<Token>),
     GetAccountResponse(Account),
-    RegisterProgramResponse
+    RegisterProgramResponse(Option<String>)
 }
 
 /// A message type that the RpcServer Actor can `handle`
@@ -45,10 +45,6 @@ pub enum RpcMessage {
     Response{
         response: Result<TransactionResponse, RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>>,
-    },
-    RegistrationSuccess {
-        response: Result<(), RpcResponseError>,
-        reply: Option<RpcReplyPort<RpcMessage>> 
     },
 }
 
@@ -93,6 +89,13 @@ pub enum SchedulerMessage {
     TransactionApplied {
         transaction_hash: String,
         token: Token
+    },
+    RegistrationSuccess {
+        transaction_hash: String,
+    },
+    RegistrationFailure {
+        transaction_hash: String,
+        error_string: String,
     }
 }
 
@@ -386,6 +389,7 @@ pub enum BatcherMessage {
 pub enum ExecutorMessage {
     Retrieve(String /*ContentId*/),
     Create {
+        transaction_hash: String,
         program_id: Address,
         entrypoint: String, 
         program_args: Option<Vec<String>>,
@@ -401,5 +405,8 @@ pub enum ExecutorMessage {
     },
     Kill(String /*ContentId*/),
     Delete(String /*ContentId*/),
-    Results(String /*ContentId*/, String, /*Outputs*/),
+    Results {
+        content_id: String, 
+        transaction_id: Option<[u8; 32]>,
+    },
 }

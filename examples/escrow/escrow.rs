@@ -1,8 +1,23 @@
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
+use lasr::Address;
+use lasr::AddressOrNamespace;
+use lasr::ArbitraryData;
+use lasr::DataValue;
 use lasr::Instruction;
+use lasr::Metadata;
+use lasr::Namespace;
 use lasr::PayableContract;
 use ethereum_types::U256;
+use lasr::ProgramField;
+use lasr::ProgramFieldValue;
+use lasr::ProgramUpdate;
+use lasr::ProgramUpdateField;
+use lasr::TokenOrProgramUpdate;
+use lasr::TokenUpdate;
+use lasr::TransferInstruction;
+use lasr::UpdateInstruction;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -32,14 +47,15 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
     /// condition is attempting to be met.
     fn deposit(
         depositor: [u8; 20],
+        payment_token: [u8; 20], 
+        payment_token_amount: U256, 
         redeemer: [u8; 20],
-        deposit_token_address: [u8; 20], 
-        deposit: U256, 
-        conditions: Option<Self::Conditions>,
+        contracted_item_address: [u8; 20],
+        contracted_item: U256,
         // Escrow can also be timed, probably in production would make sense 
         // to have 2 separate methods for timed deposits vs condition based deposits
         // and another for both
-        maturity: Option<Duration>,
+        maturity: Option<i64>,
     ) -> Vec<Instruction>; 
     /// Redeemer calls providing the deposit_id, the item_address and the item amount/id 
     /// the protcol `Read`s the program account as a pre-condition (as well as the 
@@ -59,10 +75,8 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
     /// account is zeroed out, or only maintains the fee to the contract owner
     fn redeem(
         escrow_address: [u8; 32],
-        redeemer: [u8; 20],
         deposit_token_address: [u8; 20],
         deposit_id: Option<[u8; 32]>,
-        condition_proof: impl AsRef<[u8]>, 
         item_address: [u8; 20],
         item: U256
     ) -> Vec<Instruction>;
@@ -74,15 +88,123 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
         depositor_address: [u8; 32], 
         timestamp: Instant, 
         maturity: Duration
-    ) -> Vec<Instruction>;
-    /// Generates a program address for the contract, all contracts that
-    /// plan on storing value must have this method implemented.
-    fn generate_program_address(
-        &self,
-        program_id: [u8; 32],
-        seed: &[u8]
-    ) -> Result<[u8;32], String> {
-        PayableContract::generate_program_address(self, program_id, seed)
+    ) -> Vec<Instruction> {
+        Vec::new()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EscrowContract;
+
+impl PayableContract for EscrowContract {
+    const NAMESPACE: &'static str = "HelloEscrow"; 
+    fn receive_payment(from: lasr::AddressOrNamespace, amount: Option<U256>, token_ids: Vec<U256>) -> Vec<Instruction> {
+        vec![
+            Instruction::Transfer(
+                TransferInstruction::new(
+                    Namespace(Self::NAMESPACE.to_string()),
+                    from,
+                    lasr::AddressOrNamespace::Namespace(
+                        Namespace(Self::NAMESPACE.to_string())
+                    ),
+                    amount,
+                    token_ids
+            ))
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HelloEscrowConditions {
+    pub deposit_id: Option<[u8; 32]>,
+    pub depositor: [u8; 20],
+    pub contracted_item_address: [u8; 20],
+    pub contracted_item: U256, 
+    pub redeemer: [u8; 20],
+    pub payment_token: [u8; 20],
+    pub payment_amount: U256,
+    pub by: Option<i64> 
+}
+
+impl Escrow for EscrowContract {
+    type Conditions = HelloEscrowConditions;
+    fn deposit(
+            depositor: [u8; 20],
+            payment_token: [u8; 20], 
+            payment_amount: U256, 
+            redeemer: [u8; 20],
+            contracted_item_address: [u8; 20],
+            contracted_item: U256,
+            // Escrow can also be timed, probably in production would make sense 
+            // to have 2 separate methods for timed deposits vs condition based deposits
+            // and another for both
+            maturity: Option<i64>,
+        ) -> Vec<Instruction> {
+        // Create the conditions:
+        let conditions = HelloEscrowConditions {
+            deposit_id: None,
+            depositor,
+            contracted_item_address,
+            contracted_item,
+            redeemer,
+            payment_token,
+            payment_amount,
+            by: maturity
+        };
+
+        let serialized_conditions = bincode::serialize(&conditions);
+        if let Err(_) = serialized_conditions {
+            return vec![]
+        }
+        let account = AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string()));
+        let program_field = ProgramField::Data;
+        let data_value = DataValue::Extend(ArbitraryData::from(serialized_conditions.unwrap_or_default()));
+        let program_field_value = ProgramFieldValue::Data(data_value);
+        let program_field_updates = ProgramUpdateField::new(program_field, program_field_value);
+        let program_update = ProgramUpdate::new(account, vec![program_field_updates]);
+        let token_or_program_update = TokenOrProgramUpdate::ProgramUpdate(program_update);
+
+        let update = UpdateInstruction::new(
+            vec![token_or_program_update]
+        );
+
+        let instruction_1 = Instruction::Update(
+            update
+        );
+
+        let transfer_instruction = TransferInstruction::new(
+            AddressOrNamespace::Address(Address::from(payment_token)),
+            AddressOrNamespace::Address(Address::from(depositor)),
+            AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+            Some(payment_amount),
+            vec![],
+        ); 
+
+        let instruction_2 = Instruction::Transfer(
+            transfer_instruction
+        ); 
+
+        vec![instruction_1, instruction_2]
+    }
+
+    fn redeem(
+            escrow_address: [u8; 32],
+            deposit_token_address: [u8; 20],
+            deposit_id: Option<[u8; 32]>,
+            item_address: [u8; 20],
+            item: U256
+        ) -> Vec<Instruction> {
+        todo!()
+    }
+
+    fn revoke(
+            escrow_address: [u8; 32],
+            deposit_id: Option<[u8; 32]>,
+            depositor_address: [u8; 32], 
+            timestamp: Instant, 
+            maturity: Duration
+        ) -> Vec<Instruction> {
+        todo!()
     }
 }
 
