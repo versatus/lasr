@@ -151,6 +151,21 @@ impl From<PublicKey> for Address {
     }
 }
 
+impl From<[u8; 32]> for Address {
+    fn from(value: [u8; 32]) -> Self {
+        let mut hasher = Keccak256::new();
+
+        hasher.update(&value[0..]);
+
+        let result = hasher.finalize();
+        let address_bytes = &result[result.len() - 20..];
+        let mut address = [0u8; 20];
+        address.copy_from_slice(address_bytes);
+
+        Address(address)
+    }
+}
+
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct AccountNonce {
     bridge_nonce: U256,
@@ -177,7 +192,7 @@ impl From<String> for Namespace {
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProgramAccount {
     namespace: Namespace,
-    programs: BTreeMap<Namespace, Token>,
+    linked_programs: BTreeMap<Namespace, Token>,
     metadata: Metadata,
     data: ArbitraryData,
 }
@@ -185,11 +200,11 @@ pub struct ProgramAccount {
 impl ProgramAccount {
     pub fn new(
         namespace: Namespace,
-        programs: Option<BTreeMap<Namespace, Token>>,
+        linked_programs: Option<BTreeMap<Namespace, Token>>,
         metadata: Option<Metadata>,
         data: Option<ArbitraryData>
     ) -> Self {
-        let programs = if let Some(p) = programs {
+        let linked_programs = if let Some(p) = linked_programs {
             p.clone()
         } else {
             BTreeMap::new()
@@ -207,15 +222,15 @@ impl ProgramAccount {
             ArbitraryData::new()
         };
 
-        Self { namespace, programs, metadata, data }
+        Self { namespace, linked_programs, metadata, data }
     }
 
     pub fn namespace(&self) -> Namespace {
         self.namespace.clone()
     }
 
-    pub fn programs(&self) -> BTreeMap<Namespace, Token> {
-        self.programs.clone()
+    pub fn linked_programs(&self) -> BTreeMap<Namespace, Token> {
+        self.linked_programs.clone()
     }
 
     pub fn metadata(&self) -> Metadata {

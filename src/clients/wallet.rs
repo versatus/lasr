@@ -259,8 +259,9 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .to([0; 20])
             .program_id([0; 20])
             .inputs(inputs.to_string())
-            .op(String::from("register"))
+            .op(String::from(""))
             .value(0.into())
+            .nonce(account.nonce())
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {

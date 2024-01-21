@@ -1,5 +1,6 @@
-use lasr::{OciBundler, OciManager, ensure_dir_exists};
+use lasr::{OciBundler, OciManager, ensure_dir_exists, Inputs};
 use futures::stream::{FuturesUnordered, StreamExt};
+use serde_json::json;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
@@ -34,12 +35,17 @@ async fn main() -> Result<(), std::io::Error> {
         task_manager_1.add_payload("testContainerPy").await?;
         task_manager_1.base_spec("testContainerPy").await?;
         task_manager_1.customize_spec("testContainerPy", "/hello-world", None)?;
+        let inputs = Inputs {
+            version: 1,
+            account_info: None,
+            op: "getName".to_string(),
+            inputs: json!({ "first_name": "Andrew", "last_name": "Smith"}).to_string()
+        };
 
         let start = std::time::Instant::now();
         let _ = task_manager_1.run_container(
             "testContainerPy",
-            "getName".to_string(),
-            vec!["Andrew".to_string(), "Smith".to_string()]
+            inputs
         ).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerPy ran in: {:?}", elapsed);
@@ -55,9 +61,18 @@ async fn main() -> Result<(), std::io::Error> {
         task_manager_2.add_payload("testContainerRs").await?;
         task_manager_2.base_spec("testContainerRs").await?;
         task_manager_2.customize_spec("testContainerRs", "/hello-world", None)?;
+        let inputs = Inputs {
+            version: 1,
+            account_info: None,
+            op: "".to_string(),
+            inputs: json!({}).to_string()
+        };
 
         let start = std::time::Instant::now();
-        let _ = task_manager_2.run_container("testContainerRs", "".to_string(), vec![]).await?.await??;
+        let _ = task_manager_2.run_container(
+            "testContainerRs",
+            inputs
+        ).await?.await??;
         let elapsed = start.elapsed();
         log::info!("testContainerRs ran in: {:?}", elapsed);
 

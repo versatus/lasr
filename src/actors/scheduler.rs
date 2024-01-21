@@ -102,6 +102,20 @@ impl TaskScheduler {
 
         Ok(())
     }
+
+    fn handle_register_program(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
+            ActorType::Engine.to_string()
+        ).ok_or(
+            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
+        )?.into();
+
+        let message = EngineMessage::RegisterProgram { transaction };
+
+        engine_actor.cast(message)?;
+
+        Ok(())
+    }
 }
 
 
@@ -144,13 +158,15 @@ impl Actor for TaskScheduler {
                 // the collector will respond to the channel opened by the 
                 // RpcServer with the necessary information
             },
-            SchedulerMessage::RegisterProgram { .. } => {
+            SchedulerMessage::RegisterProgram { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
                 // Add to pending transactions where a dependency graph will be built
                 // add to RpcCollector with reply port
                 // when transaction is complete and account is consolidated,
                 // the collector will respond to the channel opened by the 
                 // RpcServer with the necessary information
+                self.handle_register_program(transaction.clone());
+                state.insert(transaction.hash_string(), rpc_reply);
             },
             SchedulerMessage::GetAccount { address, rpc_reply } => {
                 log::info!("Scheduler received RPC `getAccount` method. Prepping to check cache");

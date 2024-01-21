@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::Path};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema};
+use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required};
 use serde::{Serialize, Deserialize};
 
 // This will be a weighted LRU cache that captures the size of the 
@@ -41,20 +41,43 @@ impl ExecutionEngine {
     pub(super) async fn execute(
         &self,
         content_id: impl AsRef<Path> + Send,
-        op: String,
-        inputs: Vec<String>,
-    ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<Outputs>>> {
-        let handle = self.manager.run_container(content_id, op, inputs).await?;
+        inputs: Inputs,
+    ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
+        let handle = self.manager.run_container(content_id, inputs).await?;
         Ok(handle)
     }
 
-    pub(super) async fn get_config(
+    pub(super) fn get_program_schema(
         &self,
         content_id: impl AsRef<Path> + Send,
-        op: String,
-        inputs: Vec<String>,
     ) -> std::io::Result<ProgramSchema> {
-        let config_file = self.manager.get_config(content_id);
+        self.manager.get_program_schema(content_id)
+    }
+
+    pub(super) fn parse_inputs(&self, schema: ProgramSchema, inputs: String) -> std::io::Result<Inputs> {
+        unimplemented!()
+    }
+
+    pub(super) fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
+        for req in pre_requisites {
+            match req {
+                Required::Call(call_map) => { 
+                    // CallMap consists of:
+                    //  - calling_program: TransactionFields,
+                    //  - original_caller: TransactionFields,
+                    //  - program_id: String, 
+                    //  - inputs: Inputs, 
+                    //  this should stand up an unsigned execution of the 
+                    //  program id, the op tell us the operation to call
+                    //  and the inputs tell us what to pass in
+                    dbg!(call_map); 
+                },
+                Required::Read(read_params) => { dbg!(read_params); },
+                Required::Lock(lock_pair) => { dbg!(lock_pair); },
+                Required::Unlock(lock_pair) => { dbg!(lock_pair); },
+            }
+        }
+        Ok(Vec::new())
     }
 }
 
@@ -86,10 +109,15 @@ impl Actor for ExecutorActor {
                 // Convert the package into a payload
                 // Build container
             },
-            ExecutorMessage::Create(content_id, entrypoint, program_args) => {
+            ExecutorMessage::Create { 
+                program_id, 
+                entrypoint, 
+                program_args,
+                ..
+            } => {
                 // Build the container spec and create the container image 
                 log::info!("Receieved request to create container image");
-                let res = state.create_bundle(content_id, entrypoint, program_args).await;
+                let res = state.create_bundle(program_id.to_string(), entrypoint, program_args).await;
                 if let Err(e) = res {
                     log::error!("Error executor.rs: 73: {e}");
                 }
@@ -100,21 +128,33 @@ impl Actor for ExecutorActor {
                 // Warm up/start a container image
             }
             ExecutorMessage::Exec {
-                program_id, op, inputs, transaction_id
+                program_id, op, inputs, .. 
             } => {
                 // Run container
                 //parse inputs
-                let inputs = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&inputs);
                 // get config
-                let config = state.get_config();
-                dbg!(&inputs);
-                //let res = state.execute(program_id, op, inputs).await;
-                //if let Err(e) = &res {
-                //    log::error!("Error executor.rs: 83: {e}");
-                //};
-                //if let Ok(handle) = res {
-                //    state.handles.insert((program_id.to_string(), transaction_id), handle);
-                //}
+                let schema_result = state.get_program_schema(program_id.to_string()); 
+                if let Ok(schema) = &schema_result {
+                    let pre_requisites = schema.get_prerequisites(&op);
+                    if let Ok(reqs) = &pre_requisites {
+                        let _ = state.handle_prerequisites(reqs);
+                        dbg!(&inputs);
+                        //let res = state.execute(program_id, op, inputs).await;
+                        //if let Err(e) = &res {
+                        //    log::error!("Error executor.rs: 83: {e}");
+                        //};
+                        //if let Ok(handle) = res {
+                            //state.handles.insert((program_id.to_string(), transaction_id), handle);
+                        //}
+                    }
+
+                    if let Err(e) = &pre_requisites {
+                        log::error!("{}",e);
+                    }
+                } 
+                if let Err(e) = &schema_result {
+                    log::error!("{}",e);
+                }
             },
             ExecutorMessage::Kill(_content_id) => {
                 // Kill a container that is running

@@ -385,7 +385,13 @@ pub enum BatcherMessage {
 #[derive(Debug, RactorMessage)]
 pub enum ExecutorMessage {
     Retrieve(String /*ContentId*/),
-    Create(String /*ContentId*/, String, Option<Vec<String>>),
+    Create {
+        program_id: Address,
+        entrypoint: String, 
+        program_args: Option<Vec<String>>,
+        constructor_op: Option<String>,
+        constructor_inputs: Option<String>,
+    },
     Start(String /*ContentId*/),
     Exec {
         program_id: Address,

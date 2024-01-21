@@ -171,6 +171,7 @@ pub struct Transaction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all(deserialize="lowercase"))]
 pub enum TransactionFields {
     TransactionType,
     From,

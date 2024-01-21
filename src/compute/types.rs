@@ -1,7 +1,8 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount};
 use ethereum_types::U256;
 use serde::{Serialize, Deserialize};
+use serde_json::{Map, Value};
 
 /// This file contains types the protocol uses to prepare data, structure it 
 /// and call out to a particular compute payload.
@@ -9,13 +10,14 @@ use serde::{Serialize, Deserialize};
 /// The inputs type for a contract call
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Inputs {
+    pub version: i32,
+    pub account_info: Option<ProgramAccount>,
     pub op: String,
-    pub inputs: Vec<String>,
+    pub inputs: String,
 }
 
 /// The pre-requisite instructions for a contract call 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ParamPreRequisite {
+#[derive(Clone, Debug, Serialize, Deserialize)] pub struct ParamPreRequisite {
     pre_requisites: PreRequisite,
     outputs: Vec<(usize, OpParams)>,
 }
@@ -226,7 +228,8 @@ pub struct OpSignature {
 pub struct ParamSource {
     pub source: String,
     pub field: Option<String>,
-    pub key: Option<String>
+    pub key: Option<String>,
+    pub position: usize
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -243,6 +246,7 @@ pub struct CallMap {
     calling_program: TransactionFields,
     original_caller: TransactionFields,
     program_id: String, 
+    op: String,
     inputs: String, 
 }
 
@@ -256,6 +260,63 @@ pub struct ReadMap {
 pub struct LockPair {
     account: String,
     token: String
+}
+
+impl ProgramSchema {
+    pub fn contract(&self) -> &Contract {
+        &self.contract
+    }
+
+    pub fn name(&self) -> String {
+        self.contract().name.clone()
+    }
+
+    pub fn version(&self) -> String {
+        self.contract().version.clone()
+    }
+
+    pub fn language(&self) -> String {
+        self.contract().language.clone()
+    }
+
+    pub fn ops(&self) -> &HashMap<String, Ops> {
+        &self.contract().ops
+    }
+
+    pub fn get_op(&self, name: &str) -> Option<&Ops> {
+        self.ops().get(name)
+    }
+
+    pub(crate) fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
+        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
+        )?;
+        
+        if let Some(reqs) = &value.required {
+            return Ok(reqs.clone())
+        }
+
+        Ok(Vec::new())
+    }
+
+    pub(crate) fn parse_op_inputs(&self, op: &str, json_inputs: &str) -> std::io::Result<()> {
+        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
+        )?;
+        
+        let mut json: Map<String, Value> = serde_json::from_str(json_inputs)?;
+
+        for (k, v) in &value.signature.params_mapping {
+            dbg!(&k, &v);
+        }
+
+//        let inputs = Inputs {
+//            op: op.to_string(),
+//            inputs 
+//        };
+
+        Ok(())
+    }
 }
 
 pub trait Parameterize {
@@ -273,15 +334,33 @@ pub trait Parameter {
 
 #[cfg(test)]
 mod test {
+    use serde_json::json;
+
     use super::*;
     use std::fs;
     use std::path::Path;
 
     #[test]
     fn test_config_parsing() {
-        let config_path = Path::new("./examples/escrow/config.toml");
-        let toml_str = fs::read_to_string(config_path).expect("Failed to read config.toml");
-        let config: ProgramSchema = toml::from_str(&toml_str).expect("Failed to parse config.toml");
-        dbg!(config);
+        let config_path = Path::new("./examples/escrow/schema.toml");
+        let toml_str = fs::read_to_string(config_path).expect("Failed to read schema.toml");
+        let schema: ProgramSchema = toml::from_str(&toml_str).expect("Failed to parse config.toml");
+        let deposit_inputs = json!({
+            "depositor": "0xabcdef012345678909876543210fedcba0123456",
+            "redeemer": "0xfedcba09876532101234567890abcdef09876543",
+            "deposit_token_address": "0x012345678909876543210abcdeffedcba0123456",
+            "deposit": 12345,
+            "conditions": [
+                { 
+                    "condition": "ContractTransfer",
+                    "program_id": "0x1234567890abcdef1234567890abcdef12345678",
+                    "token_ids": [ 5238 ],
+                    "from": "redeemer",
+                    "to": "depositor",
+                }
+            ]
+        }); 
+
+        let _ = schema.parse_op_inputs("deposit", &deposit_inputs.to_string());
     }
 }

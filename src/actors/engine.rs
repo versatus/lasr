@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
 use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
+use serde_json::Value;
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
 use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage};
@@ -153,16 +154,6 @@ impl Engine {
     }
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
-        self.inform_executor(transaction).await?;
-        Ok(())
-    }
-
-    async fn inform_executor(&self, transaction: Transaction) -> Result<(), EngineError> {
-        let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
-            ActorType::Executor.to_string()
-        ).ok_or(
-            EngineError::Custom("engine.rs 161: Error: unable to acquire executor".to_string())
-        )?.into();
         let mut transaction_id = [0u8; 32];
         transaction_id.copy_from_slice(&transaction.hash()[..]);
         let message = ExecutorMessage::Exec {
@@ -171,6 +162,16 @@ impl Engine {
             inputs: transaction.inputs(),
             transaction_id, 
         };
+        self.inform_executor(transaction, message).await?;
+        Ok(())
+    }
+
+    async fn inform_executor(&self, transaction: Transaction, message: ExecutorMessage) -> Result<(), EngineError> {
+        let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
+            ActorType::Executor.to_string()
+        ).ok_or(
+            EngineError::Custom("engine.rs 161: Error: unable to acquire executor".to_string())
+        )?.into();
         actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
 
         Ok(())
@@ -182,7 +183,100 @@ impl Engine {
     }
 
     async fn handle_register_program(&self, transaction: Transaction) -> Result<(), EngineError> {
-        self.set_pending_transaction(transaction).await?;
+        let mut transaction_id = [0u8; 32];
+        transaction_id.copy_from_slice(&transaction.hash()[..]);
+        let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs()).map_err(|e| {
+            EngineError::Custom(e.to_string())
+        })?;
+
+        let content_id = {
+            if let Some(id) = json.get("contentId") {
+                match id {
+                    Value::String(h) => {
+                        if h.starts_with("0x") {
+                            hex::decode(&h[2..]).map_err(|e| EngineError::Custom(e.to_string()))?
+                        } else {
+                            hex::decode(&h).map_err(|e| EngineError::Custom(e.to_string()))?
+                        }
+                    },
+                    _ => {
+                        //TODO(asmith): Allow arrays but validate the items in the array
+                        return Err(EngineError::Custom("contentId is incorrect type".to_string()))
+                    }
+                }
+            } else {
+                return Err(EngineError::Custom("contentId is required".to_string()));
+            }
+        }; 
+
+        let program_id = if &content_id.len() == &32 {
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&content_id[..]);
+            Address::from(buf)
+        } else if &content_id.len() == &20 {
+            let mut buf = [0u8; 20];
+            buf.copy_from_slice(&content_id[..]);
+            Address::from(buf)
+        } else {
+            return Err(EngineError::Custom("invalid length for content id".to_string()))
+        };
+
+        let entrypoint = format!("{program_id}/{program_id}");
+        let program_args = if let Some(v) = json.get("programArgs") {
+            match v {
+                Value::Array(arr) => {
+                    let args: Vec<String> = arr.iter().filter_map(|val| {
+                        match val {
+                           Value::String(arg) => {
+                               Some(arg.clone())
+                           },
+                           _ => None
+                        }
+                    }).collect();
+
+                    if args.len() != arr.len() {
+                        None
+                    } else {
+                        Some(args)
+                    }
+                },
+                _ => None
+            }
+        } else {
+            None
+        };
+
+        let constructor_op = if let Some(op) = json.get("constructorOp") {
+            match op {
+                Value::String(o) => {
+                    Some(o.clone())
+                },
+                _ => None
+            }
+
+        } else {
+            None
+        };
+
+        let constructor_inputs = if let Some(inputs) = json.get("constructorInputs") {
+            match inputs {
+                Value::String(i) => {
+                    Some(i.clone())
+                },
+                _ => None
+            }
+        } else {
+            None
+        };
+
+        let message = ExecutorMessage::Create {
+            program_id, 
+            entrypoint, 
+            program_args,
+            constructor_op,
+            constructor_inputs,
+        };
+        self.inform_executor(transaction, message).await?;
         Ok(())
     }
 }
