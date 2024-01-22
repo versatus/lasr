@@ -25,7 +25,14 @@ pub struct Inputs {
 /// The structure returned by a program/call transaction.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Outputs {
+    inputs: Inputs,
     instructions: Vec<Instruction>,
+}
+
+impl Outputs {
+    pub fn new(inputs: Inputs, instructions: Vec<Instruction>) -> Self {
+        Self { inputs, instructions }
+    }
 }
 
 /// This type is constructed from the combination of the original transaction,

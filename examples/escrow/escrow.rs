@@ -1,25 +1,16 @@
-use std::time::Duration;
-use std::time::Instant;
+use std::io::{Read, Write};
 use std::time::SystemTime;
-use lasr::Address;
-use lasr::AddressOrNamespace;
-use lasr::ArbitraryData;
-use lasr::DataValue;
-use lasr::Instruction;
-use lasr::Metadata;
-use lasr::Namespace;
-use lasr::PayableContract;
+use std::time::UNIX_EPOCH;
 use ethereum_types::U256;
-use lasr::ProgramField;
-use lasr::ProgramFieldValue;
-use lasr::ProgramUpdate;
-use lasr::ProgramUpdateField;
-use lasr::TokenOrProgramUpdate;
-use lasr::TokenUpdate;
-use lasr::TransferInstruction;
-use lasr::UpdateInstruction;
+use lasr::Outputs;
 use serde::Deserialize;
 use serde::Serialize;
+
+use lasr::{ 
+    Address, AddressOrNamespace, ArbitraryData, DataValue, Inputs, Instruction,
+    Namespace, PayableContract, ProgramField, ProgramFieldValue, ProgramUpdate,
+    ProgramUpdateField, TokenOrProgramUpdate, TransferInstruction, UpdateInstruction
+}; 
 
 pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
     type Conditions: Serialize + Deserialize<'static>;
@@ -55,7 +46,7 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
         // Escrow can also be timed, probably in production would make sense 
         // to have 2 separate methods for timed deposits vs condition based deposits
         // and another for both
-        maturity: Option<i64>,
+        maturity: Option<u128>,
     ) -> Vec<Instruction>; 
     /// Redeemer calls providing the deposit_id, the item_address and the item amount/id 
     /// the protcol `Read`s the program account as a pre-condition (as well as the 
@@ -74,20 +65,18 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
     /// can be generated and therefore once the condition(s) are fully met the 
     /// account is zeroed out, or only maintains the fee to the contract owner
     fn redeem(
-        escrow_address: [u8; 32],
-        deposit_token_address: [u8; 20],
-        deposit_id: Option<[u8; 32]>,
+        caller: [u8; 20],
+        deposit_id: [u8; 32],
+        conditions: Self::Conditions,
         item_address: [u8; 20],
         item: U256
     ) -> Vec<Instruction>;
     /// If the condition is not met in time, the depositor can revoke the escrow
     /// and receive their tokens/item back.
     fn revoke(
-        escrow_address: [u8; 32],
-        deposit_id: Option<[u8; 32]>,
-        depositor_address: [u8; 32], 
-        timestamp: Instant, 
-        maturity: Duration
+        deposit_id: [u8; 32],
+        depositor_address: [u8; 20], 
+        conditions: Self::Conditions,
     ) -> Vec<Instruction> {
         Vec::new()
     }
@@ -102,7 +91,7 @@ impl PayableContract for EscrowContract {
         vec![
             Instruction::Transfer(
                 TransferInstruction::new(
-                    Namespace(Self::NAMESPACE.to_string()),
+                    AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
                     from,
                     lasr::AddressOrNamespace::Namespace(
                         Namespace(Self::NAMESPACE.to_string())
@@ -123,24 +112,25 @@ pub struct HelloEscrowConditions {
     pub redeemer: [u8; 20],
     pub payment_token: [u8; 20],
     pub payment_amount: U256,
-    pub by: Option<i64> 
+    pub by: Option<u128> 
 }
 
 impl Escrow for EscrowContract {
     type Conditions = HelloEscrowConditions;
     fn deposit(
-            depositor: [u8; 20],
-            payment_token: [u8; 20], 
-            payment_amount: U256, 
-            redeemer: [u8; 20],
-            contracted_item_address: [u8; 20],
-            contracted_item: U256,
-            // Escrow can also be timed, probably in production would make sense 
-            // to have 2 separate methods for timed deposits vs condition based deposits
-            // and another for both
-            maturity: Option<i64>,
-        ) -> Vec<Instruction> {
+        depositor: [u8; 20],
+        payment_token: [u8; 20], 
+        payment_amount: U256, 
+        redeemer: [u8; 20],
+        contracted_item_address: [u8; 20],
+        contracted_item: U256,
+        // Escrow can also be timed, probably in production would make sense 
+        // to have 2 separate methods for timed deposits vs condition based deposits
+        // and another for both
+        maturity: Option<u128>,
+    ) -> Vec<Instruction> {
         // Create the conditions:
+        // TODO(asmith): create a unique deposit_id
         let conditions = HelloEscrowConditions {
             deposit_id: None,
             depositor,
@@ -152,61 +142,228 @@ impl Escrow for EscrowContract {
             by: maturity
         };
 
-        let serialized_conditions = bincode::serialize(&conditions);
-        if let Err(_) = serialized_conditions {
-            return vec![]
-        }
-        let account = AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string()));
-        let program_field = ProgramField::Data;
-        let data_value = DataValue::Extend(ArbitraryData::from(serialized_conditions.unwrap_or_default()));
-        let program_field_value = ProgramFieldValue::Data(data_value);
-        let program_field_updates = ProgramUpdateField::new(program_field, program_field_value);
-        let program_update = ProgramUpdate::new(account, vec![program_field_updates]);
-        let token_or_program_update = TokenOrProgramUpdate::ProgramUpdate(program_update);
-
-        let update = UpdateInstruction::new(
-            vec![token_or_program_update]
+        let program_update = generate_deposit_update(
+            conditions, 
+            Namespace(Self::NAMESPACE.to_string())
         );
 
-        let instruction_1 = Instruction::Update(
-            update
+        if program_update.len() == 0 { return vec![] }
+
+        let update = UpdateInstruction::new(program_update);
+
+        let transfer = generate_deposit_transfer(
+            payment_token,
+            depositor,
+            payment_amount,
+            Namespace(Self::NAMESPACE.to_string())
         );
 
-        let transfer_instruction = TransferInstruction::new(
-            AddressOrNamespace::Address(Address::from(payment_token)),
-            AddressOrNamespace::Address(Address::from(depositor)),
-            AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
-            Some(payment_amount),
-            vec![],
-        ); 
-
-        let instruction_2 = Instruction::Transfer(
-            transfer_instruction
-        ); 
-
-        vec![instruction_1, instruction_2]
+        vec![Instruction::Update(update), Instruction::Transfer(transfer)]
     }
 
     fn redeem(
-            escrow_address: [u8; 32],
-            deposit_token_address: [u8; 20],
-            deposit_id: Option<[u8; 32]>,
-            item_address: [u8; 20],
-            item: U256
-        ) -> Vec<Instruction> {
-        todo!()
+        caller: [u8; 20],
+        deposit_id: [u8; 32],
+        conditions: HelloEscrowConditions,
+        item_address: [u8; 20],
+        item: U256
+    ) -> Vec<Instruction> {
+        if conditions.deposit_id != Some(deposit_id) {
+            return vec![]
+        }
+
+        if conditions.contracted_item_address != item_address {
+            return vec![]
+        }
+
+        if conditions.contracted_item != item {
+            return vec![]
+        }
+
+        let transfer_item_instruction = Instruction::Transfer(
+            TransferInstruction::new(
+                AddressOrNamespace::Address(Address::from(item_address)),
+                AddressOrNamespace::Address(Address::from(caller)),
+                AddressOrNamespace::Address(Address::from(conditions.depositor)),
+                None,
+                vec![item]
+            ) 
+        );
+
+        let transfer_deposit_instruction = Instruction::Transfer(
+            TransferInstruction::new(
+                AddressOrNamespace::Address(Address::from(conditions.payment_token)),
+                AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+                AddressOrNamespace::Address(Address::from(conditions.redeemer)),
+                Some(conditions.payment_amount),
+                vec![]
+            )
+        );
+
+        //TODO(asmith): Delete the instance of Conditions that were met here
+
+        vec![transfer_item_instruction, transfer_deposit_instruction]
     }
 
     fn revoke(
-            escrow_address: [u8; 32],
-            deposit_id: Option<[u8; 32]>,
-            depositor_address: [u8; 32], 
-            timestamp: Instant, 
-            maturity: Duration
-        ) -> Vec<Instruction> {
-        todo!()
+        deposit_id: [u8; 32],
+        depositor_address: [u8; 20], 
+        conditions: HelloEscrowConditions
+    ) -> Vec<Instruction> {
+        let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_millis(),
+            Err(_) => return vec![]
+        };
+
+        if conditions.deposit_id != Some(deposit_id) {
+            return vec![]
+        }
+
+        if conditions.depositor != depositor_address {
+            return vec![]
+        }
+
+        if Some(timestamp) > conditions.by {
+            let transfer_instruction = Instruction::Transfer(
+                TransferInstruction::new(
+                    AddressOrNamespace::Address(Address::from(conditions.payment_token)),
+                    AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+                    AddressOrNamespace::Address(Address::from(depositor_address)),
+                    Some(conditions.payment_amount),
+                    vec![]
+                )
+            );
+
+            //TODO(asmith): Delete this condition entry from the ProgramAccount data
+            return vec![transfer_instruction]
+        }
+
+        vec![]
     }
 }
 
-fn main() {
+fn generate_deposit_update(
+    conditions: HelloEscrowConditions, 
+    namespace: Namespace,
+) -> Vec<TokenOrProgramUpdate> {
+    let serialized_conditions = bincode::serialize(&conditions);
+    if let Err(_) = serialized_conditions {
+        return vec![]
+    }
+    let account = AddressOrNamespace::Namespace(namespace);
+    let program_field = ProgramField::Data;
+    let data_value = DataValue::Extend(ArbitraryData::from(serialized_conditions.unwrap_or_default()));
+    let program_field_value = ProgramFieldValue::Data(data_value);
+    let program_field_updates = ProgramUpdateField::new(program_field, program_field_value);
+    let program_update = ProgramUpdate::new(account, vec![program_field_updates]);
+    vec![TokenOrProgramUpdate::ProgramUpdate(program_update)]
+}
+
+fn generate_deposit_transfer(
+    payment_token: [u8; 20],
+    depositor: [u8; 20],
+    payment_amount: U256,
+    program_account_namespace: Namespace,
+) -> TransferInstruction {
+    let transfer = TransferInstruction::new(
+        AddressOrNamespace::Address(Address::from(payment_token)),
+        AddressOrNamespace::Address(Address::from(depositor)),
+        AddressOrNamespace::Namespace(program_account_namespace),
+        Some(payment_amount),
+        vec![],
+    ); 
+
+    transfer
+}
+
+fn parse_inputs(inputs: Inputs) -> Result<Vec<Instruction>, std::io::Error> {
+    let function = inputs.op;
+    let instruction_results = execute_function(&function, inputs.inputs)?;
+
+    Ok(instruction_results)
+}
+
+fn execute_function(function: &str, function_inputs: String) -> Result<Vec<Instruction>, std::io::Error> {
+    match function {
+        "deposit" => {
+            let function_inputs: DepositInputs = serde_json::from_str(&function_inputs)?;
+            return Ok(EscrowContract::deposit(
+                function_inputs.depositor,
+                function_inputs.payment_token,
+                function_inputs.payment_amount,
+                function_inputs.redeemer,
+                function_inputs.contracted_item_address,
+                function_inputs.contracted_item,
+                function_inputs.maturity
+            ))
+        },
+        "redeem" => {
+            let function_inputs: RedeemInputs = serde_json::from_str(&function_inputs)?;
+            return Ok(
+                EscrowContract::redeem(
+                    function_inputs.caller, 
+                    function_inputs.deposit_id,
+                    function_inputs.conditions,
+                    function_inputs.item_address,
+                    function_inputs.item
+                )
+            )
+        },
+        "revoke" => {
+            let function_inputs: RevokeInputs = serde_json::from_str(&function_inputs)?;
+            return Ok(
+                EscrowContract::revoke(
+                    function_inputs.deposit_id,
+                    function_inputs.depositor_address,
+                    function_inputs.conditions
+                )
+            )
+        }
+        _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid function name"))
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct DepositInputs {
+    pub depositor: [u8; 20],
+    pub payment_token: [u8; 20],
+    pub payment_amount: U256,
+    pub redeemer: [u8; 20],
+    pub contracted_item_address: [u8; 20],
+    pub contracted_item: U256,
+    pub maturity: Option<u128>, 
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RedeemInputs {
+    pub caller: [u8; 20],
+    pub deposit_id: [u8; 32],
+    pub conditions: HelloEscrowConditions,
+    pub item_address: [u8; 20],
+    pub item: U256,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RevokeInputs {
+    pub deposit_id: [u8; 32],
+    pub depositor_address: [u8; 20],
+    pub conditions: HelloEscrowConditions,
+}
+
+fn main() -> Result<(), std::io::Error> {
+    let mut input_str = String::new();
+    match std::io::stdin().read_to_string(&mut input_str) {
+        Ok(_) => {
+            let inputs: Inputs = serde_json::from_str(&input_str)?;
+            let instructions = parse_inputs(inputs.clone())?;
+            let output = Outputs::new(inputs, instructions);
+            let output_json = serde_json::to_string(&output)?;
+            std::io::stdout().write_all(output_json.as_bytes())?;
+        }
+        Err(e) => {
+            std::io::stderr().write_all(e.to_string().as_bytes())?;
+        }
+    }
+
+    Ok(())
 }
