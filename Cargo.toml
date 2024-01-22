@@ -17,6 +17,10 @@ path = "src/bin/cli.rs"
 name = "compute"
 path = "src/bin/compute.rs"
 
+[[bin]]
+name = "json_schema"
+path = "src/bin/json_schema.rs"
+
 [[example]]
 name = "fungible_token"
 path = "examples/fungible_token/fungible_token.rs"
@@ -83,6 +87,7 @@ ipfs-api-backend-hyper = "0.6"
 criterion = { version = "0.5.1", features = [ "async_tokio", "async_futures" ] }
 toml = { version = "0.8.8", features = [ "preserve_order" ] }
 rand = { version = "0.8.5", features = [ "std", "std_rng" ] }
+schemars = "0.8.16"
 
 [dev-dependencies]
 simple_logger = "4.3.0"

@@ -1,4 +1,5 @@
 use ethereum_types::U256;
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};
 use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
@@ -19,13 +20,13 @@ impl Display for ToTokenError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub enum TransactionType {
-    BridgeIn(U256),
-    Send(U256),
-    Call(U256),
-    BridgeOut(U256),
-    RegisterProgram(U256)
+    BridgeIn(crate::U256),
+    Send(crate::U256),
+    Call(crate::U256),
+    BridgeOut(crate::U256),
+    RegisterProgram(crate::U256)
 }
 
 impl TransactionType {
@@ -86,8 +87,8 @@ pub struct Payload {
     program_id: [u8; 20],
     op: String,
     inputs: String,
-    value: U256,
-    nonce: U256,
+    value: crate::U256,
+    nonce: crate::U256,
 }
 
 impl Payload {
@@ -115,11 +116,11 @@ impl Payload {
         self.inputs.clone()
     }
 
-    pub fn value(&self) -> U256 {
+    pub fn value(&self) -> crate::U256 {
         self.value
     }
 
-    pub fn nonce(&self) -> U256 {
+    pub fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
@@ -155,7 +156,7 @@ impl Payload {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Transaction {
     transaction_type: TransactionType,
     from: [u8; 20],
@@ -163,14 +164,14 @@ pub struct Transaction {
     program_id: [u8; 20],
     op: String,
     inputs: String,
-    value: U256,
-    nonce: U256,
+    value: crate::U256,
+    nonce: crate::U256,
     v: i32,
     r: [u8; 32],
     s: [u8; 32],
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all(deserialize="lowercase"))]
 pub enum TransactionFields {
     TransactionType,
@@ -211,11 +212,11 @@ impl Transaction {
         self.inputs.to_string()
     }
 
-    pub fn value(&self) -> U256 {
+    pub fn value(&self) -> crate::U256 {
         self.value
     }
 
-    pub fn nonce(&self) -> U256 {
+    pub fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
@@ -286,14 +287,14 @@ impl LowerHex for Transaction {
 impl Default for Transaction {
     fn default() -> Self {
         Transaction {
-            transaction_type: TransactionType::BridgeIn(0.into()),
+            transaction_type: TransactionType::BridgeIn(ethereum_types::U256::from(0).into()),
             from: [0; 20],
             to: [0; 20],
             program_id: [0; 20],
             op: String::new(),
             inputs: String::new(),
-            value: 0.into(),
-            nonce: 0.into(),
+            value: ethereum_types::U256::from(0).into(),
+            nonce: ethereum_types::U256::from(0).into(),
             v: 0,
             r: [0; 32],
             s: [0; 32]

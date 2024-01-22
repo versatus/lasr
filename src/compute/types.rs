@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
 use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount, Namespace, ProgramField, ProgramFieldValue};
-use ethereum_types::U256;
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
 
@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 /// and call out to a particular compute payload.
 
 /// The inputs type for a contract call
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Inputs {
     pub version: i32,
     pub account_info: Option<ProgramAccount>,
@@ -17,13 +17,14 @@ pub struct Inputs {
 }
 
 /// The pre-requisite instructions for a contract call 
-#[derive(Clone, Debug, Serialize, Deserialize)] pub struct ParamPreRequisite {
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)] 
+pub struct ParamPreRequisite {
     pre_requisites: PreRequisite,
     outputs: Vec<(usize, OpParams)>,
 }
 
 /// The structure returned by a program/call transaction.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Outputs {
     inputs: Inputs,
     instructions: Vec<Instruction>,
@@ -39,7 +40,7 @@ impl Outputs {
 /// the constructed inputs, all outputs from contract call, and any 
 /// pre-requisite contract call, witnesses, and an optional certificate
 /// if the transaction results have been certified.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CallTransactionResult {
     transaction: Transaction,
     inputs: Inputs,
@@ -48,7 +49,7 @@ pub struct CallTransactionResult {
     witnesses: Vec<TokenWitness>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum PreRequisite {
     Call(CallParams),
     Unlock(AddressPair),
@@ -56,7 +57,7 @@ pub enum PreRequisite {
     Lock(AddressPair),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CallParams {
     pub calling_program: Address,
     pub original_caller: Address,
@@ -64,60 +65,60 @@ pub struct CallParams {
     pub inputs: Inputs,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AddressPair {
     pub account_address: Address,
     pub token_address: Address,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadParams {
     pub items: Vec<(Address, Address, TokenField)>,
     pub contract_blobs: Vec<Address>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum AddressOrNamespace {
     Address(Address),
     Namespace(Namespace),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
     program_id: AddressOrNamespace,
     program_owner: Address,
-    total_supply: U256,
-    initialized_supply: U256,
+    total_supply: crate::U256,
+    initialized_supply: crate::U256,
     distribution: Vec<TokenDistribution>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TokenDistribution {
     to: AddressOrNamespace,
-    amount: U256,
+    amount: crate::U256,
     update_fields: Vec<TokenOrProgramUpdateField>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum TokenOrProgramUpdateField {
     TokenUpdateField(TokenUpdateField),
     ProgramUpdateField(ProgramUpdateField)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum TokenOrProgramUpdate {
     TokenUpdate(TokenUpdate),
     ProgramUpdate(ProgramUpdate),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TokenUpdateField {
     field: TokenField,
     value: TokenFieldValue
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramUpdateField {
     field: ProgramField,
     value: ProgramFieldValue 
@@ -129,7 +130,7 @@ impl ProgramUpdateField {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct UpdateInstruction {
     updates: Vec<TokenOrProgramUpdate>
 }
@@ -140,14 +141,14 @@ impl UpdateInstruction {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TokenUpdate {
     account: AddressOrNamespace,
     token: AddressOrNamespace,
     updates: Vec<TokenUpdateField>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
     updates: Vec<ProgramUpdateField>
@@ -159,13 +160,13 @@ impl ProgramUpdate {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TransferInstruction {
     token_namespace: AddressOrNamespace,
     from: AddressOrNamespace,
     to: AddressOrNamespace,
-    amount: Option<U256>,
-    token_ids: Vec<U256>
+    amount: Option<crate::U256>,
+    token_ids: Vec<crate::U256>
 }
 
 impl TransferInstruction {
@@ -173,29 +174,29 @@ impl TransferInstruction {
         token_namespace: AddressOrNamespace,
         from: AddressOrNamespace,
         to: AddressOrNamespace,
-        amount: Option<U256>,
-        token_ids: Vec<U256>
+        amount: Option<crate::U256>,
+        token_ids: Vec<crate::U256>
     ) -> Self {
         Self { token_namespace, from, to, amount, token_ids }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BurnInstruction {
     token_namespace: AddressOrNamespace,
     owner: Address,
-    amount: Option<U256>,
-    token_ids: Vec<U256>
+    amount: Option<crate::U256>,
+    token_ids: Vec<crate::U256>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LogInstruction(pub ContractLogType);
 
 /// An enum representing the instructions that a program can return 
 /// to the protocol. Also represent types that tell the protocol what  
 /// the pre-requisites of a given function call are.
 /// All enabled languages have equivalent types
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum Instruction {
     /// The return type created by the construction method of a contract 
     Create(CreateInstruction),
@@ -214,7 +215,7 @@ pub enum Instruction {
     Log(LogInstruction) 
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum ContractLogType {
     Info(String),
     Error(String),
@@ -222,7 +223,7 @@ pub enum ContractLogType {
     Debug(String)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum OpParamTypes {
     Address,
     String,
@@ -240,7 +241,7 @@ pub enum OpParamTypes {
     Mapping,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum OpParams {
     Address([u8; 20]),
     String(String),
@@ -308,12 +309,12 @@ impl Hash for OpParams {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramSchema {
     pub contract: Contract
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
     pub name: String,
     pub version: String,
@@ -321,7 +322,7 @@ pub struct Contract {
     pub ops: HashMap<String, Ops>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Ops {
     pub description: String,
     pub help: Option<String>,
@@ -329,14 +330,14 @@ pub struct Ops {
     pub required: Option<Vec<Required>> 
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OpSignature {
     #[serde(flatten)]
     pub op_signature: HashMap<String, String>,
     pub params_mapping: HashMap<String, ParamSource>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ParamSource {
     pub source: String,
     pub field: Option<String>,
@@ -344,7 +345,7 @@ pub struct ParamSource {
     pub position: usize
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "details")]
 pub enum Required {
     Call(CallMap),
@@ -353,7 +354,7 @@ pub enum Required {
     Unlock(LockPair),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CallMap {
     calling_program: TransactionFields,
     original_caller: TransactionFields,
@@ -362,13 +363,13 @@ pub struct CallMap {
     inputs: String, 
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadMap {
     items: Vec<(String, String, String)>, 
     contract_blobs: Option<Vec<String>> 
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LockPair {
     account: String,
     token: String

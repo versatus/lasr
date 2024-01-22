@@ -23,34 +23,34 @@ enum Unit {
 }
 
 #[derive(Clone, Debug)]
-struct U256Wrapper(pub U256);
+struct U256Wrapper(pub lasr::U256);
 
 impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(U256Wrapper(
-            U256::from_dec_str(s)?
+            lasr::U256::from_dec_str(s)?
         ))
     }
 }
 
-impl std::ops::Mul<&Unit> for U256 {
-    type Output = U256;
+impl std::ops::Mul<&Unit> for lasr::U256 {
+    type Output = lasr::U256;
     fn mul(self, rhs: &Unit) -> Self::Output {
         match rhs {
-            Unit::Echo => return self * U256::from(1 as u128),
-            Unit::Beat => self * U256::from(1_000 as u128),
-            Unit::Note => self * U256::from(1_000_000 as u128),
-            Unit::Chord => self * U256::from(1_000_000_000 as u128),
-            Unit::Harmony => self * U256::from(1_000_000_000_000 as u128),
-            Unit::Melody => self * U256::from(1_000_000_000_000_000 as u128),
-            Unit::Verse => self * U256::from(1_000_000_000_000_000_000 as u128)
+            Unit::Echo => return (U256::from(self) * U256::from(1 as u128)).into(),
+            Unit::Beat => return (U256::from(self) * U256::from(1_000 as u128)).into(),
+            Unit::Note => return (U256::from(self) * U256::from(1_000_000 as u128)).into(),
+            Unit::Chord => return (U256::from(self) * U256::from(1_000_000_000 as u128)).into(),
+            Unit::Harmony => return (U256::from(self) * U256::from(1_000_000_000_000 as u128)).into(),
+            Unit::Melody => return (U256::from(self) * U256::from(1_000_000_000_000_000 as u128)).into(),
+            Unit::Verse => return (U256::from(self) * U256::from(1_000_000_000_000_000_000 as u128)).into()
         }
     }
 }
 
-fn parse_u256(s: &str) -> Result<U256, String> {
-    U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e))
+fn parse_u256(s: &str) -> Result<lasr::U256, String> {
+    U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e)).into()
 }
 
 #[derive(Debug, Subcommand)]

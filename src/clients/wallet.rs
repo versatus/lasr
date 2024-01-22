@@ -157,7 +157,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self,
         to: &Address,
         program_id: &Address,
-        value: U256,
+        value: crate::U256,
     ) -> WalletResult<Token> {
         let account = self.account();
         let address = self.address();
@@ -201,7 +201,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self,
         program_id: &Address,
         to: &Address,
-        value: U256,
+        value: crate::U256,
         op: &String,
         inputs: &String,
     ) -> WalletResult<Vec<Token>> {
@@ -211,7 +211,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         dbg!("validating balance");
 
-        if value > 0.into() {
+        if value > U256::from(0).into() {
             account.validate_balance(&program_id, value)?;
         }
 
@@ -260,7 +260,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .program_id([0; 20])
             .inputs(inputs.to_string())
             .op(String::from(""))
-            .value(0.into())
+            .value(U256::from(0).into())
             .nonce(account.nonce())
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 

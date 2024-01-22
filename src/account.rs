@@ -3,6 +3,7 @@ use std::{collections::{BTreeMap, HashMap, HashSet}, hash::Hash, fmt::{Debug, Lo
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
@@ -15,7 +16,7 @@ pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 /// This structure is used to store Ethereum Compatible addresses, which are 
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
 impl Address {
@@ -37,7 +38,7 @@ impl Address {
 /// This structure is used to store current state hash associated with an account
 // It supports standard traits for easy handling and
 /// comparison operations.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AccountHash([u8; 32]);
 
 impl AccountHash {
@@ -50,16 +51,16 @@ impl AccountHash {
 }
 
 /// This is currently not used
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct AccountNonce {
-    bridge_nonce: U256,
-    send_nonce: U256,
+    bridge_nonce: crate::U256,
+    send_nonce: crate::U256,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProgramNamespace(Namespace, Address);
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Namespace(pub String);
 
 impl FromStr for Namespace {
@@ -76,27 +77,27 @@ impl From<String> for Namespace {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
 pub enum ProgramField {
     LinkedPrograms,
     Metadata,
     Data,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
 pub enum ProgramFieldValue {
     LinkedPrograms(LinkedProgramsValue),
     Metadata(MetadataValue),
     Data(DataValue),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
 pub enum LinkedProgramsValue {
     Insert(Address, Token),
     Extend(Vec<(Address, Token)>),
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProgramAccount {
     namespace: Namespace,
     linked_programs: BTreeMap<Address, Token>,
@@ -155,11 +156,11 @@ impl ProgramAccount {
 /// This structure contains details of an LASR account, including its address, associated
 /// programs, nonce, signatures, hashes, and certificates. It implements traits for
 /// serialization, hashing, and comparison.
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Account {
     address: Address,
     programs: BTreeMap<Address, Token>,
-    nonce: U256,
+    nonce: crate::U256,
 }
 
 impl Account {
@@ -174,7 +175,7 @@ impl Account {
         let mut account = Self {
             address,
             programs: BTreeMap::new(),
-            nonce: U256::default(),
+            nonce: U256::default().into(),
         };
 
         account
@@ -184,7 +185,7 @@ impl Account {
         self.address.clone()
     }
 
-    pub fn nonce(&self) -> U256 {
+    pub fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
@@ -196,12 +197,12 @@ impl Account {
         &mut self.programs
     }
 
-    pub fn balance(&self, program_id: &Address) -> U256 {
+    pub fn balance(&self, program_id: &Address) -> crate::U256 {
         if let Some(entry) = self.programs().get(program_id) {
             return entry.balance()
         }
 
-        return 0.into()
+        return U256::from(0).into()
     }
 
     pub(crate) fn apply_transaction(
@@ -247,7 +248,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_balance(&self, program_id: &Address, amount: U256) -> AccountResult<()> {
+    pub(crate) fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if token.balance() >= amount {
                 return Ok(())
@@ -257,7 +258,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_nonce(&self, nonce: U256) -> AccountResult<()> {
+    pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
         if nonce > self.nonce {
             return Ok(())
         }
@@ -265,7 +266,8 @@ impl Account {
     }
 
     pub(crate) fn increment_nonce(&mut self) {
-        self.nonce += 1.into();
+        let new_nonce = U256::from(self.nonce) + U256::from(1);
+        self.nonce = new_nonce.into();
     }
 }
 

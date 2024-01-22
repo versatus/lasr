@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
 use std::collections::BTreeSet;
@@ -9,7 +10,7 @@ use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId
 /// two 32-byte arrays `r` and `s`, and a recovery id `v`. The signature can be
 /// used in cryptographic operations where the public key needs to be recovered
 /// from the signature and the original message.
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct RecoverableSignature {
     r: [u8; 32],
     s: [u8; 32],
@@ -119,7 +120,7 @@ impl TryFrom<&RecoverableSignature> for Signature {
 }
 
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Certificate {
     quorum_id: [u8; 20],
     quorum_sigs: BTreeSet<RecoverableSignature>

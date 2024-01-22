@@ -143,8 +143,8 @@ pub enum EngineMessage {
 pub struct SettlementEvent {
     accounts: Vec<web3::ethabi::Token>,
     batch_header_hash: FixedBytes,
-    blob_index: U256,
-    settlement_event_id: U256,
+    blob_index: crate::U256,
+    settlement_event_id: crate::U256,
 }
 
 /// An event type that the Executable Oracle contract listener
@@ -153,10 +153,10 @@ pub struct SettlementEvent {
 pub struct BridgeEvent {
     user: EthereumAddress,
     program_id: EthereumAddress,
-    amount: ethereum_types::U256,
-    token_id: ethereum_types::U256,
+    amount: crate::U256,
+    token_id: crate::U256,
     token_type: String,
-    bridge_event_id: U256,
+    bridge_event_id: crate::U256,
 }
 
 impl BridgeEvent {
@@ -171,12 +171,12 @@ impl BridgeEvent {
     }
 
     /// A getter for the `amount` field in a bridge event
-    pub fn amount(&self) -> U256 {
+    pub fn amount(&self) -> crate::U256 {
         self.amount
     }
 
     /// A getter for the `token_id` field in a bridge event
-    pub fn token_id(&self) -> U256 {
+    pub fn token_id(&self) -> crate::U256 {
         self.token_id
     }
 
@@ -185,7 +185,7 @@ impl BridgeEvent {
         self.token_type.clone()
     }
     
-    pub fn bridge_event_id(&self) -> U256 {
+    pub fn bridge_event_id(&self) -> crate::U256 {
         self.bridge_event_id
     }
 }
@@ -228,7 +228,7 @@ pub enum EoMessage {
     Bridge {
         program_id: Address,
         address: Address,
-        amount: U256,
+        amount: crate::U256,
         content: Option<[u8; 32]> 
     },
     Settle {
@@ -263,12 +263,12 @@ pub enum EoMessage {
     AccountBalanceAcquired {
         program_id: Address,
         address: Address,
-        balance: Option<U256>,
+        balance: Option<crate::U256>,
     },
     NftHoldingsAcquired {
         program_id: Address,
         address: Address,
-        holdings: Option<Vec<U256>>
+        holdings: Option<Vec<crate::U256>>
     },
     AccountBlobIndexNotFound { 
         address: Address 

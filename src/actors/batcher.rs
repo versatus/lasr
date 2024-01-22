@@ -363,7 +363,7 @@ impl Batcher {
             let mut account = AccountBuilder::default()
                 .address(transaction.from())
                 .programs(BTreeMap::new())
-                .nonce(0.into())
+                .nonce(ethereum_types::U256::from(0).into())
                 .build()?;
             let token = account.apply_transaction(
                 transaction.clone()
@@ -405,7 +405,7 @@ impl Batcher {
                 let mut account = AccountBuilder::default()
                     .address(transaction.to())
                     .programs(BTreeMap::new())
-                    .nonce(0.into())
+                    .nonce(ethereum_types::U256::from(0).into())
                     .build()?;
 
                 log::info!("applying transaction to `to` account");
