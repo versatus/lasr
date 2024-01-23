@@ -222,7 +222,9 @@ impl Actor for PendingTransactionActor {
                 // and applies updated account to cache until settlement
                 // when account, transaction batch exceeds a certain size it is committed to DA
             }
-            PendingTransactionMessage::Invalid { .. } => {}
+            PendingTransactionMessage::Invalid { transaction } => {
+                log::error!("transaction: {} is invalid", transaction.hash_string());
+            }
             PendingTransactionMessage::Confirmed { map, .. }=> {
                 for (_, tx) in map.into_iter() {
                     let _ = state.handle_confirmed(tx).await;

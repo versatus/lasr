@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use ethereum_types::U256 as EthU256;
 use std::collections::BTreeMap;
-use std::fmt::Display;
+use std::fmt::{Display, Debug};
 use std::ops::{AddAssign, SubAssign};
 use schemars::JsonSchema;
 
@@ -9,13 +9,20 @@ use crate::{Address, RecoverableSignature, Transaction};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
-#[derive(Copy, Clone, Default, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Copy, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct U256(pub [u64; 4]);
 
 impl Display for U256 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
        let to_display: EthU256 = self.into();
        write!(f, "{}", to_display)
+    }
+}
+
+impl Debug for U256 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let to_display: EthU256 = self.into();
+        write!(f, "{:?}", to_display)
     }
 }
 

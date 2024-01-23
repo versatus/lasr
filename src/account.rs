@@ -259,6 +259,7 @@ impl Account {
     }
 
     pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
+        log::info!("checking nonce: {nonce} > {}", self.nonce);
         if nonce > self.nonce {
             return Ok(())
         }

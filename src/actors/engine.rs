@@ -143,6 +143,7 @@ impl Engine {
                 .value(event.amount())
                 .inputs(String::new())
                 .op(String::new())
+                .nonce(event.bridge_event_id())
                 .v(0)
                 .r([0; 32])
                 .s([0; 32])

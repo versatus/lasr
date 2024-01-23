@@ -61,8 +61,11 @@ impl ValidatorCore {
     fn validate_send(&self) -> impl FnOnce(Transaction, Account) -> Result<(), Box<dyn std::error::Error + Send>> {
         |tx, account| {
             account.validate_program_id(&tx.program_id())?;
+            log::info!("program id is valid");
             account.validate_balance(&tx.program_id(), tx.value())?;
+            log::info!("balance is valid");
             account.validate_nonce(tx.nonce())?;
+            log::info!("nonce is valid");
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
             let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
@@ -153,9 +156,12 @@ impl Actor for Validator {
                 let transaction_type = transaction.transaction_type();
                 match transaction_type {
                     TransactionType::Send(_) => {
+                        log::info!("Received send transaction, checking account_cache");
                         let account = if let Some(account) = check_account_cache(transaction.from()).await {
+                            log::info!("found account in cache");
                             Some(account)
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
+                            log::info!("found account in da");
                             Some(account)
                         } else {
                             None
@@ -171,6 +177,7 @@ impl Actor for Validator {
                             let message = PendingTransactionMessage::Invalid { transaction };
                             actor.cast(message)?;
                         } else {
+                            log::info!("validating send transaction");
                             let op = state.validate_send();
                             state.pool.spawn_fifo(move || {
                                 let _ = op(transaction.clone(), account.unwrap());
@@ -178,7 +185,6 @@ impl Actor for Validator {
                         }
                     }
                     TransactionType::Call(_) => {
-
                         // get account
                         // build op
                         // install op

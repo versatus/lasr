@@ -550,7 +550,6 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             BatcherMessage::GetNextBatch => {
-                log::info!("sending batch to DA Client");
                 let res = state.handle_next_batch_request().await;
                 if let Err(e) = res {
                     log::error!("{e}");

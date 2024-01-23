@@ -169,7 +169,7 @@ impl Actor for TaskScheduler {
                 state.insert(transaction.hash_string(), rpc_reply);
             },
             SchedulerMessage::GetAccount { address, rpc_reply } => {
-                log::info!("Scheduler received RPC `getAccount` method. Prepping to check cache");
+                log::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
                 // Check cache
                 self.handle_get_account_request(address, rpc_reply).await;
                 // if not in cache check DA

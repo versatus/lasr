@@ -29,7 +29,7 @@ impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(U256Wrapper(
-            lasr::U256::from_dec_str(s)?
+            ethereum_types::U256::from_dec_str(s)?.into()
         ))
     }
 }
@@ -50,7 +50,7 @@ impl std::ops::Mul<&Unit> for lasr::U256 {
 }
 
 fn parse_u256(s: &str) -> Result<lasr::U256, String> {
-    U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e)).into()
+    Ok(ethereum_types::U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e))?.into())
 }
 
 #[derive(Debug, Subcommand)]

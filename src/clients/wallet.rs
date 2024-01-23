@@ -164,6 +164,9 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         account.validate_balance(program_id, value)?;
 
+        let tx_nonce = {
+            crate::U256::from(account.nonce() + ethereum_types::U256::from(1).into())
+        };
         let payload = self.builder
             .transaction_type(TransactionType::Send(account.nonce()))
             .from(address.into())
@@ -172,7 +175,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .inputs(String::new())
             .op(String::new())
             .value(value)
-            .nonce(account.nonce())
+            .nonce(tx_nonce)
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
@@ -286,6 +289,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
     }
 
     pub async fn get_account(&mut self, address: &Address) -> WalletResult<()> {
+        log::info!("calling get_account for {:x}", address);
         let account: Account = bincode::deserialize(
             &self.client.get_account(format!("{:x}", address)).await.map_err(|e| {
                 Box::new(e) as Box<dyn std::error::Error + Send>
