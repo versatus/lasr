@@ -49,11 +49,9 @@ impl Batch {
     }
 
     pub fn empty(&self) -> bool {
-        let mut empty = false;
-        empty = self.transactions().is_empty();
-        empty = self.user_accounts().is_empty();
-        empty = self.program_accounts().is_empty();
-        return empty
+        self.transactions().is_empty() &&
+        self.user_accounts().is_empty() &&
+        self.program_accounts().is_empty()
     }
 
     pub fn get_user_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
@@ -130,7 +128,7 @@ impl Batch {
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
         let encoded = base64::encode(self.compress_batch()?);
-
+        log::info!("encoded batch: {:?}", &encoded);
         Ok(encoded)
     }
 
@@ -201,8 +199,10 @@ impl Batch {
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
         if !self.clone().user_account_would_exceed_capacity(account.clone())? {
+            log::info!("inserting account into batch");
             let mut id: [u8; 20] = account.address().into();
             self.user_accounts.insert(id, account.clone());
+            log::info!("{:?}", &self);
             return Ok(())
         }
 
@@ -431,6 +431,7 @@ impl Batcher {
             )?.into();
 
             let (tx, rx) = oneshot();
+            log::info!("Sending message to DA Client to store batch");
             let message = DaClientMessage::StoreBatch { batch: self.parent.encode_batch()?, tx };
             da_client.cast(message).map_err(|e| BatcherError::Custom(e.to_string()))?;
             let handler = |resp: Result<BlobResponse, std::io::Error> | {
@@ -460,6 +461,7 @@ impl Batcher {
         }
 
         log::warn!("batch is currently empty, skipping");
+        dbg!(&self.parent);
 
         return Ok(())
     }
