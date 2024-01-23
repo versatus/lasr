@@ -1,17 +1,65 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, time::Duration, str::FromStr};
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
 use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, RpcResponseError};
 use serde::{Serialize, Deserialize};
+use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RemoteExecutorActor;
 
 #[derive(Debug)]
+pub struct PendingJob {
+    handle: JoinHandle<std::io::Result<()>>,
+    sender: Sender<()>,
+    transaction_hash: String,
+}
+
+impl PendingJob {
+    pub fn new(handle: JoinHandle<std::io::Result<()>>, sender: Sender<()>, transaction_hash: String) -> Self {
+        Self { handle, sender, transaction_hash }
+    }
+
+    pub async fn join_handle(self) {
+        self.handle.await;
+    }
+}
+
+#[derive(Debug)]
 pub struct RemoteExecutionEngine<C: ClientT> {
     client: C,
-    pending: HashMap<String, tokio::task::JoinHandle<Result<String, RpcResponseError>>>
+    pending: HashMap<uuid::Uuid, PendingJob>
+}
+
+impl<C: ClientT> RemoteExecutionEngine<C> {
+    pub fn new(client: C) -> Self {
+        Self {
+            client,
+            pending: HashMap::new()
+        }
+    }
+
+    pub(super) fn spawn_poll(&self, job_id: uuid::Uuid, mut rx: Receiver<()>) -> std::io::Result<JoinHandle<std::io::Result<()>>> {
+        Ok(tokio::task::spawn(async move {
+            let mut attempts = 0;
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::RemoteExecutor.to_string()).ok_or(
+                std::io::Error::new(std::io::ErrorKind::Other, "unable to locate remote executor")
+            )?.into();
+
+            while attempts < 20 {
+                tokio::time::sleep(Duration::from_secs(1));
+                if let Ok(()) = rx.try_recv() {
+                    break
+                }
+                let message = ExecutorMessage::PollJobStatus { job_id: job_id.clone() };
+                actor.clone().cast(message);
+                attempts += 1;
+            }
+
+            Ok(())
+        }))
+    }
 }
 
 // This will be a weighted LRU cache that captures the size of the 
@@ -251,6 +299,7 @@ impl Actor for ExecutorActor {
                     }
                 }
             },
+            _ => {}
         }
 
         Ok(())
@@ -285,9 +334,41 @@ impl Actor for RemoteExecutorActor {
             },
             ExecutorMessage::Exec { program_id, op, inputs, transaction_hash } => {
                 // Fire off RPC call to compute runtime
-                state.client.request::<(String,String, String), (&[u8], &[u8], &[u8])>(
-                    "queue_job", (program_id.to_full_string().as_bytes(), op.as_bytes(), inputs.as_bytes()));
+                let result = state.client.request::<String, (String, String, String)>(
+                    "queue_job", (
+                        program_id.to_full_string(),
+                        op,
+                        inputs
+                    )
+                ).await;
+                
+                match &result {
+                    // Spin a thread to periodically poll for the result
+                    Ok(job_id_string) => {
+                        let job_id_res = uuid::Uuid::from_str(&job_id_string);
+                        match job_id_res {
+                            Ok(job_id) => {
+                                let (tx, mut rx) = tokio::sync::mpsc::channel(1); 
+                                let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
+                                match poll_spawn_result {
+                                    Ok(handle) => {
+                                        // Stash the job_id
+                                        let pending_job = PendingJob::new(handle, tx, transaction_hash);
+                                        state.pending.insert(job_id.clone(), pending_job);
+                                    }
+                                    Err(_e) => {}
+                                }
+                            },
+                            Err(_e) => {}
+                        }
+                    }
+                    Err(_e) => {}
+                }
+
             },
+            ExecutorMessage::PollJobStatus { job_id } => {
+                state.client.request::<String, &[u8]>("job_status", job_id.to_string().as_bytes());
+            }
             ExecutorMessage::Results { .. } => {},
             _ => {}
         }

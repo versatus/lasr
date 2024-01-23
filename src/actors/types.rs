@@ -21,6 +21,7 @@ pub enum ActorType {
     EoClient,
     Batcher,
     Executor,
+    RemoteExecutor,
 }
 
 impl ToString for ActorType {
@@ -39,6 +40,7 @@ impl ToString for ActorType {
             ActorType::EoClient => "eo_client".to_string(),
             ActorType::Batcher => "batcher".to_string(),
             ActorType::Executor => "executor".to_string(),
+            ActorType::RemoteExecutor => "remote_executor".to_string(),
         }
     }
 }
