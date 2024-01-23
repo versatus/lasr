@@ -32,7 +32,8 @@ pub enum TransactionResponse {
     SendResponse(Token),
     CallResponse(Vec<Token>),
     GetAccountResponse(Account),
-    RegisterProgramResponse(Option<String>)
+    RegisterProgramResponse(Option<String>),
+    TransactionError(RpcResponseError)
 }
 
 /// A message type that the RpcServer Actor can `handle`
@@ -132,6 +133,13 @@ pub enum EngineMessage {
     CheckCache {
         address: Address,
         reply: OneshotSender<Option<Account>>
+    },
+    CallSuccess {
+        transaction_hash: String,
+        outputs: String,
+    },
+    RegistrationSuccess {
+        transaction_hash: String,
     },
     CommTest
 }
@@ -401,12 +409,12 @@ pub enum ExecutorMessage {
         program_id: Address,
         op: String, 
         inputs: String, 
-        transaction_id: [u8; 32],
+        transaction_hash: String,
     },
     Kill(String /*ContentId*/),
     Delete(String /*ContentId*/),
     Results {
         content_id: String, 
-        transaction_id: Option<[u8; 32]>,
+        transaction_hash: Option<String>,
     },
 }

@@ -1,19 +1,28 @@
 use std::{collections::HashMap, path::Path};
+use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType};
+use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, RpcResponseError};
 use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RemoteExecutorActor;
+
+#[derive(Debug)]
+pub struct RemoteExecutionEngine<C: ClientT> {
+    client: C,
+    pending: HashMap<String, tokio::task::JoinHandle<Result<String, RpcResponseError>>>
+}
 
 // This will be a weighted LRU cache that captures the size of the 
 // containers and kills/deletes LRU containers
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynCache;
 
-#[allow(unused)]
 pub struct ExecutionEngine {
     manager: OciManager,
     ipfs_client: ipfs_api::IpfsClient,
-    handles: HashMap<(String, Option<[u8; 32]>), tokio::task::JoinHandle<std::io::Result<String>>>,
+    handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
     cache: DynCache
 }
 
@@ -31,13 +40,9 @@ impl ExecutionEngine {
         entrypoint: String,
         program_args: Option<Vec<String>>
     ) -> std::io::Result<()> {
-        log::info!("creating bundle for {:?}", &content_id.as_ref().to_str());
         self.manager.bundle(&content_id, crate::BaseImage::Bin).await?;
-        log::info!("adding payload for {:?}", &content_id.as_ref().to_str());
         self.manager.add_payload(&content_id).await?;
-        log::info!("writing base spec {:?}", &content_id.as_ref().to_str());
         self.manager.base_spec(&content_id).await?;
-        log::info!("customizing spec {:?}", &content_id.as_ref().to_str());
         self.manager.customize_spec(&content_id, &entrypoint, program_args)?;
         Ok(())
     }
@@ -46,9 +51,9 @@ impl ExecutionEngine {
         &self,
         content_id: impl AsRef<Path> + Send + 'static,
         inputs: Inputs,
-        transaction_id: Option<[u8; 32]>
+        transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self.manager.run_container(content_id, inputs, transaction_id).await?;
+        let handle = self.manager.run_container(content_id, inputs, Some(transaction_hash.clone())).await?;
         Ok(handle)
     }
 
@@ -114,6 +119,18 @@ impl ExecutorActor {
 
         Ok(())
     }
+
+    fn execution_success(&self, transaction_hash: &String, output: &String) -> std::io::Result<()> {
+        let actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
+        )?.into();
+
+        Ok(())
+    }
+
+    fn execution_error(&self, err: impl std::error::Error) -> std::io::Result<()> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -171,7 +188,7 @@ impl Actor for ExecutorActor {
                 // Warm up/start a container image
             }
             ExecutorMessage::Exec {
-                program_id, op, inputs, transaction_id 
+                program_id, op, inputs, transaction_hash 
             } => {
                 // Run container
                 // parse inputs
@@ -184,13 +201,13 @@ impl Actor for ExecutorActor {
                         dbg!(&inputs);
                         let inputs_res = state.parse_inputs(schema, op, inputs);
                         if let Ok(inputs) = inputs_res {
-                            let res = state.execute(program_id.to_full_string(), inputs, Some(transaction_id)).await;
+                            let res = state.execute(program_id.to_full_string(), inputs, &transaction_hash).await;
                             if let Err(e) = &res {
                                 log::error!("Error executor.rs: 83: {e}");
                             };
                             if let Ok(handle) = res {
                                 log::info!("result successful, placing handle in handles");
-                                state.handles.insert((program_id.to_full_string(), Some(transaction_id)), handle);
+                                state.handles.insert((program_id.to_full_string(), transaction_hash), handle);
                             }
                         }
                     }
@@ -209,16 +226,70 @@ impl Actor for ExecutorActor {
             ExecutorMessage::Delete(_content_id) => {
                 // Delete a container
             },
-            ExecutorMessage::Results { content_id, transaction_id } => {
+            ExecutorMessage::Results { content_id, transaction_hash } => {
                 // Handle the results of an execution
-                log::info!("Received results for execution of container: content_id: {:?}, transaction_id: {:?}", content_id, transaction_id);
+                log::info!("Received results for execution of container:"); 
+                log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 dbg!(&state.handles);
-                if let Some(handle) = state.handles.remove(&(content_id, transaction_id)) {
-                    let res = handle.await;
-                    log::info!("container results from ExecutorActor: {:?}", res);
+                if let Some(hash) = &transaction_hash {
+                    if let Some(handle) = state.handles.remove(&(content_id, hash.clone())) {
+                        let res = handle.await;
+                        if let Ok(Ok(output)) = &res {
+                            let res = self.execution_success(hash, output);
+
+                            log::info!(
+                                "Forwarding results to engine to handle parsing and application of instruction"
+                            );
+                            if let Err(e) = &res {
+                                log::error!("{}", e);
+                            }
+                        }
+
+                        if let Err(e) = &res {
+                            let _ = self.execution_error(e);
+                        }
+                    }
                 }
-                log::info!("Forwarding results to engine to handle application");
             },
+        }
+
+        Ok(())
+    }
+}
+
+
+#[async_trait]
+impl Actor for RemoteExecutorActor {
+    type Msg = ExecutorMessage;
+    type State = RemoteExecutionEngine<WsClient>; 
+    type Arguments = Self::State;
+    
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        args: Self::State,
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(args)
+    }
+
+    async fn handle(
+        &self,
+        _: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ExecutorMessage::Retrieve(content_id) => {
+                // Used to retrieve Schema under this model
+                state.client.request::<String, &[u8]>("get_object", content_id.as_bytes());
+            },
+            ExecutorMessage::Exec { program_id, op, inputs, transaction_hash } => {
+                // Fire off RPC call to compute runtime
+                state.client.request::<(String,String, String), (&[u8], &[u8], &[u8])>(
+                    "queue_job", (program_id.to_full_string().as_bytes(), op.as_bytes(), inputs.as_bytes()));
+            },
+            ExecutorMessage::Results { .. } => {},
+            _ => {}
         }
 
         Ok(())

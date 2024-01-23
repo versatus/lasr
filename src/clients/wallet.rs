@@ -243,9 +243,20 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         dbg!("submitting transaction to RPC");
-        let tokens = self.client.call(
+        let token_bytes_vec = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
+        let tokens = {
+            let mut token_vec = Vec::new();
+            for token_bytes in token_bytes_vec {
+                token_vec.push(bincode::deserialize(&token_bytes).map_err(|e| {
+                    Box::new(e) as Box<dyn std::error::Error + Send>
+                })?)
+            }
+
+            token_vec
+        };
 
         self.get_account(&self.address()).await?;
 

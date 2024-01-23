@@ -107,7 +107,7 @@ impl OciManager {
         &self,
         content_id: impl AsRef<Path> + Send + 'static, 
         inputs: Inputs,
-        transaction_id: Option<[u8; 32]>,
+        transaction_hash: Option<String>,
     ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
         let container_path = self.bundler.get_container_path(&content_id)
             .as_ref()
@@ -163,7 +163,7 @@ impl OciManager {
             )?.into();
 
             let message = ExecutorMessage::Results {
-                content_id: content_id.as_ref().to_string_lossy().into_owned(), transaction_id 
+                content_id: content_id.as_ref().to_string_lossy().into_owned(), transaction_hash 
             };
 
             actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;

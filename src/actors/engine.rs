@@ -8,7 +8,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use serde_json::Value;
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -155,13 +155,11 @@ impl Engine {
     }
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
-        let mut transaction_id = [0u8; 32];
-        transaction_id.copy_from_slice(&transaction.hash()[..]);
         let message = ExecutorMessage::Exec {
             program_id: transaction.to(), 
             op: transaction.op(), 
             inputs: transaction.inputs(),
-            transaction_id, 
+            transaction_hash: transaction.hash_string(), 
         };
         self.inform_executor(transaction, message).await?;
         Ok(())
@@ -281,6 +279,28 @@ impl Engine {
         self.inform_executor(transaction, message).await?;
         Ok(())
     }
+
+    fn handle_call_success(&self, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
+        // Parse the outputs into instructions
+        let outputs: Outputs = serde_json::from_str(outputs).map_err(|e| {
+            EngineError::Custom(e.to_string())
+        })?;
+
+        // Get transaction from pending transactions
+        // Send transaction and Outputs to validator
+        // Validate transaction structure and caller signature, including nonce
+        // balance as it relates to value, and then validate instructions
+        // instruction validation includes checking the balance of and Transfer or 
+        // Burn instructions to the accounts that will have their balance reduced
+        // For creates and updates it includes validating the caller is the owner
+        // or has approval, etc.
+
+        todo!()
+    }
+
+    fn handle_registration_success(&self, transaction_hash: String) -> Result<(), EngineError> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -329,7 +349,13 @@ impl Actor for Engine {
             },
             EngineMessage::RegisterProgram { transaction } => {
                 self.handle_register_program(transaction).await;
-            }
+            },
+            EngineMessage::CallSuccess { transaction_hash, outputs } => {
+                self.handle_call_success(transaction_hash, &outputs);
+            },
+            EngineMessage::RegistrationSuccess { transaction_hash } => {
+                self.handle_registration_success(transaction_hash);
+            },
             _ => {}
         }
         return Ok(())
