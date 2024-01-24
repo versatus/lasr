@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -188,6 +188,12 @@ impl ProgramAccount {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub enum AccountType {
+    User,
+    Program(Address),
+}
+
 /// Represents an LASR account.
 ///
 /// This structure contains details of an LASR account, including its address, associated
@@ -195,6 +201,7 @@ impl ProgramAccount {
 /// serialization, hashing, and comparison.
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Account {
+    account_type: AccountType,
     program_namespace: Option<AddressOrNamespace>,
     owner_address: Address,
     programs: BTreeMap<Address, Token>,
@@ -210,11 +217,13 @@ impl Account {
     /// This function initializes an account with the provided address and an optional
     /// map of programs. It updates the account hash before returning.
     pub fn new(
+        account_type: AccountType,
         program_namespace: Option<AddressOrNamespace>,
         owner_address: Address,
         programs: Option<BTreeMap<Address, Token>>
     ) -> Self {
         let mut account = Self {
+            account_type,
             program_namespace,
             owner_address,
             programs: BTreeMap::new(),
@@ -227,6 +236,10 @@ impl Account {
         account
     }
     
+    pub fn account_type(&self) -> AccountType {
+        self.account_type.clone()
+    }
+
     pub fn program_namespace(&self) -> Option<AddressOrNamespace> {
         self.program_namespace.clone()
     }
@@ -296,6 +309,26 @@ impl Account {
                 )
             )
         )
+    }
+
+    pub(crate) fn apply_transfer_instruction(&self, instruction: TransferInstruction) -> AccountResult<Token> {
+        todo!()
+    }
+
+    pub(crate) fn apply_burn_instruction(&self, instruction: BurnInstruction) -> AccountResult<Token> {
+        todo!()
+    }
+
+    pub(crate) fn apply_token_distribution(&self, distribution: TokenDistribution) -> AccountResult<Token> {
+        todo!()
+    }
+
+    pub(crate) fn apply_token_update(&self, update: TokenUpdate) -> AccountResult<Token> {
+        todo!()
+    }
+
+    pub(crate) fn apply_program_update(&self, update: ProgramUpdate) -> AccountResult<ProgramFieldValue> {
+        todo!()
     }
 
     pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {

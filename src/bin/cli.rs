@@ -586,7 +586,7 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
             let account: Account = bincode::deserialize(account_bytes)?;
             account
         } else {
-            Account::new(None, address, None)
+            Account::new(lasr::AccountType::User, None, address, None)
         };
 
         WalletBuilder::default()
