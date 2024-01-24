@@ -311,23 +311,23 @@ impl Account {
         )
     }
 
-    pub(crate) fn apply_transfer_instruction(&self, instruction: TransferInstruction) -> AccountResult<Token> {
+    pub(crate) fn apply_transfer_instruction(&mut self, instruction: TransferInstruction) -> AccountResult<Token> {
         todo!()
     }
 
-    pub(crate) fn apply_burn_instruction(&self, instruction: BurnInstruction) -> AccountResult<Token> {
+    pub(crate) fn apply_burn_instruction(&mut self, instruction: BurnInstruction) -> AccountResult<Token> {
         todo!()
     }
 
-    pub(crate) fn apply_token_distribution(&self, distribution: TokenDistribution) -> AccountResult<Token> {
+    pub(crate) fn apply_token_distribution(&mut self, distribution: TokenDistribution) -> AccountResult<Token> {
         todo!()
     }
 
-    pub(crate) fn apply_token_update(&self, update: TokenUpdate) -> AccountResult<Token> {
+    pub(crate) fn apply_token_update(&mut self, update: TokenUpdate) -> AccountResult<Token> {
         todo!()
     }
 
-    pub(crate) fn apply_program_update(&self, update: ProgramUpdate) -> AccountResult<ProgramFieldValue> {
+    pub(crate) fn apply_program_update(&mut self, update: ProgramUpdate) -> AccountResult<ProgramFieldValue> {
         todo!()
     }
 
