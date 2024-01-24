@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::{collections::{BTreeMap, HashMap, HashSet}, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
+use std::{collections::{BTreeMap, HashMap, HashSet, BTreeSet}, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -195,9 +195,13 @@ impl ProgramAccount {
 /// serialization, hashing, and comparison.
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Account {
+    namespace: Option<Namespace>,
     address: Address,
     programs: BTreeMap<Address, Token>,
     nonce: crate::U256,
+    program_account_data: ArbitraryData,
+    program_account_metadata: Metadata,
+    program_account_linked_programs: BTreeSet<AddressOrNamespace>,
 }
 
 impl Account {
@@ -206,16 +210,25 @@ impl Account {
     /// This function initializes an account with the provided address and an optional
     /// map of programs. It updates the account hash before returning.
     pub fn new(
+        namespace: Option<Namespace>,
         address: Address,
         programs: Option<BTreeMap<Address, Token>>
     ) -> Self {
         let mut account = Self {
+            namespace,
             address,
             programs: BTreeMap::new(),
             nonce: U256::default().into(),
+            program_account_data: ArbitraryData::new(),
+            program_account_metadata: Metadata::new(),
+            program_account_linked_programs: BTreeSet::new()
         };
 
         account
+    }
+    
+    pub fn namespace(&self) -> Option<Namespace> {
+        self.namespace.clone()
     }
 
     pub fn address(&self) -> Address {
@@ -232,6 +245,18 @@ impl Account {
 
     pub fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
         &mut self.programs
+    }
+
+    pub fn program_account_data(&self) -> ArbitraryData {
+        self.program_account_data.clone()
+    }
+    
+    pub fn program_account_metadata(&self) -> Metadata {
+        self.program_account_metadata.clone()
+    }
+
+    pub fn program_account_linked_programs(&self) -> BTreeSet<AddressOrNamespace> {
+        self.program_account_linked_programs.clone()
     }
 
     pub fn balance(&self, program_id: &Address) -> crate::U256 {

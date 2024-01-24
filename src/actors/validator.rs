@@ -368,12 +368,40 @@ impl ValidatorCore {
                                     }
                                 },
                                 TokenOrProgramUpdate::ProgramUpdate(program_update) => {
-
+                                    for update_field in program_update.updates() {
+                                        if &AddressOrNamespace::Address(tx.to()) != program_update.account() {
+                                            match account_map.get(program_update.account()) {
+                                                Some(Some(acct)) => {
+                                                    if acct.address() != tx.from() {
+                                                        if !acct.program_account_linked_programs().contains(&AddressOrNamespace::Address(tx.to())) {
+                                                            return Err(
+                                                                Box::new(
+                                                                    ValidatorError::Custom(
+                                                                        "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
+                                                                    )
+                                                                ) as Box<dyn std::error::Error + Send> 
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                _ => {
+                                                    return Err(
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "program accounts must exist to be updated".to_string()
+                                                            )
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     Instruction::Create(create) => {
+
                     }
                     Instruction::Log(log) => {
                     }

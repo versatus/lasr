@@ -159,6 +159,14 @@ impl ProgramUpdateField {
     pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
         Self { field, value }
     }
+    
+    pub fn field(&self) -> &ProgramField {
+        &self.field
+    }
+
+    pub fn value(&self) -> &ProgramFieldValue {
+        &self.value
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -211,12 +219,25 @@ impl TokenUpdate {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
+    token: AddressOrNamespace,
     updates: Vec<ProgramUpdateField>
 }
 
 impl ProgramUpdate {
-    pub fn new(account: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
-        Self { account, updates }
+    pub fn new(account: AddressOrNamespace, token: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
+        Self { account, token, updates }
+    }
+
+    pub fn account(&self) -> &AddressOrNamespace {
+        &self.account
+    }
+
+    pub fn updates(&self) -> &Vec<ProgramUpdateField> {
+        &self.updates
+    }
+
+    pub fn token(&self) -> &AddressOrNamespace {
+        &self.token
     }
 }
 
