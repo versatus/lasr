@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -312,7 +312,129 @@ impl Account {
     }
 
     pub(crate) fn apply_transfer_instruction(&mut self, instruction: TransferInstruction) -> AccountResult<Token> {
-        todo!()
+        let token = instruction.program_id();
+        match instruction.from() {
+            AddressOrNamespace::Address(addr) => {
+                if addr == &self.owner_address() {
+                    match token {
+                        AddressOrNamespace::Address(token_addr) => {
+                            if let Some(mut entry) = self.programs_mut().get_mut(token_addr) {
+                                if let Some(amt) = instruction.amount() {
+                                    entry.debit(amt)?;
+                                    return Ok(entry.clone())
+                                } else if !instruction.token_ids().is_empty() {
+                                    entry.remove_token_ids(&instruction.token_ids())?;
+                                    return Ok(entry.clone())
+                                } else {
+                                    return Ok(entry.clone())
+                                }
+                            } else {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "from account in instruction does not own the token being transferred" 
+                                        )
+                                    ) as Box<dyn std::error::Error + Send>
+                                )
+                            }
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "Namespaces not yet supported for instruction application"
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Namespaces not yet supported for instruction application"
+                        )
+                    )
+                )
+            }
+        }
+        match instruction.to() {
+            AddressOrNamespace::Address(addr) => {
+                match token {
+                    AddressOrNamespace::Address(token_addr) => {
+                        if let Some(mut entry) = self.programs_mut().get_mut(token_addr) {
+                            if let Some(amt) = instruction.amount() {
+                                entry.credit(amt)?;
+                            } 
+
+                            if !instruction.token_ids().is_empty() {
+                                entry.add_token_ids(&instruction.token_ids())?;
+                            }
+
+                            return Ok(entry.clone())
+                        } else {
+                            let mut token = TokenBuilder::default()
+                                .program_id(token_addr.clone())
+                                .owner_id(self.owner_address.clone())
+                                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                                .token_ids(instruction.token_ids().clone())
+                                .metadata(Metadata::new())
+                                .data(ArbitraryData::new())
+                                .approvals(BTreeMap::new())
+                                .allowance(BTreeMap::new())
+                                .status(crate::Status::Free)
+                                .build().map_err(|e| {
+                                    Box::new(e) as Box<dyn std::error::Error + Send>
+                                })?;
+
+                            if let Some(amt) = instruction.amount() {
+                                token.credit(amt)?;
+                            }
+
+                            if !instruction.token_ids().is_empty() {
+                                token.add_token_ids(&instruction.token_ids())?;
+                            }
+                            self.programs_mut().insert(token.program_id(), token.clone());
+
+                            return Ok(token)
+                        }
+                    }
+                    AddressOrNamespace::Namespace(namespace) => {
+                        return Err(
+                            Box::new(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "Namespaces not yet supported for instruction application"
+                                )
+                            )
+                        )
+                    }
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Namespaces not yet supported for instruction application"
+                        )
+                    )
+                )
+            }
+        }
+        return Err(
+            Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "account is not party to this Transfer Instruction".to_string()
+                )
+            ) as Box<dyn std::error::Error + Send>
+        )
     }
 
     pub(crate) fn apply_burn_instruction(&mut self, instruction: BurnInstruction) -> AccountResult<Token> {
