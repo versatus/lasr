@@ -280,7 +280,7 @@ pub struct Token {
     metadata: Metadata,
     token_ids: Vec<U256>,
     allowance: BTreeMap<Address, U256>,
-    approvals: BTreeMap<Address, U256>,
+    approvals: BTreeMap<Address, Vec<U256>>,
     data: ArbitraryData,
     status: Status,
 }
@@ -395,7 +395,7 @@ impl Token {
 
     }
 
-    pub fn approvals(&self) -> BTreeMap<Address, U256> {
+    pub fn approvals(&self) -> BTreeMap<Address, Vec<U256>> {
         self.approvals.clone()
 
     }

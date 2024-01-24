@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -289,6 +289,59 @@ impl Account {
         if let Some(token) = self.programs.get(program_id) {
             if token.balance() >= amount {
                 return Ok(())
+            }
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_token_ownership(&self, program_id: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            for nft in token_ids {
+                if !token.token_ids().contains(&nft) {
+                    return Err(Box::new(AccountCacheError))
+                }
+            }
+            return Ok(())
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            if let Some(entry) = token.allowance().get(spender) {
+                if entry > amount {
+                    return Ok(())
+                } else {
+                    return Err(Box::new(AccountCacheError))
+                }
+            } else if let Some(entry) = token.approvals().get(spender) {
+                if entry.is_empty() {
+                    return Ok(())
+                } else {
+                    return Err(Box::new(AccountCacheError))
+                }
+            }
+        } 
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_approved_token_transfer(&self, program_id: &Address, spender: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            if let Some(entry) = token.approvals().get(spender) {
+                if entry.is_empty() {
+                    return Err(Box::new(AccountCacheError))
+                } else {
+                    for nft in token_ids {
+                        if !entry.contains(nft) {
+                            return Err(Box::new(AccountCacheError))
+                        }
+
+                        return Ok(())
+                    }
+                }
             }
         }
 

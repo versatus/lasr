@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, collections::HashMap};
 
 use async_trait::async_trait;
 use ractor::{ActorRef, Actor, ActorProcessingErr};
@@ -82,15 +82,228 @@ impl ValidatorCore {
     }
 
     #[allow(unused)]
-    fn validate_call(&self) -> impl FnOnce(Vec<AddressOrNamespace>, Vec<Option<Account>>, Outputs, Transaction) -> Result<bool, Box<dyn std::error::Error + Send>> {
-        |accounts_involved, accounts, outputs, tx| {
+    fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<bool, Box<dyn std::error::Error + Send>> {
+        |account_map, outputs, tx| {
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+
+            let caller = account_map.get(&AddressOrNamespace::Address(tx.from())).ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "caller account does not exist".to_string()
+                    )                 
+                ) as Box<dyn std::error::Error + Send>
+            )?.clone().ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "caller account does not exist".to_string()
+                    )                 
+                ) as Box<dyn std::error::Error + Send>
+            )?;
+
+            caller.clone().validate_balance(&tx.program_id(), tx.value())?;
+            caller.clone().validate_nonce(tx.nonce())?;
             let instructions = outputs.instructions();
             for instruction in instructions {
                 match instruction {
                     Instruction::Transfer(transfer) => {
+                        // Get the address we are transferring from
+                        let transfer_from = transfer.from(); 
+                        // Get the program id of the program that was executed to 
+                        // return this transfer instruction
+                        let program_id = match transfer.program_id() {
+                            AddressOrNamespace::Address(addr) => addr.clone(),
+                            _ => return Err(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "program namespaces not yet implemented".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>)
+                        };
+
+                        // get the program address of the token being transfered
+                        let token_address = match transfer.token_namespace() {
+                            AddressOrNamespace::Address(addr) => addr.clone(),
+                            _ => return Err(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "token namespaces not yet implemented".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>)
+                        };
+
+                        // Check if the transferrer is the caller
+                        if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().address()) { 
+                            if let Some(amt) = transfer.amount() {
+                                caller.validate_balance(&program_id, amt.clone())?;
+                            } else {
+                                caller.validate_token_ownership(&program_id, transfer.token_ids())?;
+                            }
+                        } else {
+                            // If not attempt to get the account for the transferrer
+                            let transfer_from_account = account_map.get(transfer_from).ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not exist".to_string()
+                                    )                 
+                                ) as Box<dyn std::error::Error + Send>
+                            )?.clone().ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not exist".to_string()
+                                    )                 
+                                ) as Box<dyn std::error::Error + Send>
+                            )?;
+
+
+                            // check that the account being debited indeed has the token 
+                            // we are debiting
+                            let token = transfer_from_account.programs().get(&token_address).ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not hold token".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>
+                            )?;
+
+                            // If fungible token, check balance
+                            if let Some(amt) = transfer.amount() {
+                                transfer_from_account.validate_balance(
+                                    &token_address,
+                                    amt.clone()
+                                )?;
+                                // Check that the caller or the program being called 
+                                // is approved to spend this token
+                                if transfer_from_account.validate_approved_spend(
+                                    &token_address,
+                                    &caller.address().clone(), 
+                                    amt
+                                ).is_err() {
+                                    transfer_from_account.validate_approved_spend(
+                                        &token_address, 
+                                        &program_id, 
+                                        amt
+                                    )?;
+                                }
+                            } else {
+                                // If non-fungible token check ids
+                                transfer_from_account.validate_token_ownership(
+                                    &token_address,
+                                    transfer.token_ids()
+                                )?;
+
+                                // Check that the caller or the program being called 
+                                // is approved to transfer these tokens
+                                if transfer_from_account.validate_approved_token_transfer(
+                                    &token_address, &caller.address().clone(), &transfer.token_ids()
+                                ).is_err() {
+                                    transfer_from_account.validate_approved_token_transfer(
+                                        &token_address, &program_id, &transfer.token_ids()
+                                    )?;
+                                }
+                            }
+                        }
                     }
                     Instruction::Burn(burn) => {
+                        // Get the address we are transferring from
+                        let burn_from = burn.from(); 
+                        // Get the program id of the program that was executed to 
+                        // return this transfer instruction
+                        let program_id = match burn.program_id() {
+                            AddressOrNamespace::Address(addr) => addr.clone(),
+                            _ => return Err(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "program namespaces not yet implemented".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>)
+                        };
+
+                        // get the program address of the token being transfered
+                        let token_address = match burn.token_namespace() {
+                            AddressOrNamespace::Address(addr) => addr.clone(),
+                            _ => return Err(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "token namespaces not yet implemented".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>)
+                        };
+
+                        // Check if the transferrer is the caller
+                        if burn_from.clone() == AddressOrNamespace::Address(caller.clone().address()) { 
+                            if let Some(amt) = burn.amount() {
+                                caller.validate_balance(&program_id, amt.clone())?;
+                            } else {
+                                caller.validate_token_ownership(&program_id, burn.token_ids())?;
+                            }
+                        } else {
+                            // If not attempt to get the account for the transferrer
+                            let transfer_from_account = account_map.get(burn_from).ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not exist".to_string()
+                                    )                 
+                                ) as Box<dyn std::error::Error + Send>
+                            )?.clone().ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not exist".to_string()
+                                    )                 
+                                ) as Box<dyn std::error::Error + Send>
+                            )?;
+
+
+                            // check that the account being debited indeed has the token 
+                            // we are debiting
+                            let token = transfer_from_account.programs().get(&token_address).ok_or(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "account being debited does not hold token".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>
+                            )?;
+
+                            // If fungible token, check balance
+                            if let Some(amt) = burn.amount() {
+                                transfer_from_account.validate_balance(
+                                    &token_address,
+                                    amt.clone()
+                                )?;
+                                // Check that the caller or the program being called 
+                                // is approved to spend this token
+                                if transfer_from_account.validate_approved_spend(
+                                    &token_address,
+                                    &caller.address().clone(), 
+                                    amt
+                                ).is_err() {
+                                    transfer_from_account.validate_approved_spend(
+                                        &token_address, 
+                                        &program_id, 
+                                        amt
+                                    )?;
+                                }
+                            } else {
+                                // If non-fungible token check ids
+                                transfer_from_account.validate_token_ownership(
+                                    &token_address,
+                                    burn.token_ids()
+                                )?;
+
+                                // Check that the caller or the program being called 
+                                // is approved to transfer these tokens
+                                if transfer_from_account.validate_approved_token_transfer(
+                                    &token_address,
+                                    &caller.address().clone(),
+                                    &burn.token_ids()
+                                ).is_err() {
+                                    transfer_from_account.validate_approved_token_transfer(
+                                        &token_address,
+                                        &program_id,
+                                        &burn.token_ids()
+                                    )?;
+                                }
+                            }
+                        }
                     }
                     Instruction::Update(update) => {
                     }
@@ -118,7 +331,7 @@ impl ValidatorCore {
             //
             // For any create instructions, check that the caller is the program owner
             // or is approved,
-            Ok(false)
+            Ok(true)
         }
         // Validate transaction structure and caller signature, including nonce
         // balance as it relates to value, and then validate instructions
@@ -269,19 +482,19 @@ impl Actor for Validator {
             }
             ValidatorMessage::PendingCall { accounts_involved, outputs, transaction } => {
                 // Acquire all relevant accounts.
-                let mut validator_accounts: Vec<Option<Account>> = Vec::new();
+                let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> = HashMap::new();
                 for address in &accounts_involved {
                     //TODO(asmith): Replace this block with a parallel iterator to optimize
-                    match address {
+                    match &address {
                         AddressOrNamespace::Address(addr) => {
                             if let Some(account) = check_account_cache(addr.clone()).await {
                                 log::info!("found account in cache");
-                                validator_accounts.push(Some(account));
+                                validator_accounts.insert(address.clone(), Some(account));
                             } else if let Some(account) = check_da_for_account(addr.clone()).await {
                                 log::info!("found account in da");
-                                validator_accounts.push(Some(account));
+                                validator_accounts.insert(address.clone(), Some(account));
                             } else {
-                                validator_accounts.push(None);
+                                validator_accounts.insert(address.clone(), None);
                             };
                         },
                         AddressOrNamespace::Namespace(_namespace) => {
@@ -296,14 +509,14 @@ impl Actor for Validator {
                             //};
                             //TODO(asmith): implement check_account_cache and check_da_for_account for
                             //Namespaces
-                            validator_accounts.push(None);
+                            validator_accounts.insert(address.clone(), None);
                         }
                     }
                 }
 
                 let op = state.validate_call();
                 state.pool.spawn_fifo(move || {
-                    let _ = op(accounts_involved, validator_accounts, outputs, transaction);
+                    let _ = op(validator_accounts, outputs, transaction);
                 });
                 
             },

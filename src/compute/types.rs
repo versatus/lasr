@@ -194,6 +194,7 @@ impl ProgramUpdate {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TransferInstruction {
+    program_id: AddressOrNamespace,
     token_namespace: AddressOrNamespace,
     from: AddressOrNamespace,
     to: AddressOrNamespace,
@@ -205,31 +206,77 @@ impl TransferInstruction {
     pub(crate) fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
         vec![self.from.clone(), self.to.clone()]
     }
+
+    pub fn program_id(&self) -> &AddressOrNamespace {
+        &self.program_id
+    }
+    
+    pub fn token_namespace(&self) -> &AddressOrNamespace {
+        &self.token_namespace
+    }
+
+    pub fn from(&self) -> &AddressOrNamespace {
+        &self.from
+    }
+
+    pub fn to(&self) -> &AddressOrNamespace {
+        &self.to
+    }
+
+    pub fn amount(&self) -> &Option<crate::U256> {
+        &self.amount
+    }
+
+    pub fn token_ids(&self) -> &Vec<crate::U256> {
+        &self.token_ids
+    }
 }
 
 impl TransferInstruction {
     pub fn new(
+        program_id: AddressOrNamespace,
         token_namespace: AddressOrNamespace,
         from: AddressOrNamespace,
         to: AddressOrNamespace,
         amount: Option<crate::U256>,
         token_ids: Vec<crate::U256>
     ) -> Self {
-        Self { token_namespace, from, to, amount, token_ids }
+        Self { program_id, token_namespace, from, to, amount, token_ids }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BurnInstruction {
+    program_id: AddressOrNamespace,
     token_namespace: AddressOrNamespace,
-    owner: Address,
+    from: AddressOrNamespace,
     amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>
 }
 
 impl BurnInstruction {
     pub(crate) fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
-        vec![AddressOrNamespace::Address(self.owner.clone())]
+        vec![self.from.clone()]
+    }
+
+    pub fn program_id(&self) -> &AddressOrNamespace {
+        &self.program_id
+    }
+    
+    pub fn token_namespace(&self) -> &AddressOrNamespace {
+        &self.token_namespace
+    }
+
+    pub fn from(&self) -> &AddressOrNamespace {
+        &self.from
+    }
+
+    pub fn amount(&self) -> &Option<crate::U256> {
+        &self.amount
+    }
+
+    pub fn token_ids(&self) -> &Vec<crate::U256> {
+        &self.token_ids
     }
 }
 
