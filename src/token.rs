@@ -292,6 +292,57 @@ pub struct Token {
     status: Status,
 }
 
+impl Token {
+    pub(crate) fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+        if amount > &self.balance {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "transfer amount exceeds balance".to_string() 
+                    )
+                )
+            )
+        }
+
+        self.balance -= *amount;
+        return Ok(())
+    }
+
+    pub(crate) fn credit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+        self.balance += *amount;
+        return Ok(())
+    }
+
+    pub(crate) fn remove_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
+        let positions: Vec<usize> = { 
+            token_ids.iter().filter_map(|nft| {
+                self.token_ids.iter().position(|i| i == nft)
+            }).collect()
+        };
+
+        if positions.len() != token_ids.len() {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "one or more of the token ids is not owned by the from account"
+                    )
+                )
+            )
+        }
+
+        self.token_ids.retain(|i| !token_ids.contains(i)); 
+
+        Ok(())
+    }
+
+    pub(crate) fn add_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
+        self.token_ids.extend(token_ids);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TokenField {
     ProgramId,
