@@ -10,7 +10,7 @@ use crate::{
     check_account_cache, 
     check_da_for_account, 
     ActorType, 
-    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate
+    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate, TokenFieldValue
 };
 
 use super::messages::ValidatorMessage;
@@ -309,18 +309,63 @@ impl ValidatorCore {
                         for update in updates.updates() {
                             match update {
                                 TokenOrProgramUpdate::TokenUpdate(token_update) => {
-                                    // get the account being updated
-                                    // get the token being updated from the account
-                                    // check that the caller is the owner of the account 
-                                    // if not, check if the program is the owner of the account
-                                    // if not, check that the caller has approval on the accounts
-                                    // token,
-                                    // if not check that the program has approval on the accounts
-                                    // token
+                                    for update_field in token_update.updates() {
+                                        match update_field.value() {
+                                            TokenFieldValue::Balance(_) => {
+                                                return Err( Box::new(
+                                                        ValidatorError::Custom(
+                                                            "Update Instruction cannot be used to update balance, use Transfer or Burn Instruction instead".to_string()
+                                                        )
+                                                    ) as Box<dyn std::error::Error + Send>
+                                                )
+                                            },
+                                            TokenFieldValue::Approvals(approval_value) => {
+                                                if let Some(Some(acct)) = account_map.get(token_update.account()) {
+                                                    if acct.address() != caller.address() {
+                                                        return Err(
+                                                            Box::new(
+                                                                ValidatorError::Custom(
+                                                                    "Approvals can only be updated by the account owner".to_string()
+                                                                )
+                                                            ) as Box<dyn std::error::Error + Send>
+                                                        )
+                                                        
+                                                    }
+                                                } else {
+                                                    return Err(
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "Approvals can only be updated on accounts that exist".to_string()
+                                                            )
+                                                        ) as Box<dyn std::error::Error + Send>
+                                                    )
+                                                }
+                                            },
+                                            TokenFieldValue::Allowance(allowance_value) => {
+                                                if let Some(Some(acct)) = account_map.get(token_update.account()) {
+                                                    if acct.address() != caller.address() {
+                                                        return Err(
+                                                            Box::new(
+                                                                ValidatorError::Custom(
+                                                                    "Allowances can only be updated by the account owner".to_string()
+                                                                )
+                                                            )
+                                                        )
+                                                    }                                                
+                                                } else {
+                                                    return Err(
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "Allowances can only be updated on accounts that exist".to_string()
+                                                            )
+                                                        ) as Box<dyn std::error::Error + Send>
+                                                    )
+                                                }
 
-    //account: AddressOrNamespace,
-    //token: AddressOrNamespace,
-    //updates: Vec<TokenUpdateField>
+                                            },
+                                            _ => {}
+                                        }
+                                    }
                                 },
                                 TokenOrProgramUpdate::ProgramUpdate(program_update) => {
 
