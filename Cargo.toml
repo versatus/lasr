@@ -60,14 +60,14 @@ bincode = "1.3.3"
 derive_builder = "0.12.0"
 sha3 = "0.10.8"
 hex = "0.4.3"
-eigenda_client = { path = "../da/eigenda_client/" }
+eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
 ractor = { version = "0.9.3", features = [ "async-std", "cluster" ]}
 ractor_cluster_derive = "0.9.3"
 ractor_cluster = "0.9.3"
 thiserror = "1.0.50"
 clap = { version = "4.4.11", features=[ "derive", "cargo", "env", "wrap_help", "string" ] }
 rayon = "1.8.0"
-eo_listener = { path = "../eo_listener" }
+eo_listener = { git = "https://github.com/versatus/eo_listener" }
 log = "0.4.20"
 simple_logger = "4.3.0"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
