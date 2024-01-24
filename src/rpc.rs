@@ -10,7 +10,7 @@ pub trait LasrRpc {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<Token>, Error>;
+    ) -> Result<Vec<Vec<u8>>, Error>;
     
     #[method(name = "send")]
     async fn send(
@@ -18,10 +18,10 @@ pub trait LasrRpc {
         transaction: Transaction
     ) -> Result<Vec<u8>, Error>;
 
-    #[method(name = "deploy")]
-    async fn deploy(
+    #[method(name = "registerProgram")]
+    async fn register_program(
         &self,
-        transaction: Transaction
+        transaction: Transaction 
     ) -> Result<(), Error>;
 
     #[method(name = "getAccount")]

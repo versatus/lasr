@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Inputs",
+  "description": "This file contains types the protocol uses to prepare data, structure it and call out to a particular compute payload. The inputs type for a contract call",
+  "type": "object",
+  "required": [
+    "inputs",
+    "op",
+    "version"
+  ],
+  "properties": {
+    "account_info": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ProgramAccount"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inputs": {
+      "type": "string"
+    },
+    "op": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "format": "int32"
+    }
+  },
+  "definitions": {
+    "Address": {
+      "description": "Represents a 20-byte Ethereum Compatible address.\n\nThis structure is used to store Ethereum Compatible addresses, which are derived from the public key. It implements traits like Clone, Copy, Debug, Serialize, Deserialize, etc., for ease of use across various contexts.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      },
+      "maxItems": 20,
+      "minItems": 20
+    },
+    "ArbitraryData": {
+      "description": "Represents a generic data container.\n\nThis structure is used to store arbitrary data as a vector of bytes (`Vec<u8>`). It provides a default, cloneable, serializable, and debuggable interface. It is typically used for storing data that doesn't have a fixed format or structure.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      }
+    },
+    "Metadata": {
+      "description": "Represents metadata as a byte vector.\n\nThis structure is designed to encapsulate metadata, stored as a vector of bytes. It supports cloning, serialization, and debugging. The metadata can be of any form that fits into a byte array, making it a flexible container.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      }
+    },
+    "Namespace": {
+      "type": "string"
+    },
+    "ProgramAccount": {
+      "type": "object",
+      "required": [
+        "data",
+        "linked_programs",
+        "metadata",
+        "namespace"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/ArbitraryData"
+        },
+        "linked_programs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Token"
+          }
+        },
+        "metadata": {
+          "$ref": "#/definitions/Metadata"
+        },
+        "namespace": {
+          "$ref": "#/definitions/Namespace"
+        }
+      }
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "Locked",
+        "Free"
+      ]
+    },
+    "Token": {
+      "type": "object",
+      "required": [
+        "allowance",
+        "approvals",
+        "balance",
+        "data",
+        "metadata",
+        "owner_id",
+        "program_id",
+        "status",
+        "token_ids"
+      ],
+      "properties": {
+        "allowance": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "approvals": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "balance": {
+          "$ref": "#/definitions/U256"
+        },
+        "data": {
+          "$ref": "#/definitions/ArbitraryData"
+        },
+        "metadata": {
+          "$ref": "#/definitions/Metadata"
+        },
+        "owner_id": {
+          "$ref": "#/definitions/Address"
+        },
+        "program_id": {
+          "$ref": "#/definitions/Address"
+        },
+        "status": {
+          "$ref": "#/definitions/Status"
+        },
+        "token_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/U256"
+          }
+        }
+      }
+    },
+    "U256": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0.0
+      },
+      "maxItems": 4,
+      "minItems": 4
+    }
+  }
+}

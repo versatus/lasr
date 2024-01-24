@@ -9,6 +9,7 @@ pub mod cache;
 pub mod clients;
 pub mod token;
 pub mod transaction;
+pub mod compute;
 
 pub use crate::sequencer::*;
 pub use crate::account::*;
@@ -21,6 +22,7 @@ pub use crate::cache::*;
 pub use crate::clients::*;
 pub use crate::token::*;
 pub use crate::transaction::*;
+pub use crate::compute::*;
 
 pub const MAX_BATCH_SIZE: usize = 1024 * 512;
 pub const ETH_PROGRAM_ID: [u8; 20] = [0u8; 20]; 

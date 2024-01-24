@@ -330,6 +330,11 @@ impl Actor for EoClientActor {
             } => {
                 if token_type == 0 {
                     let balance = state.get_eth_balance(address.into()).await;
+                    let balance = if let Some(b) = balance {
+                        Some(b.into())
+                    } else {
+                        None
+                    };
                     let res = sender.send(
                         EoMessage::AccountBalanceAcquired { program_id, address, balance }
                     );
@@ -338,6 +343,11 @@ impl Actor for EoClientActor {
                     }
                 } else if token_type == 1 {
                     let balance = state.get_erc20_balance(program_id.into(), address.into()).await;
+                    let balance = if let Some(b) = balance {
+                        Some(b.into())
+                    } else {
+                        None
+                    };
                     let res = sender.send(
                         EoMessage::AccountBalanceAcquired { program_id, address, balance }
                     );
@@ -346,6 +356,14 @@ impl Actor for EoClientActor {
                     }
                 } else if token_type == 2 {
                     let holdings = state.get_erc721_holdings(program_id.into(), address.into()).await;
+                    let holdings: Option<Vec<crate::U256>> = if let Some(h) = holdings {
+                        Some(h.iter().map(|eth_u256| {
+                            let internal_u256: crate::U256 = eth_u256.into();
+                            internal_u256
+                        }).collect())
+                    } else {
+                        None
+                    };
                     let res = sender.send(
                         EoMessage::NftHoldingsAcquired { program_id, address, holdings }
                     );

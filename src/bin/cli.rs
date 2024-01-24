@@ -1,11 +1,11 @@
 #![allow(unused)]
 use std::str::FromStr;
-
+use std::io::Write;
 use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}, ArgMatches};
 
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
-use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account};
+use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo, Namespace};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
@@ -23,64 +23,38 @@ enum Unit {
 }
 
 #[derive(Clone, Debug)]
-struct U256Wrapper(pub U256);
+struct U256Wrapper(pub lasr::U256);
 
 impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(U256Wrapper(
-            U256::from_dec_str(s)?
+            ethereum_types::U256::from_dec_str(s)?.into()
         ))
     }
 }
 
-impl std::ops::Mul<&Unit> for U256 {
-    type Output = U256;
+impl std::ops::Mul<&Unit> for lasr::U256 {
+    type Output = lasr::U256;
     fn mul(self, rhs: &Unit) -> Self::Output {
         match rhs {
-            Unit::Echo => return self * U256::from(1 as u128),
-            Unit::Beat => self * U256::from(1_000 as u128),
-            Unit::Note => self * U256::from(1_000_000 as u128),
-            Unit::Chord => self * U256::from(1_000_000_000 as u128),
-            Unit::Harmony => self * U256::from(1_000_000_000_000 as u128),
-            Unit::Melody => self * U256::from(1_000_000_000_000_000 as u128),
-            Unit::Verse => self * U256::from(1_000_000_000_000_000_000 as u128)
+            Unit::Echo => return (U256::from(self) * U256::from(1 as u128)).into(),
+            Unit::Beat => return (U256::from(self) * U256::from(1_000 as u128)).into(),
+            Unit::Note => return (U256::from(self) * U256::from(1_000_000 as u128)).into(),
+            Unit::Chord => return (U256::from(self) * U256::from(1_000_000_000 as u128)).into(),
+            Unit::Harmony => return (U256::from(self) * U256::from(1_000_000_000_000 as u128)).into(),
+            Unit::Melody => return (U256::from(self) * U256::from(1_000_000_000_000_000 as u128)).into(),
+            Unit::Verse => return (U256::from(self) * U256::from(1_000_000_000_000_000_000 as u128)).into()
         }
     }
 }
 
-fn parse_u256(s: &str) -> Result<U256, String> {
-    U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e))
+fn parse_u256(s: &str) -> Result<lasr::U256, String> {
+    Ok(ethereum_types::U256::from_dec_str(s).map_err(|e| format!("Failed to parse U256: {}", e))?.into())
 }
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Creates, signs and sends a `call` transaction to the LASR RPC 
-    /// node this wallet interacts with
-    Call {
-        #[arg(short, long, required=false)]
-        wallet: u8,
-        #[arg(short, long, required=false)]
-        to: String, 
-        #[arg(long, required=true)]
-        program_id: String,
-        #[arg(short, long, required=true)]
-        op: String,
-        #[arg(short, long, required=true)]
-        inputs: String,
-        #[arg(short, long, required=true)]
-        value: u128,
-        #[arg(short, long, required=false)]
-        unit: Unit,
-    },
-    /// Creates, signs and sends a `deploy` transaction to the LASR RPC
-    /// node this wallet interacts with
-    Deploy {
-        #[arg(short, long, required=false)]
-        wallet: u8,
-       #[arg(short, long, required=true)] 
-        content_id: String
-    },
     BridgeOut,
     GetBalance {
         address: String,
@@ -93,6 +67,30 @@ fn new_wallet_command() -> Command {
     Command::new("new")
         .about("creates a new keypair, provides the mnemonic, secret key, public key, and address to the user")
         .propagate_version(true)
+        .arg(
+            seed_arg()
+                .required(false)
+        )
+        .arg(
+            passphrase_arg()
+                .required(false)
+        )
+        .arg(
+            mnemonic_size_arg()
+                .required(false)
+        )
+        .arg(
+            keyfile_path_arg()
+                .required(false)
+        )
+        .arg(
+            save_to_file_arg()
+                .required(false)
+        )
+        .arg(
+            overwrite_path_arg()
+                .required(false)
+        )
 }
 
 fn from_mnemonic_command() -> Command {
@@ -100,13 +98,7 @@ fn from_mnemonic_command() -> Command {
         .about("creates/loads a wallet keypair from a mnemonic")
         .arg_required_else_help(true)
         .arg(
-            Arg::new("mnemonic")
-                .short('m')
-                .long("mnemonic")
-                .help("a series of either 12 or 24 words")
-                .action(
-                    ArgAction::Append
-                )
+            mnemonic_arg()
                 .required(true)
         )
 }
@@ -129,7 +121,6 @@ fn from_file_arg() -> Arg {
         .long("from-file")
         .aliases(["ff", "from_file", "fromfile", "load"])
         .action(ArgAction::SetTrue)
-        .requires("path")
         .required(false)
         .conflicts_with("from-mnemonic")
         .conflicts_with("from-secret-key")
@@ -137,10 +128,18 @@ fn from_file_arg() -> Arg {
 
 fn keyfile_path_arg() -> Arg {
     Arg::new("path")
-        .short('p')
         .long("path")
         .help("The path to the keypair file used to load the wallet")
-        .default_value("../../keypair.json")
+        .default_value(".lasr/wallet/keypair.json")
+}
+
+fn overwrite_path_arg() -> Arg {
+    Arg::new("overwrite")
+        .long("overwrite")
+        .aliases(["replace"])
+        .default_value("false")
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
 }
 
 fn wallet_index_arg() -> Arg {
@@ -149,8 +148,9 @@ fn wallet_index_arg() -> Arg {
         .long("wallet-index")
         .aliases(["index", "wallet", "walletindex", "wi", "i"])
         .help("The index in the array in the keypair file of the wallet that the user would like to use")
-        .value_parser(value_parser!(u8))
-        .default_missing_value("0")
+        .value_parser(value_parser!(usize))
+        .required(false)
+        .default_value("0")
 }
 
 fn from_file_group() -> ArgGroup {
@@ -211,22 +211,55 @@ fn from_secret_key_group() -> ArgGroup {
         .args(["from-secret-key", "secret-key"])
 }
 
+fn mnemonic_size_arg() -> Arg {
+    Arg::new("mnemonic-size")
+        .short('n')
+        .long("size")
+        .value_parser(value_parser!(usize))
+        .help("The size of the mnemonic phrase, can be 12 or 24, defaults to 12")
+}
+
+fn seed_arg() -> Arg {
+    Arg::new("seed")
+        .short('s')
+        .long("seed")
+        .value_parser(value_parser!(u128))
+        .help("A 128-bit number to generate an entropy from. WARNING: only provide this if you know what you are doing")
+}
+
+fn passphrase_arg() -> Arg {
+    Arg::new("passphrase")
+        .short('p')
+        .long("passphrase")
+        .help("A user selected passphrase that is used to generate a random seed")
+}
+
+fn save_to_file_arg() -> Arg {
+    Arg::new("save")
+        .short('o')
+        .long("save")
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
+        .help("Save the wallet info to a file")
+        .default_value("false")
+}
+
 fn receiver_arg() -> Arg {
     Arg::new("to")
         .short('t')
         .long("to")
         .alias("receiver")
         .help("The receiver of the tokens being sent, should be a 40 character hexidecimal string, representing a 20 byte address")
-        .required(true)
         .value_name("Address")
         .value_parser(value_parser!(Address))
+        .required(true)
 }
 
 fn program_id_arg() -> Arg {
-    Arg::new("program-id")
-        .short('i')
-        .long("program-id")
-        .aliases(["pid", "prog-id", "program_id", "prog_id", "id", "token", "token-id", "token_id", "tid"])
+    Arg::new("content-namespace")
+        .short('c')
+        .long("content-namespace")
+        .aliases(["pid", "prog-id", "program_id", "prog_id", "id", "token", "token-id", "token_id", "tid", "content-id", "cid", "content-namespace", "cns"])
         .help("A hexidecimal string representing the program id of the token that is being sent, defaults to 0 for native ETH tokens and 1 for native Verse tokens")
         .default_value("0")
         .default_missing_value("0")
@@ -242,6 +275,7 @@ fn value_arg() -> Arg {
         .required(true)
         .value_name("U256")
         .value_parser(value_parser!(U256Wrapper))
+        .default_value("0")
         .help("the amount of the token to send")
 }
 
@@ -251,7 +285,56 @@ fn unit_arg() -> Arg {
         .long("unit")
         .default_value("echo")
         .value_parser(value_parser!(Unit))
+        .required(false)
+        .help("The unit of tokens to be applied to the value")
+}
+
+fn function_arg() -> Arg {
+    Arg::new("op")
+        .long("op")
+        .aliases(["function", "fn", "func", "def", "method", "call"])
         .required(true)
+        .help("the operation or function in the contract being called that will be executed")
+}
+
+fn inputs_arg() -> Arg {
+    Arg::new("inputs")
+        .short('i')
+        .long("inputs")
+        .aliases(["params", "function-inputs", "op-inputs", "op-params"])
+        .required(true)
+        .help("a json string that represents the inputs to the function, i.e. function parameters/arguments for the function in the contract that will be called")
+}
+
+fn register_program_command() -> Command {
+    Command::new("register-program")
+        .aliases(["deploy", "rp", "register", "reg-prog", "prog", "deploy-prog", "register-contract", "deploy-contract", "rc", "dc"])
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(inputs_arg())
+}
+
+fn call_command() -> Command {
+    Command::new("call")
+        .about("creates, signs and sends a contract or compute transaction to the RPC server the wallet is configured to interact with")
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg().required(false))
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(receiver_arg())
+        .arg(program_id_arg())
+        .arg(function_arg())
+        .arg(inputs_arg())
+        .arg(value_arg().required(false))
+        .arg(unit_arg().required(false))
 }
 
 fn send_command() -> Command {
@@ -264,18 +347,10 @@ fn send_command() -> Command {
         .arg(mnemonic_arg())
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
-        .arg(
-            receiver_arg()
-        )
-        .arg(
-            program_id_arg()
-        )
-        .arg(
-            value_arg()
-        )
-        .arg(
-            unit_arg()
-        )
+        .arg(receiver_arg())
+        .arg(program_id_arg())
+        .arg(value_arg())
+        .arg(unit_arg())
 }
 
 fn get_account_command() -> Command {
@@ -309,6 +384,12 @@ fn wallet_command() -> Command {
             send_command()
         )
         .subcommand(
+            call_command()
+        )
+        .subcommand(
+            register_program_command()
+        )
+        .subcommand(
             get_account_command()
         )
 }
@@ -330,7 +411,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(("wallet", sub)) => {
             match sub.subcommand() {
                 Some(("new", children)) => {
-                    println!("received `wallet new` command");
+                    let values = children.ids();
+                    let seed = children.get_one::<u128>("seed");
+                    let passphrase = children.get_one::<String>("passphrase");
+                    let size = children.get_one::<usize>("mnemonic-size");
+                    let wallet_info = Wallet::<HttpClient>::new(seed, passphrase, size)
+                        .expect("Unable to acquire WalletInfo");
+                    pretty_print_wallet_info(&wallet_info);
+
+                    let save = children.get_one::<bool>("save");
+                    if let Some(true) = save {
+                        let path = std::path::Path::new(children.get_one::<String>("path").expect("required or default"));
+                        let dir_path = path.parent().expect("dir has no parent");
+                        if !dir_path.exists() {
+                            std::fs::create_dir_all(dir_path).expect("unable to create directory for keyfile");
+                        }
+                        let overwrite = children.get_one::<bool>("overwrite").expect("required or default");
+                        let mut file_buffer = Vec::new();
+                        let mut existing = if path.exists() {
+                            std::fs::File::open(path).expect("file cant be opened")
+                                .read_to_end(&mut file_buffer).expect("file should exist");
+                            let mut inner = if &file_buffer.len() > &0 {
+                                serde_json::from_slice::<Vec<WalletInfo>>(&file_buffer)
+                                    .expect("keypair file has been corrupted")
+                            } else {
+                                Vec::new()
+                            };
+                                inner
+                        } else {
+                            Vec::new()
+                        };
+                        
+                        let mut file = std::fs::OpenOptions::new()
+                            .write(true)
+                            .read(true)
+                            .create(true)
+                            .truncate(true)
+                            .open(path)
+                            .expect("unable to open file to write WalletInfo");
+
+                        existing.push(wallet_info);
+                        file.write_all(
+                            serde_json::to_string_pretty(&existing)
+                                .expect("unable to serialize wallet info")
+                                .as_bytes()
+                        ).expect("unable to write wallet info to file");
+                    }
                 }
                 Some(("mnemonic", children)) => {
                     println!("received `wallet mnemonic` command");
@@ -348,13 +474,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     wallet.get_account(&address).await;
 
                     let to = children.get_one::<Address>("to").expect("required");
-                    let pid = children.get_one::<Address>("program-id").expect("required");
+                    let pid = children.get_one::<Address>("content-namespace").expect("required");
                     let value = children.get_one::<U256Wrapper>("value").expect("required");
                     let unit = children.get_one::<Unit>("unit").expect("required");
 
                     let amount = value.0 * unit; 
 
                     let token = wallet.send(to, pid, amount).await;
+                }
+                Some(("call", children)) => {
+                    let values = children.ids();
+                    let mut wallet = get_wallet(children).await?;
+                    let address = wallet.address();
+                    dbg!("attempting to get account");
+                    wallet.get_account(&address).await;
+
+                    dbg!("parsing cli args");
+                    let to = children.get_one::<Address>("to").expect("required");
+                    let pid = children.get_one::<Address>("content-namespace").expect("required");
+                    let value = children.get_one::<U256Wrapper>("value").expect("required");
+                    let op = children.get_one::<String>("op").expect("required");
+                    let inputs = children.get_one::<String>("inputs").expect("required");
+                    let unit = children.get_one::<Unit>("unit").expect("required");
+
+                    let amount = value.0 * unit;
+
+                    dbg!("submitting transaction");
+                    let tokens = wallet.call(pid, to, amount, op, inputs).await;
+                    dbg!("call result: {:?}", tokens);
+
+                }
+                Some(("register-program", children)) => {
+                    let mut wallet = get_wallet(children).await?;
+                    let address = wallet.address();
+                    wallet.get_account(&address).await;
+                    let inputs = children.get_one::<String>("inputs").expect("required");
+                    let _ = wallet.register_program(inputs).await;
+                    wallet.get_account(&address).await;
+
                 }
                 Some(("get-account", children)) => {
                     let mut wallet = get_wallet(children).await?;
@@ -383,13 +540,14 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         let (secret_key, public_key) = {
             if from_file {
                 let keypair_file = children.get_one::<String>("path").expect("required if from-file flag");
-                dbg!(keypair_file);
+                let wallet_index = children.get_one::<usize>("wallet-index").expect("required or default");
                 let mut file = std::fs::File::open(keypair_file)?;
                 let mut contents = String::new();
                 file.read_to_string(&mut contents);
-                let keypair: Keypair = serde_json::from_str(&contents)?;
-                let master = keypair.secret_key();
-                let pubkey = keypair.public_key();
+                let keypair_file: Vec<WalletInfo> = serde_json::from_str(&contents)?;
+                let wallet_info = &keypair_file[*wallet_index];
+                let master = wallet_info.secret_key();
+                let pubkey = wallet_info.public_key();
                 (master, pubkey)
             } else if from_mnemonic {
                 let phrase = children.get_one::<String>("mnemonic").expect("required if from-mnemonic flag");
@@ -423,9 +581,13 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
 
         let address: Address = public_key.into();
         let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
-        let account: Account = bincode::deserialize(
-            &client.get_account(format!("{:x}", address)).await?
-        )?;
+        let res = &client.get_account(format!("{:x}", address)).await;
+        let account = if let Ok(account_bytes) = res {
+            let account: Account = bincode::deserialize(account_bytes)?;
+            account
+        } else {
+            Account::new(None, address, None)
+        };
 
         WalletBuilder::default()
             .sk(secret_key)
@@ -439,4 +601,26 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
     };
 
     wallet
+}
+
+fn pretty_print_wallet_info(wallet_info: &WalletInfo) {
+    println!("************************************************************");
+    println!("****************  DO NOT SHARE MNEMONIC PHRASE *************");
+    println!("************************************************************");
+    println!("************************************************************");
+    println!("******************     MNEMONIC PHRASE     *****************\n");
+    println!("{}\n", &wallet_info.mnemonic());
+    println!("****************  DO NOT SHARE SECRET KEY  *****************");
+    println!("************************************************************\n");
+    println!("************************************************************");
+    println!("******************     SECRET KEY        *******************\n");
+    println!("{}\n", &wallet_info.secret_key().display_secret());
+    println!("************************************************************\n");
+    println!("************************************************************\n");
+    println!("******************     PUBLIC KEY       ********************\n");
+    println!("{}\n", &wallet_info.public_key().to_string());
+    println!("************************************************************");
+    println!("******************       ADDRESS         *******************");
+    println!("*******  0x{}  *******", &wallet_info.address().encode_hex::<String>());
+    println!("************************************************************\n");
 }

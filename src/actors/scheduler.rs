@@ -88,6 +88,34 @@ impl TaskScheduler {
 
         Ok(())
     }
+
+    fn handle_call(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
+            ActorType::Engine.to_string()
+        ).ok_or(
+            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
+        )?.into();
+
+        let message = EngineMessage::Call { transaction };
+
+        engine_actor.cast(message)?;
+
+        Ok(())
+    }
+
+    fn handle_register_program(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
+            ActorType::Engine.to_string()
+        ).ok_or(
+            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
+        )?.into();
+
+        let message = EngineMessage::RegisterProgram { transaction };
+
+        engine_actor.cast(message)?;
+
+        Ok(())
+    }
 }
 
 
@@ -115,7 +143,10 @@ impl Actor for TaskScheduler {
         match message {
             SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
-                // Send to engine add to RpcCollector with reply port
+                self.handle_call(transaction.clone());
+                state.insert(transaction.hash_string(), rpc_reply);
+                // Send to executor, when executor returns send to validator for validation 
+                // engine for creation and batcher for application to accounts
             },
             SchedulerMessage::Send { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
@@ -127,16 +158,18 @@ impl Actor for TaskScheduler {
                 // the collector will respond to the channel opened by the 
                 // RpcServer with the necessary information
             },
-            SchedulerMessage::Deploy { .. } => {
-                log::info!("Scheduler received RPC `deploy` method. Prepping to send to Validator & Engine");
+            SchedulerMessage::RegisterProgram { transaction, rpc_reply } => {
+                log::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
                 // Add to pending transactions where a dependency graph will be built
                 // add to RpcCollector with reply port
                 // when transaction is complete and account is consolidated,
                 // the collector will respond to the channel opened by the 
                 // RpcServer with the necessary information
+                self.handle_register_program(transaction.clone());
+                state.insert(transaction.hash_string(), rpc_reply);
             },
             SchedulerMessage::GetAccount { address, rpc_reply } => {
-                log::info!("Scheduler received RPC `getAccount` method. Prepping to check cache");
+                log::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
                 // Check cache
                 self.handle_get_account_request(address, rpc_reply).await;
                 // if not in cache check DA
@@ -152,6 +185,16 @@ impl Actor for TaskScheduler {
                         response,
                         reply: None 
                     };
+                    reply_port.send(message);
+                }
+            }
+            SchedulerMessage::RegistrationSuccess { transaction_hash } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(
+                        TransactionResponse::RegisterProgramResponse(None)
+                    );
+
+                    let message = RpcMessage::Response { response, reply: None };
                     reply_port.send(message);
                 }
             }

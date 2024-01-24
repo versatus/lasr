@@ -40,6 +40,7 @@ impl LasrRpcServerActor {
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), ActorProcessingErr> {
+        log::info!("Forwarding call transaction to scheduler");
         Ok(scheduler.cast(
             SchedulerMessage::Call { transaction, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
@@ -56,14 +57,14 @@ impl LasrRpcServerActor {
         ).map_err(|e| Box::new(e))?)
     }
 
-    fn handle_deploy_request(
+    fn handle_register_program_request(
         &self,
         scheduler: ActorRef<SchedulerMessage>,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), ActorProcessingErr> {
         Ok(scheduler.cast(
-            SchedulerMessage::Deploy { transaction, rpc_reply: reply }
+            SchedulerMessage::RegisterProgram { transaction, rpc_reply: reply }
         ).map_err(|e| Box::new(e))?)
     }
 
@@ -92,7 +93,7 @@ impl LasrRpcServerActor {
         match method {
             RpcRequestMethod::Call { transaction } => self.handle_call_request(scheduler, transaction, reply),
             RpcRequestMethod::Send { transaction } => self.handle_send_request(scheduler, transaction, reply),
-            RpcRequestMethod::Deploy { transaction } => self.handle_deploy_request(scheduler, transaction, reply),
+            RpcRequestMethod::RegisterProgram { transaction } => self.handle_register_program_request(scheduler, transaction, reply),
             RpcRequestMethod::GetAccount { address } => self.handle_get_account_request(scheduler, address, reply),
         }
     }
@@ -105,13 +106,13 @@ impl LasrRpcServerActor {
         Err(RpcError::Custom("unable to acquire scheduler".to_string()))
     }
 
-    async fn handle_deploy_response_data(
+    async fn handle_register_program_response_data(
         &self,
         msg: RpcMessage, 
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         match msg {
-            RpcMessage::DeploySuccess { .. }=> { 
+            RpcMessage::Response { .. }=> { 
                 reply.send(msg).map_err(|e| RpcError::Custom(format!("{:?}", e)))?;
                 Ok(())
             }
@@ -127,7 +128,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<Token>, RpcError> {
+    ) -> Result<Vec<Vec<u8>>, RpcError> {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
@@ -148,7 +149,15 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }) {
             Ok(resp) => {
                 match resp {
-                    TransactionResponse::CallResponse(deltas) => return Ok(deltas),
+                    TransactionResponse::CallResponse(tokens) => {
+                        let mut token_bytes = Vec::new();
+                        for token in tokens {
+                            token_bytes.push(bincode::serialize(&token).map_err(|e| {
+                                RpcError::Custom(e.to_string())
+                            })?);
+                        }
+                        return Ok(token_bytes)
+                    }
                     _ => Err(jsonrpsee::core::Error::Custom("invalid response to `call` method".to_string())) 
                 }
             }
@@ -197,26 +206,47 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }
     }
 
-    async fn deploy(
+    async fn register_program(
         &self,
-        transaction: Transaction
+        transaction: Transaction 
     ) -> Result<(), jsonrpsee::core::Error> {
-        log::info!("Received RPC deploy method"); 
+        log::info!("Received RPC registerProgram method"); 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
 
-        self.send_rpc_deploy_method_to_self(
+        self.send_rpc_register_program_method_to_self(
             transaction,
             reply 
         ).await?;
         
-        let handler = create_handler!(rpc_response, deploy);
+        let handler = create_handler!(rpc_response, registerProgram);
 
-        handle_actor_response(rx, handler).await.map_err(|e| {
+        match handle_actor_response(rx, handler).await.map_err(|e| {
             RpcError::Custom(
                 format!("Error: {}", e)
             )
-        })
+        }) {
+            Ok(resp) => {
+                match resp {
+                    TransactionResponse::RegisterProgramResponse(opt) => {
+                        match opt {
+                            None => return Ok(()),
+                            Some(e) => return Err(RpcError::Custom(e)) 
+                        }
+                    },
+                    _ => {
+                        return Err(RpcError::Custom(
+                            "received invalid response for `registerProgram` method".to_string()
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(RpcError::Custom(
+                    e.to_string()
+                ))
+            }
+        }
     }
 
     async fn get_account(
@@ -298,14 +328,14 @@ impl LasrRpcServerImpl {
         )
     }
 
-    async fn send_rpc_deploy_method_to_self(
+    async fn send_rpc_register_program_method_to_self(
         &self,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>
     ) -> Result<(), RpcError> {
         self.get_myself().cast(
             RpcMessage::Request {
-                method: RpcRequestMethod::Deploy { transaction },
+                method: RpcRequestMethod::RegisterProgram { transaction },
                 reply
             }
         ).map_err(|e| {
@@ -374,15 +404,6 @@ impl Actor for LasrRpcServerActor {
                 let message = RpcMessage::Response { response, reply: None };
                 self.handle_response_data(message, reply).await?;
             },
-            RpcMessage::DeploySuccess { response, reply } => {
-                let reply = reply.ok_or(
-                    Box::new(
-                        RpcError::Custom("Unable to acquire rpc reply sender in RpcMessage::Response".to_string())
-                    )
-                )?;
-                let msg = RpcMessage::DeploySuccess { response, reply: None  };
-                self.handle_deploy_response_data(msg, reply).await?;
-            }
         }
 
         Ok(())
