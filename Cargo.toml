@@ -23,19 +23,19 @@ path = "src/bin/json_schema.rs"
 
 [[example]]
 name = "fungible_token"
-path = "examples/fungible_token/fungible_token.rs"
+path = "examples/contract/fungible_token/fungible_token.rs"
 
 [[example]]
 name = "escrow"
-path = "examples/escrow/escrow.rs"
+path = "examples/contract/escrow/rust/escrow.rs"
 
 [[example]]
 name = "swap"
-path = "examples/swap/swap.rs"
+path = "examples/contract/swap/swap.rs"
 
 [[example]]
 name = "blackjack"
-path = "examples/blackjack/blackjack.rs"
+path = "examples/contract/blackjack/blackjack.rs"
 
 [dependencies]
 secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }

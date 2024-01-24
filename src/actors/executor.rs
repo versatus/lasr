@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, time::Duration, str::FromStr};
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, Outputs, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, RpcResponseError};
+use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
 
@@ -10,6 +10,7 @@ use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
 pub struct RemoteExecutorActor;
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct PendingJob {
     handle: JoinHandle<std::io::Result<()>>,
     sender: Sender<()>,
@@ -17,12 +18,16 @@ pub struct PendingJob {
 }
 
 impl PendingJob {
-    pub fn new(handle: JoinHandle<std::io::Result<()>>, sender: Sender<()>, transaction_hash: String) -> Self {
+    pub fn new(
+        handle: JoinHandle<std::io::Result<()>>,
+        sender: Sender<()>, 
+        transaction_hash: String
+    ) -> Self {
         Self { handle, sender, transaction_hash }
     }
 
     pub async fn join_handle(self) {
-        self.handle.await;
+        let _ = self.handle.await;
     }
 }
 
@@ -48,12 +53,14 @@ impl<C: ClientT> RemoteExecutionEngine<C> {
             )?.into();
 
             while attempts < 20 {
-                tokio::time::sleep(Duration::from_secs(1));
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 if let Ok(()) = rx.try_recv() {
                     break
                 }
                 let message = ExecutorMessage::PollJobStatus { job_id: job_id.clone() };
-                actor.clone().cast(message);
+                actor.clone().cast(message).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                })?;
                 attempts += 1;
             }
 
@@ -67,6 +74,7 @@ impl<C: ClientT> RemoteExecutionEngine<C> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynCache;
 
+#[allow(unused)]
 pub struct ExecutionEngine {
     manager: OciManager,
     ipfs_client: ipfs_api::IpfsClient,
@@ -142,7 +150,7 @@ impl ExecutionEngine {
 pub struct ExecutorActor;
 
 impl ExecutorActor {
-    fn respond_with_registration_error(&self, transaction_hash: String, error_string: String) -> std::io::Result<()> {
+    fn registration_error(&self, transaction_hash: String, error_string: String) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
@@ -155,7 +163,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    fn respond_with_registration_success(&self, transaction_hash: String) -> std::io::Result<()> {
+    fn registration_success(&self, transaction_hash: String) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
@@ -168,15 +176,34 @@ impl ExecutorActor {
         Ok(())
     }
 
-    fn execution_success(&self, transaction_hash: &String, output: &String) -> std::io::Result<()> {
+    fn execution_success(
+        &self,
+        transaction_hash: &String,
+        outputs: &String
+    ) -> std::io::Result<()> {
         let actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
+        let message = EngineMessage::CallSuccess { 
+            transaction_hash: transaction_hash.clone(), 
+            outputs: outputs.clone() 
+        };
+
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
         Ok(())
     }
 
-    fn execution_error(&self, err: impl std::error::Error) -> std::io::Result<()> {
+    #[allow(unused)]
+    fn execution_error(
+        &self,
+        transaction_hash: &String,
+        err: impl std::error::Error
+    ) -> std::io::Result<()> {
+        // Send stderr output to client via RPC return 
         todo!()
     }
 }
@@ -216,86 +243,154 @@ impl Actor for ExecutorActor {
             } => {
                 // Build the container spec and create the container image 
                 log::info!("Receieved request to create container image");
-                let res = state.create_bundle(program_id.to_full_string(), entrypoint, program_args).await;
-                if let Err(e) = res {
-                    log::error!("Error: executor.rs: 153: {e}");
-                    if let Err(e) = self.respond_with_registration_error(transaction_hash, e.to_string()) {
-                        log::error!("Error: executor.rs: 156: {e}");
-                    };
-                } else {
-                    if let Err(e) = self.respond_with_registration_success(transaction_hash) {
-                        log::error!("Error: executor.rs: 160: {e}");
-                    };
+                match state.create_bundle(
+                    program_id.to_full_string(),
+                    entrypoint, 
+                    program_args
+                ).await {
+                    Ok(()) => {
+                        match self.registration_success(transaction_hash) {
+                            Err(e) => {
+                                log::error!("Error: executor.rs: 225: {e}");
+                            }
+                            _ => {
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Error: executor.rs: 219: {e}");
+                        match self.registration_error(transaction_hash, e.to_string()) {
+                            Err(e) => {
+                                log::error!("Error: executor.rs: 235: {e}");
+                            }
+                            _ => {
+                            }
+                        }
+                    }
                 }
                 // If payload has a constructor method/function should be executed
                 // to return a Create instruction.
                 //
 
             },
-            ExecutorMessage::Start(_content_id) => {
-                // Warm up/start a container image
-            }
             ExecutorMessage::Exec {
                 program_id, op, inputs, transaction_hash 
             } => {
                 // Run container
                 // parse inputs
                 // get config
-                let schema_result = state.get_program_schema(program_id.to_full_string()); 
-                if let Ok(schema) = &schema_result {
-                    let pre_requisites = schema.get_prerequisites(&op);
-                    if let Ok(reqs) = &pre_requisites {
-                        let _ = state.handle_prerequisites(reqs);
-                        dbg!(&inputs);
-                        let inputs_res = state.parse_inputs(schema, op, inputs);
-                        if let Ok(inputs) = inputs_res {
-                            let res = state.execute(program_id.to_full_string(), inputs, &transaction_hash).await;
-                            if let Err(e) = &res {
-                                log::error!("Error executor.rs: 83: {e}");
-                            };
-                            if let Ok(handle) = res {
-                                log::info!("result successful, placing handle in handles");
-                                state.handles.insert((program_id.to_full_string(), transaction_hash), handle);
+                match state.get_program_schema(program_id.to_full_string()) {
+                    Ok(schema) => {
+                        match schema.get_prerequisites(&op) {
+                            Ok(pre_requisites) => {
+                                let _ = state.handle_prerequisites(&pre_requisites);
+                                match state.parse_inputs(&schema, op, inputs) {
+                                    Ok(inputs) => {
+                                        match state.execute(
+                                            program_id.to_full_string(),
+                                            inputs,
+                                            &transaction_hash
+                                        ).await {
+                                            Ok(handle) => {
+                                                log::info!("result successful, placing handle in handles");
+                                                state.handles.insert(
+                                                    (program_id.to_full_string(), transaction_hash), 
+                                                    handle
+                                                );
+                                            },
+                                            Err(e) => {
+                                                log::error!(
+                                                    "Error calling state.execute: executor.rs: 265: {}", e
+                                                );
+                                            } 
+                                        }
+                                    },
+                                    Err(e) => {
+                                        log::error!(
+                                            "Error calling state.parse_inputs: executor.rs: 263: {}", e
+                                        );
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                log::error!(
+                                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
+                                );
                             }
                         }
+                    },
+                    Err(e) => {
+                        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
                     }
-
-                    if let Err(e) = &pre_requisites {
-                        log::error!("{}",e);
-                    }
-                } 
-                if let Err(e) = &schema_result {
-                    log::error!("{}",e);
                 }
-            },
-            ExecutorMessage::Kill(_content_id) => {
-                // Kill a container that is running
-            },
-            ExecutorMessage::Delete(_content_id) => {
-                // Delete a container
             },
             ExecutorMessage::Results { content_id, transaction_hash } => {
                 // Handle the results of an execution
                 log::info!("Received results for execution of container:"); 
                 log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 dbg!(&state.handles);
-                if let Some(hash) = &transaction_hash {
-                    if let Some(handle) = state.handles.remove(&(content_id, hash.clone())) {
-                        let res = handle.await;
-                        if let Ok(Ok(output)) = &res {
-                            let res = self.execution_success(hash, output);
-
-                            log::info!(
-                                "Forwarding results to engine to handle parsing and application of instruction"
-                            );
-                            if let Err(e) = &res {
-                                log::error!("{}", e);
+                match transaction_hash {
+                    Some(hash) => {
+                        match state.handles.remove(&(content_id.clone(), hash.clone())) {
+                            Some(handle) => {
+                                match handle.await {
+                                    Ok(Ok(output)) => {
+                                        match self.execution_success(&hash, &output) {
+                                            Ok(_) => {
+                                                log::info!(
+                                                    "Forwarded output and transaction hash to Engine"
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::error!(
+                                                    "Error calling self.execution_success: executor.rs: 326: {}", e
+                                                );
+                                            }
+                                        }
+                                    },
+                                    Ok(Err(e)) => {
+                                        log::error!(
+                                            "Error returned from `call` transaction: {}, program: {}: {}",
+                                            &hash, &content_id, &e
+                                        );
+                                        match self.execution_error(&hash, e) {
+                                            Err(e) => {
+                                                log::error!(
+                                                    "Error calling self.execution_error: executor.rs: 338: {}", e
+                                                );
+                                            },
+                                            _ => {
+                                            }
+                                        }
+                                    },
+                                    Err(e) => { 
+                                        log::error!(
+                                            "Error inside program call thread: {}: transaction: {}, program: {}",
+                                            &e, &hash, &content_id
+                                        );
+                                        match self.execution_error(&hash, e) {
+                                            Err(e) => {
+                                                log::error!(
+                                                    "Error calling self.exeuction_error: executor.rs: 357: {}", e
+                                                );       
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                            None => { 
+                                log::error!(
+                                    "Error: Handle does not exist for transaction: {}, program: {}",
+                                    &hash, &content_id
+                                )
                             }
                         }
-
-                        if let Err(e) = &res {
-                            let _ = self.execution_error(e);
-                        }
+                    }
+                    None => {
+                        log::error!(
+                            "Error: No transaction hash provided"
+                        );
                     }
                 }
             },
@@ -330,25 +425,28 @@ impl Actor for RemoteExecutorActor {
         match message {
             ExecutorMessage::Retrieve(content_id) => {
                 // Used to retrieve Schema under this model
-                state.client.request::<String, &[u8]>("get_object", content_id.as_bytes());
+                match state.client.request::<String, &[u8]>("get_object", content_id.as_bytes()).await {
+                    Ok(_job_id) => {
+                    }
+                    Err(_e) => {
+                    }
+                }
             },
             ExecutorMessage::Exec { program_id, op, inputs, transaction_hash } => {
                 // Fire off RPC call to compute runtime
-                let result = state.client.request::<String, (String, String, String)>(
+                match state.client.request::<String, (String, String, String)>(
                     "queue_job", (
                         program_id.to_full_string(),
                         op,
                         inputs
                     )
-                ).await;
-                
-                match &result {
+                ).await {
                     // Spin a thread to periodically poll for the result
                     Ok(job_id_string) => {
                         let job_id_res = uuid::Uuid::from_str(&job_id_string);
                         match job_id_res {
                             Ok(job_id) => {
-                                let (tx, mut rx) = tokio::sync::mpsc::channel(1); 
+                                let (tx, rx) = tokio::sync::mpsc::channel(1); 
                                 let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
                                 match poll_spawn_result {
                                     Ok(handle) => {
@@ -367,7 +465,15 @@ impl Actor for RemoteExecutorActor {
 
             },
             ExecutorMessage::PollJobStatus { job_id } => {
-                state.client.request::<String, &[u8]>("job_status", job_id.to_string().as_bytes());
+                match state.client.request::<String, &[u8]>(
+                    "job_status", 
+                    job_id.to_string().as_bytes()
+                ).await {
+                    Ok(_outputs) => {
+                    },
+                    Err(_e) => {
+                    }
+                }
             }
             ExecutorMessage::Results { .. } => {},
             _ => {}

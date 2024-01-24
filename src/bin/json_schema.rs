@@ -1,6 +1,7 @@
+#![allow(unused)]
 use std::io::Write;
 
-use lasr::{Inputs, Outputs, Status};
+use lasr::{Inputs, Outputs, Status, Instruction};
 use schemars::schema_for;
 use serde::{Serialize, Deserialize};
 
@@ -32,6 +33,9 @@ fn main() -> std::io::Result<()> {
     let status_schema = schema_for!(Status);
     let status_schema_string = serde_json::to_string_pretty(&status_schema).unwrap();
     println!("{}", status_schema_string);
+    let instructions_schema = schema_for!(Instruction);
+    let instruction_schema_string = serde_json::to_string_pretty(&instructions_schema).unwrap();
+    println!("{}", instruction_schema_string);
 
     Ok(())
 }

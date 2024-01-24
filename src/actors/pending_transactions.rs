@@ -230,6 +230,9 @@ impl Actor for PendingTransactionActor {
                     let _ = state.handle_confirmed(tx).await;
                 }
             }
+            PendingTransactionMessage::GetPendingTransaction { .. } => {
+
+            }
         }
         Ok(())
     }

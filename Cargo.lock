@@ -1035,13 +1035,11 @@ dependencies = [
  "futures",
  "hex",
  "jsonrpsee",
- "log",
  "ractor",
  "rustc-hex",
  "serde",
  "serde_json",
  "sha3",
- "simple_logger",
  "tokio",
  "web3",
 ]

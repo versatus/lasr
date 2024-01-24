@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use crate::{Account, ContractBlob, Certificate, Transaction};
+use crate::{Account, ContractBlob, Certificate, Transaction, AddressOrNamespace, Outputs};
 use crate::actors::types::RpcRequestMethod;
 use crate::{Token, Address};
 
@@ -104,6 +104,14 @@ pub enum SchedulerMessage {
 #[derive(Debug, Clone, RactorMessage)]
 pub enum ValidatorMessage {
     PendingTransaction { transaction: Transaction },
+    PendingCall { 
+        accounts_involved: Vec<AddressOrNamespace>,
+        outputs: Outputs,
+        transaction: Transaction,
+    },
+    PendingRegistration {
+        transaction: Transaction,
+    }
 }
 
 /// A message type that the Engine can `handle`
@@ -383,6 +391,10 @@ pub enum PendingTransactionMessage {
         map: HashMap<Address, Transaction>,
         batch_header_hash: BatchHeaderHash,
         blob_index: u128
+    },
+    GetPendingTransaction {
+        transaction_hash: String,
+        sender: OneshotSender<Option<Transaction>>
     },
 }
 

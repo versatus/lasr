@@ -1,5 +1,5 @@
-use ethereum_types::U256;
-use crate::{Instruction, AddressOrNamespace};
+use ethereum_types::U256 as EthU256;
+use crate::{Instruction, AddressOrNamespace, U256};
 
 // May want to change the name of this trait to `PayableContract`
 pub trait PayableContract {

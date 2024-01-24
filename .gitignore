@@ -7,4 +7,5 @@
 /json_repr
 /src/bin/json_repr.rs
 /.lasr
+*.gz
 blocks_processed.dat

@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
-use ethereum_types::U256;
-use lasr::Outputs;
+use ethereum_types::U256 as EthU256;
+use lasr::{Outputs, U256};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -138,7 +138,7 @@ impl Escrow for EscrowContract {
             contracted_item,
             redeemer,
             payment_token,
-            payment_amount,
+            payment_amount: payment_amount.into(),
             by: maturity
         };
 
@@ -154,7 +154,7 @@ impl Escrow for EscrowContract {
         let transfer = generate_deposit_transfer(
             payment_token,
             depositor,
-            payment_amount,
+            payment_amount.into(),
             Namespace(Self::NAMESPACE.to_string())
         );
 
@@ -186,7 +186,7 @@ impl Escrow for EscrowContract {
                 AddressOrNamespace::Address(Address::from(caller)),
                 AddressOrNamespace::Address(Address::from(conditions.depositor)),
                 None,
-                vec![item]
+                vec![item.into()]
             ) 
         );
 
@@ -195,7 +195,7 @@ impl Escrow for EscrowContract {
                 AddressOrNamespace::Address(Address::from(conditions.payment_token)),
                 AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
                 AddressOrNamespace::Address(Address::from(conditions.redeemer)),
-                Some(conditions.payment_amount),
+                Some(conditions.payment_amount.into()),
                 vec![]
             )
         );
@@ -229,7 +229,7 @@ impl Escrow for EscrowContract {
                     AddressOrNamespace::Address(Address::from(conditions.payment_token)),
                     AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
                     AddressOrNamespace::Address(Address::from(depositor_address)),
-                    Some(conditions.payment_amount),
+                    Some(conditions.payment_amount.into()),
                     vec![]
                 )
             );
@@ -269,7 +269,7 @@ fn generate_deposit_transfer(
         AddressOrNamespace::Address(Address::from(payment_token)),
         AddressOrNamespace::Address(Address::from(depositor)),
         AddressOrNamespace::Namespace(program_account_namespace),
-        Some(payment_amount),
+        Some(payment_amount.into()),
         vec![],
     ); 
 

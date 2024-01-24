@@ -10,7 +10,7 @@ use crate::{
     check_account_cache, 
     check_da_for_account, 
     ActorType, 
-    PendingTransactionMessage
+    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction
 };
 
 use super::messages::ValidatorMessage;
@@ -61,11 +61,8 @@ impl ValidatorCore {
     fn validate_send(&self) -> impl FnOnce(Transaction, Account) -> Result<(), Box<dyn std::error::Error + Send>> {
         |tx, account| {
             account.validate_program_id(&tx.program_id())?;
-            log::info!("program id is valid");
             account.validate_balance(&tx.program_id(), tx.value())?;
-            log::info!("balance is valid");
             account.validate_nonce(tx.nonce())?;
-            log::info!("nonce is valid");
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
             let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
@@ -85,8 +82,52 @@ impl ValidatorCore {
     }
 
     #[allow(unused)]
-    async fn validate_call(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |_tx| Ok(false)
+    fn validate_call(&self) -> impl FnOnce(Vec<AddressOrNamespace>, Vec<Option<Account>>, Outputs, Transaction) -> Result<bool, Box<dyn std::error::Error + Send>> {
+        |accounts_involved, accounts, outputs, tx| {
+            tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            let instructions = outputs.instructions();
+            for instruction in instructions {
+                match instruction {
+                    Instruction::Transfer(transfer) => {
+                    }
+                    Instruction::Burn(burn) => {
+                    }
+                    Instruction::Update(update) => {
+                    }
+                    Instruction::Create(create) => {
+                    }
+                    Instruction::Log(log) => {
+                    }
+                }
+            }
+            // for any account that is having funds transfered out, based on an instruction
+            // check that it's either the caller account and the signature is valid,
+            // that the caller has and approval/allowance to the account for this particular token
+            // and that the amount is less than or equal to the allowance (if an allowance)
+            // or that the program that was called has approval/allowance on the account
+            //
+            // Also check that the account actually exists, i.e. is Some(account) in the 
+            // accounts variable from the closure
+            //
+            // Also check that the balance for the token being transfered out is valid
+            //
+            // For any updates, check that the account is owned by the caller, or that the 
+            // caller has an approval over the account/token, or if not the caller, and the 
+            // caller does not have approval over the account/token, that the program that , 
+            // was called has approval over the account/token
+            //
+            // For any create instructions, check that the caller is the program owner
+            // or is approved,
+            Ok(false)
+        }
+        // Validate transaction structure and caller signature, including nonce
+        // balance as it relates to value, and then validate instructions
+        // instruction validation includes checking the balance of and Transfer or 
+        // Burn instructions to the accounts that will have their balance reduced
+        // For creates and updates it includes validating the caller is the owner
+        // or has approval, or the program has approval etc.
+        // After transaction is validated, send the transaction and instructions 
+        // to the batcher to apply to the accounts in question
     }
     
     #[allow(unused)]
@@ -94,9 +135,11 @@ impl ValidatorCore {
         |_tx| Ok(false)
     }
 
-    #[allow(unused)]
-    async fn validate_register_program(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
+    fn validate_register_program(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
         |_tx| Ok(false)
+        // Validate signature
+        // Validate schema
+        // validate account nonce in transaction
     }
 }
 
@@ -223,6 +266,52 @@ impl Actor for Validator {
                         // settle bridge transaction on settlement networ
                     }
                 }
+            }
+            ValidatorMessage::PendingCall { accounts_involved, outputs, transaction } => {
+                // Acquire all relevant accounts.
+                let mut validator_accounts: Vec<Option<Account>> = Vec::new();
+                for address in &accounts_involved {
+                    //TODO(asmith): Replace this block with a parallel iterator to optimize
+                    match address {
+                        AddressOrNamespace::Address(addr) => {
+                            if let Some(account) = check_account_cache(addr.clone()).await {
+                                log::info!("found account in cache");
+                                validator_accounts.push(Some(account));
+                            } else if let Some(account) = check_da_for_account(addr.clone()).await {
+                                log::info!("found account in da");
+                                validator_accounts.push(Some(account));
+                            } else {
+                                validator_accounts.push(None);
+                            };
+                        },
+                        AddressOrNamespace::Namespace(_namespace) => {
+                            //if let Some(account) = check_account_cache(&address).await {
+                            //    log::info!("found account in cache");
+                            //    validator_accounts.push(Some(account));
+                            //} else if let Some(account) = check_da_for_account(&address).await {
+                            //    log::info!("found account in da");
+                            //    validator_accounts.push(Some(account));
+                            //} else {
+                            //    validator_accounts.push(None);
+                            //};
+                            //TODO(asmith): implement check_account_cache and check_da_for_account for
+                            //Namespaces
+                            validator_accounts.push(None);
+                        }
+                    }
+                }
+
+                let op = state.validate_call();
+                state.pool.spawn_fifo(move || {
+                    let _ = op(accounts_involved, validator_accounts, outputs, transaction);
+                });
+                
+            },
+            ValidatorMessage::PendingRegistration { transaction } => {
+                let op = state.validate_register_program();
+                state.pool.spawn_fifo(move || {
+                    let _ = op(transaction);
+                });
             }
         }
         return Ok(())

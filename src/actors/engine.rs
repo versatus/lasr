@@ -8,7 +8,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use serde_json::Value;
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -52,6 +52,19 @@ impl Engine {
         let account = Account::new(address.clone(), None);
         return account
     }
+
+    async fn get_caller_account(&self, address: &Address) -> Result<Account, EngineError> {
+        if let Ok(Some(account)) = self.check_cache(address).await { 
+            return Ok(account)
+        } 
+
+        if let Ok(mut account) = self.get_account_from_da(&address).await {
+            return Ok(account)
+        } 
+        
+        return Err(EngineError::Custom("caller account does not exist".to_string()))
+    }
+
 
     async fn write_to_cache(&self, account: Account) -> Result<(), EngineError> {
         let message = AccountCacheMessage::Write { account };
@@ -280,22 +293,52 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_call_success(&self, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
+    async fn handle_call_success(&self, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
         // Parse the outputs into instructions
+        // Outputs { inputs, instructions };
         let outputs: Outputs = serde_json::from_str(outputs).map_err(|e| {
             EngineError::Custom(e.to_string())
         })?;
 
         // Get transaction from pending transactions
-        // Send transaction and Outputs to validator
-        // Validate transaction structure and caller signature, including nonce
-        // balance as it relates to value, and then validate instructions
-        // instruction validation includes checking the balance of and Transfer or 
-        // Burn instructions to the accounts that will have their balance reduced
-        // For creates and updates it includes validating the caller is the owner
-        // or has approval, etc.
+        let pending_transactions: ActorRef<PendingTransactionMessage> = {
+            ractor::registry::where_is(ActorType::PendingTransactions.to_string()).ok_or(
+                EngineError::Custom("unable to acquire PendingTransactions Actor: engine.rs: 291".to_string())
+            )?.into()
+        };
+        let (tx, rx) = oneshot::<Option<Transaction>>(); 
 
-        todo!()
+        let message = PendingTransactionMessage::GetPendingTransaction { transaction_hash, sender: tx };
+        pending_transactions.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
+        match rx.await {
+            Ok(Some(ref transaction)) => {
+                let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
+                    ActorType::Validator.to_string()
+                ).ok_or(
+                    EngineError::Custom("Unable to acquire validator actor".to_string())
+                )?.into();
+                let mut accounts_involved = Vec::new();
+                let caller_address = transaction.from();
+                for instruction in outputs.instructions() {
+                    accounts_involved.extend(instruction.get_accounts_involved())
+                }
+
+                let message = ValidatorMessage::PendingCall { 
+                    accounts_involved,
+                    outputs,
+                    transaction: transaction.clone() 
+                };
+                validator.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
+            },
+            Ok(None) => {
+                return Err(EngineError::Custom("unable to acquire transaction from pending transactions".to_string()));
+            },
+            Err(e) => {
+                return Err(EngineError::Custom(format!("unable to acquire transaction from pending transactions: {e}")));
+            }
+        }
+
+        Ok(())
     }
 
     fn handle_registration_success(&self, transaction_hash: String) -> Result<(), EngineError> {

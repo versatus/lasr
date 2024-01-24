@@ -4,19 +4,52 @@ use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
 use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
+impl Serialize for Address {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> 
+    where
+        S: Serializer
+    {
+        let hex = self.inner().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hex_repr = format!("0x{}", hex);
+        serializer.serialize_str(&hex_repr)
+    }
+}
+
+impl<'de> Deserialize<'de> for Address {
+    fn deserialize<D>(deserializer: D) -> Result<Address, D::Error> 
+    where 
+        D: Deserializer<'de>
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.len() != 42 {
+            return Err(serde::de::Error::custom("Invalid length"))
+        }
+
+        if !s.starts_with("0x") {
+            return Err(serde::de::Error::custom("'0x' prefix missing"))
+        }
+
+        let bytes = hex::decode(&s[2..]).map_err(serde::de::Error::custom)?;
+        let mut arr = [0u8; 20];
+        arr.copy_from_slice(&bytes[0..20]);
+        Ok(Address::from(arr))
+    }
+}
+
+
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
 /// This structure is used to store Ethereum Compatible addresses, which are 
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
 
 impl Address {
@@ -30,6 +63,10 @@ impl Address {
     /// address
     pub fn to_full_string(&self) -> String {
         format!("0x{:x}", self)
+    }
+
+    pub fn inner(&self) -> [u8; 20] {
+        self.0.clone()
     }
 }
 
@@ -77,21 +114,21 @@ impl From<String> for Namespace {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProgramField {
     LinkedPrograms,
     Metadata,
     Data,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProgramFieldValue {
     LinkedPrograms(LinkedProgramsValue),
     Metadata(MetadataValue),
     Data(DataValue),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LinkedProgramsValue {
     Insert(Address, Token),
     Extend(Vec<(Address, Token)>),

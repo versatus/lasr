@@ -12,39 +12,11 @@ use crate::{
     TransactionType, 
     Account, 
     RecoverableSignature, 
-    Transaction, Token
+    Transaction, Token,
 };
 
 pub type WalletError = Box<dyn std::error::Error + Send>;
 pub type WalletResult<T> = Result<T, WalletError>;
-
-fn serialize_as_hex<S>(bytes: impl Into<[u8; 20]>, serializer: S) -> Result<S::Ok, S::Error> 
-where
-    S: Serializer
-{
-    let hex = bytes.into().iter().map(|b| format!("{:02x}", b)).collect::<String>();
-    let hex_repr = format!("0x{}", hex);
-    serializer.serialize_str(&hex_repr)
-}
-
-fn deserialize_from_hex<'de, D>(deserializer: D) -> Result<Address, D::Error> 
-where 
-    D: Deserializer<'de>
-{
-    let s = String::deserialize(deserializer)?;
-    if s.len() != 42 {
-        return Err(serde::de::Error::custom("Invalid length"))
-    }
-
-    if !s.starts_with("0x") {
-        return Err(serde::de::Error::custom("'0x' prefix missing"))
-    }
-
-    let bytes = hex::decode(&s[2..]).map_err(serde::de::Error::custom)?;
-    let mut arr = [0u8; 20];
-    arr.copy_from_slice(&bytes[0..20]);
-    Ok(Address::from(arr))
-}
 
 #[derive(Builder, Clone, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -52,10 +24,6 @@ pub struct WalletInfo {
     keypair: Keypair,
     secret_key: SecretKey,
     public_key: PublicKey,
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
     address: Address
 }
 
