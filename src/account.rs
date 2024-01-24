@@ -195,8 +195,8 @@ impl ProgramAccount {
 /// serialization, hashing, and comparison.
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Account {
-    namespace: Option<Namespace>,
-    address: Address,
+    program_namespace: Option<AddressOrNamespace>,
+    owner_address: Address,
     programs: BTreeMap<Address, Token>,
     nonce: crate::U256,
     program_account_data: ArbitraryData,
@@ -210,13 +210,13 @@ impl Account {
     /// This function initializes an account with the provided address and an optional
     /// map of programs. It updates the account hash before returning.
     pub fn new(
-        namespace: Option<Namespace>,
-        address: Address,
+        program_namespace: Option<AddressOrNamespace>,
+        owner_address: Address,
         programs: Option<BTreeMap<Address, Token>>
     ) -> Self {
         let mut account = Self {
-            namespace,
-            address,
+            program_namespace,
+            owner_address,
             programs: BTreeMap::new(),
             nonce: U256::default().into(),
             program_account_data: ArbitraryData::new(),
@@ -227,12 +227,12 @@ impl Account {
         account
     }
     
-    pub fn namespace(&self) -> Option<Namespace> {
-        self.namespace.clone()
+    pub fn program_namespace(&self) -> Option<AddressOrNamespace> {
+        self.program_namespace.clone()
     }
 
-    pub fn address(&self) -> Address {
-        self.address.clone()
+    pub fn owner_address(&self) -> Address {
+        self.owner_address.clone()
     }
 
     pub fn nonce(&self) -> crate::U256 {
@@ -283,7 +283,7 @@ impl Account {
             return Ok(token)
         } 
 
-        if transaction.to() == self.address() {
+        if transaction.to() == self.owner_address() {
             let token: Token = transaction.into();
             self.insert_program(&token.program_id(), token.clone());
             return Ok(token) 
