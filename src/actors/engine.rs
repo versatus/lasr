@@ -8,7 +8,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use serde_json::Value;
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage, AccountType};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -40,16 +40,26 @@ impl Engine {
         Self 
     }
 
-    async fn get_account(&self, address: &Address) -> Account {
-        if let Ok(Some(account)) = self.check_cache(address).await { 
-            return account
-        } 
+    async fn get_account(&self, address: &Address, account_type: AccountType) -> Account {
+        if let AccountType::Program(program_address) = account_type {
+            if let Ok(Some(account)) = self.check_cache(address).await { 
+                return account
+            } 
 
-        if let Ok(mut account) = self.get_account_from_da(&address).await {
-            return account
-        } 
+            if let Ok(mut account) = self.get_account_from_da(&address).await {
+                return account
+            } 
+        } else {
+            if let Ok(Some(account)) = self.check_cache(address).await { 
+                return account
+            } 
+
+            if let Ok(mut account) = self.get_account_from_da(&address).await {
+                return account
+            } 
+        }
         
-        let account = Account::new(None, address.clone(), None);
+        let account = Account::new(account_type, None, address.clone(), None);
         return account
     }
 
@@ -65,6 +75,19 @@ impl Engine {
         return Err(EngineError::Custom("caller account does not exist".to_string()))
     }
 
+    async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
+        if let AccountType::Program(program_address) = account_type {
+            if let Ok(Some(account)) = self.check_cache(&program_address).await { 
+                return Ok(account)
+            } 
+
+            if let Ok(mut account) = self.get_account_from_da(&program_address).await {
+                return Ok(account)
+            } 
+        } 
+
+        return Err(EngineError::Custom("caller account does not exist".to_string()))
+    }
 
     async fn write_to_cache(&self, account: Account) -> Result<(), EngineError> {
         let message = AccountCacheMessage::Write { account };

@@ -396,6 +396,11 @@ pub enum PendingTransactionMessage {
         transaction_hash: String,
         sender: OneshotSender<Option<Transaction>>
     },
+    ValidCall {
+        outputs: Outputs,
+        transaction: Transaction,
+        cert: Option<Certificate>
+    }
 }
 
 #[derive(Debug, RactorMessage)]

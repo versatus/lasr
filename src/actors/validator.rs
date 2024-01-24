@@ -82,7 +82,7 @@ impl ValidatorCore {
     }
 
     #[allow(unused)]
-    fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<bool, Box<dyn std::error::Error + Send>> {
+    fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<(), Box<dyn std::error::Error + Send>> {
         |account_map, outputs, tx| {
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
@@ -416,14 +416,19 @@ impl ValidatorCore {
                     }
                 }
             }
-            // For any updates, check that the account is owned by the caller, or that the 
-            // caller has an approval over the account/token, or if not the caller, and the 
-            // caller does not have approval over the account/token, that the program that , 
-            // was called has approval over the account/token
-            //
-            // For any create instructions, check that the caller is the program owner
-            // or is approved,
-            Ok(true)
+            let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+                ActorType::PendingTransactions.to_string()
+            ).ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "unable to acquire pending transaction actor".to_string()
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )?.into();
+            log::info!("transaction {} is valid, responding", tx.hash_string());
+            let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
+            actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            Ok(())
         }
         // Validate transaction structure and caller signature, including nonce
         // balance as it relates to value, and then validate instructions

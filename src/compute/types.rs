@@ -145,6 +145,20 @@ pub struct TokenDistribution {
     update_fields: Vec<TokenOrProgramUpdateField>
 }
 
+impl TokenDistribution { 
+    pub fn to(&self) -> &AddressOrNamespace {
+        &self.to
+    }
+
+    pub fn amount(&self) -> &crate::U256 {
+        &self.amount
+    }
+
+    pub fn update_fields(&self) -> &Vec<TokenOrProgramUpdateField> {
+        &self.update_fields
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TokenOrProgramUpdateField {
     TokenUpdateField(TokenUpdateField),

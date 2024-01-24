@@ -265,6 +265,13 @@ impl AsRef<[u8]> for Metadata {
     }
 }
 
+impl From<Vec<u8>> for Metadata {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub enum TokenType {
     Fungible,
