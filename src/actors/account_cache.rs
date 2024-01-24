@@ -65,7 +65,7 @@ impl AccountCache {
         &mut self,
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        if let Some(a) = self.cache.get_mut(&account.address()) {
+        if let Some(a) = self.cache.get_mut(&account.owner_address()) {
             *a = account;
             return Ok(())
         }
@@ -77,7 +77,7 @@ impl AccountCache {
         &mut self,
         account: Account
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        let address = account.address(); 
+        let address = account.owner_address(); 
         if let Some(entry) = self.cache.get_mut(&address) {
             log::info!("Found account: 0x{:x} in cache, updating...", &address);
             *entry = account;
@@ -143,7 +143,7 @@ impl Actor for AccountCacheActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             AccountCacheMessage::Write { account } => {
-                log::info!("Received account cache write request: 0x{:x}", &account.address());
+                log::info!("Received account cache write request: 0x{:x}", &account.owner_address());
                 let _ = state.handle_cache_write(account.clone());
                 log::info!("Account: {:?}", &account);
             }

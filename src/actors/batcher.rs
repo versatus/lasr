@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::{collections::{HashMap, VecDeque, BTreeMap}, fmt::Display};
+use std::{collections::{HashMap, VecDeque, BTreeMap, BTreeSet}, fmt::Display};
 
 use async_trait::async_trait;
 use eigenda_client::{response::BlobResponse, proof::BlobVerificationProof};
@@ -13,7 +13,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -165,7 +165,7 @@ impl Batch {
         account: Account
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.user_accounts.insert(account.address().into(), account);
+        test_batch.user_accounts.insert(account.owner_address().into(), account);
         test_batch.at_capacity()
     }
 
@@ -200,7 +200,7 @@ impl Batch {
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
         if !self.clone().user_account_would_exceed_capacity(account.clone())? {
             log::info!("inserting account into batch");
-            let mut id: [u8; 20] = account.address().into();
+            let mut id: [u8; 20] = account.owner_address().into();
             self.user_accounts.insert(id, account.clone());
             log::info!("{:?}", &self);
             return Ok(())
@@ -361,9 +361,13 @@ impl Batcher {
 
             log::info!("transaction is first for account {:x} bridge_in, building account", transaction.from());
             let mut account = AccountBuilder::default()
-                .address(transaction.from())
+                .program_namespace(None)
+                .owner_address(transaction.from())
                 .programs(BTreeMap::new())
                 .nonce(ethereum_types::U256::from(0).into())
+                .program_account_data(ArbitraryData::new())
+                .program_account_metadata(Metadata::new())
+                .program_account_linked_programs(BTreeSet::new())
                 .build()?;
             let token = account.apply_transaction(
                 transaction.clone()
@@ -375,7 +379,7 @@ impl Batcher {
         log::info!(
             "applied transaction {} to account {:x}, informing scheduler",
             transaction.clone().hash_string(),
-            from_account.address()
+            from_account.owner_address()
         );
 
         let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
@@ -403,9 +407,13 @@ impl Batcher {
             } else {
                 log::info!("first transaction send to account {:x} building account", transaction.to());
                 let mut account = AccountBuilder::default()
-                    .address(transaction.to())
+                    .program_namespace(None)
+                    .owner_address(transaction.to())
                     .programs(BTreeMap::new())
                     .nonce(ethereum_types::U256::from(0).into())
+                    .program_account_data(ArbitraryData::new())
+                    .program_account_metadata(Metadata::new())
+                    .program_account_linked_programs(BTreeSet::new())
                     .build()?;
 
                 log::info!("applying transaction to `to` account");
