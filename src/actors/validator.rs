@@ -10,7 +10,7 @@ use crate::{
     check_account_cache, 
     check_da_for_account, 
     ActorType, 
-    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction
+    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate
 };
 
 use super::messages::ValidatorMessage;
@@ -305,7 +305,28 @@ impl ValidatorCore {
                             }
                         }
                     }
-                    Instruction::Update(update) => {
+                    Instruction::Update(updates) => {
+                        for update in updates.updates() {
+                            match update {
+                                TokenOrProgramUpdate::TokenUpdate(token_update) => {
+                                    // get the account being updated
+                                    // get the token being updated from the account
+                                    // check that the caller is the owner of the account 
+                                    // if not, check if the program is the owner of the account
+                                    // if not, check that the caller has approval on the accounts
+                                    // token,
+                                    // if not check that the program has approval on the accounts
+                                    // token
+
+    //account: AddressOrNamespace,
+    //token: AddressOrNamespace,
+    //updates: Vec<TokenUpdateField>
+                                },
+                                TokenOrProgramUpdate::ProgramUpdate(program_update) => {
+
+                                }
+                            }
+                        }
                     }
                     Instruction::Create(create) => {
                     }
@@ -313,17 +334,6 @@ impl ValidatorCore {
                     }
                 }
             }
-            // for any account that is having funds transfered out, based on an instruction
-            // check that it's either the caller account and the signature is valid,
-            // that the caller has and approval/allowance to the account for this particular token
-            // and that the amount is less than or equal to the allowance (if an allowance)
-            // or that the program that was called has approval/allowance on the account
-            //
-            // Also check that the account actually exists, i.e. is Some(account) in the 
-            // accounts variable from the closure
-            //
-            // Also check that the balance for the token being transfered out is valid
-            //
             // For any updates, check that the account is owned by the caller, or that the 
             // caller has an approval over the account/token, or if not the caller, and the 
             // caller does not have approval over the account/token, that the program that , 

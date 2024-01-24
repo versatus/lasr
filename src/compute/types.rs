@@ -171,6 +171,10 @@ impl UpdateInstruction {
         }
         accounts_involved
     }
+
+    pub fn updates(&self) -> &Vec<TokenOrProgramUpdate> {
+        &self.updates
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
