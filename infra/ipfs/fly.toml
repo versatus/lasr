@@ -1,0 +1,82 @@
+app = "versatus-lasr-ipfs"
+primary_region = "ord"
+kill_signal = "SIGINT"
+kill_timeout = 5
+
+[env]
+  DATA = "/data"
+  GOLOG_LOG_LEVEL = "info"
+  GOLOG_LOG_FMT = "json"
+  IPFS_PATH = "/data/ipfs"
+  IPFS_PROFILE = "server"
+
+[experimental]
+  allowed_public_ports = []
+  auto_rollback = true
+
+[mounts]
+  destination = "/data/ipfs"
+  source = "ipfs_data"
+
+# [[services]]
+#   http_checks = []
+#   internal_port = 8080
+#   protocol = "tcp"
+#   script_checks = []
+
+#   [[services.ports]]
+#     force_https = true
+#     handlers = ["http"]
+#     port = 80
+
+#   [[services.ports]]
+#     handlers = ["http", "tls"]
+#     port = 443
+
+#   [[services.tcp_checks]]
+#     grace_period = "1s"
+#     interval = "15s"
+#     restart_limit = 0
+#     timeout = "2s"
+
+[[services]]
+  internal_port = 4001
+  protocol = "tcp"
+  [services.concurrency]
+    hard_limit = 1000
+    type = "connections"
+
+  [[services.ports]]
+    port = 4001
+
+[[services]]
+  internal_port = 4002
+  protocol = "tcp"
+
+  [services.concurrency]
+    hard_limit = 1000
+    type = "connections"
+
+  [[services.ports]]
+    handlers = ["http", "tls"]
+    port = 443
+
+[[services]]
+  internal_port = 4001
+  protocol = "udp"
+  [services.concurrency]
+    hard_limit = 1000
+    type = "connections"
+
+  [[services.ports]]
+    port = 4001
+
+[[services]]
+  internal_port = 4003
+  protocol = "udp"
+  [services.concurrency]
+    hard_limit = 1000
+    type = "connections"
+
+  [[services.ports]]
+    port = 4003
