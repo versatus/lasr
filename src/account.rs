@@ -618,7 +618,70 @@ impl Account {
     }
 
     pub(crate) fn apply_token_update(&mut self, update: TokenUpdate) -> AccountResult<Token> {
-        todo!()
+        let owner_address = {
+            if let AccountType::Program(program_account_address) = self.account_type() {
+                program_account_address
+            } else {
+                self.owner_address()
+            }
+        };
+
+        if &AddressOrNamespace::Address(owner_address) != update.account() {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("This account: {:?} is not party to the token update", &owner_address)
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        }
+
+        let token_address = {
+            if let AddressOrNamespace::Address(token_address) = update.token() {
+                token_address
+            } else {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Token namespaces are not enabled yet")
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        };
+
+        if let Some(mut token) = self.programs_mut().get_mut(&token_address) {
+            for update in update.updates() {
+                token.apply_token_update_field_values(update.value())?;
+            }
+            return Ok(token.clone())
+        } else {
+            let mut token = TokenBuilder::default()
+                .program_id(token_address.clone())
+                .owner_id(owner_address.clone())
+                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                .token_ids(vec![])
+                .approvals(BTreeMap::new())
+                .allowance(BTreeMap::new())
+                .data(ArbitraryData::new())
+                .metadata(Metadata::new())
+                .status(crate::Status::Free)
+                .build()
+                .map_err(|e| {
+                    Box::new(
+                        e
+                    ) as Box<dyn std::error::Error + Send>
+                })?;
+            
+            for update in update.updates() {
+                token.apply_token_update_field_values(update.value())?;
+            }
+
+            self.programs_mut().insert(token_address.clone(), token);
+            Ok(token.clone())
+        }
     }
 
     pub(crate) fn apply_program_update(&mut self, update: ProgramUpdate) -> AccountResult<ProgramFieldValue> {
