@@ -696,7 +696,7 @@ impl Batcher {
                                     AddressOrNamespace::Address(addr) => {
                                         if let Some(mut acct) = get_account(addr.clone()).await {
                                             acct.apply_program_update(
-                                                program_update.clone()
+                                                &program_update.clone()
                                             ).map_err(|e| {
                                                 BatcherError::Custom(
                                                     e.to_string()

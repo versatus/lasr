@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder, TokenUpdateField, TokenFieldValue};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder, TokenUpdateField, TokenFieldValue, CreateInstruction};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -130,8 +130,9 @@ pub enum ProgramFieldValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LinkedProgramsValue {
-    Insert(Address, Token),
-    Extend(Vec<(Address, Token)>),
+    Insert(Address),
+    Extend(Vec<Address>),
+    Remove(Address),
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -684,8 +685,154 @@ impl Account {
         }
     }
 
-    pub(crate) fn apply_program_update(&mut self, update: ProgramUpdate) -> AccountResult<ProgramFieldValue> {
-        todo!()
+    pub(crate) fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
+        let program_addr = if let AccountType::Program(program_addr) = self.account_type() {
+            program_addr
+        } else {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Account is not a program account and cannot accept a program update"
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        };
+
+        if &AddressOrNamespace::Address(program_addr) != update.account() {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Account is not a party to the update"
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        }
+
+        for update in update.updates() {
+            match update.value() {
+                ProgramFieldValue::LinkedPrograms(linked_programs_value) => {
+                    match linked_programs_value {
+                        LinkedProgramsValue::Insert(linked_program) => {
+                            self.program_account_linked_programs.insert(AddressOrNamespace::Address(linked_program.clone()));
+                        }
+                        LinkedProgramsValue::Extend(linked_programs) => {
+                            self.program_account_linked_programs.extend(linked_programs.into_iter().cloned().map(|lp| AddressOrNamespace::Address(lp.clone())));
+                        }
+                        LinkedProgramsValue::Remove(linked_program) => {
+                            self.program_account_linked_programs.remove(&AddressOrNamespace::Address(linked_program.clone()));
+                        }
+                    }
+                }
+                ProgramFieldValue::Metadata(metadata_value) => {
+                    match metadata_value {
+                        MetadataValue::Pop => {
+                            self.program_account_metadata.inner_mut().pop();
+                        }
+                        MetadataValue::Extend(metadata) => {
+                            self.program_account_metadata.inner_mut().extend(metadata.inner());
+                        }
+                        MetadataValue::Push(byte) => {
+                            self.program_account_metadata.inner_mut().push(*byte);
+                        }
+                        MetadataValue::ReplaceByte(index, byte) => {
+                            if self.program_account_metadata().inner().len() < index + 1 {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a single byte in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_metadata.inner_mut()[*index] = *byte;
+                        }
+                        MetadataValue::ReplaceSlice(start, end, bytes) => {
+                            if bytes.len() != (end - start) {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "bytes do not equal the length of the slice to replace in Metadata in a program account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            if bytes.len() < *start || bytes.len() < *end {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a slice of bytes in Metadata in a program account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_metadata.inner_mut().splice(start..end, bytes.into_iter().cloned());
+                        }
+                        MetadataValue::ReplaceAll(bytes) => {
+                            self.program_account_metadata = *bytes;
+                        }
+                    }
+                }
+                ProgramFieldValue::Data(data_value) => {
+                    match data_value {
+                        DataValue::Pop => {
+                            self.program_account_data.inner_mut().pop();
+                        }
+                        DataValue::Extend(data) => {
+                            self.program_account_data.inner_mut().extend(data.inner());
+                        }
+                        DataValue::Push(byte) => {
+                            self.program_account_data.inner_mut().push(*byte);
+                        }
+                        DataValue::ReplaceByte(index, byte) => {
+                            if self.program_account_data().inner().len() < index + 1 {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a single byte in Arbitrary data in a program_account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_data.inner_mut()[*index] = *byte;
+                        }
+                        DataValue::ReplaceSlice(start, end, bytes) => {
+                            if bytes.inner().len() != (end - start) {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "bytes do not equal the length of the slice to replace in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            if bytes.inner().len() < *start || bytes.inner().len() < *end {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a slice of bytes in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_data.inner_mut().splice(start..end, bytes.inner().into_iter().cloned());
+                        }
+                        DataValue::ReplaceAll(bytes) => {
+                            self.program_account_data = *bytes;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
