@@ -82,7 +82,7 @@ impl ValidatorCore {
     }
 
     #[allow(unused)]
-    fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<bool, Box<dyn std::error::Error + Send>> {
+    fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<(), Box<dyn std::error::Error + Send>> {
         |account_map, outputs, tx| {
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
@@ -132,7 +132,7 @@ impl ValidatorCore {
                         };
 
                         // Check if the transferrer is the caller
-                        if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().address()) { 
+                        if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
                                 caller.validate_balance(&program_id, amt.clone())?;
                             } else {
@@ -175,7 +175,7 @@ impl ValidatorCore {
                                 // is approved to spend this token
                                 if transfer_from_account.validate_approved_spend(
                                     &token_address,
-                                    &caller.address().clone(), 
+                                    &caller.owner_address().clone(), 
                                     amt
                                 ).is_err() {
                                     transfer_from_account.validate_approved_spend(
@@ -194,7 +194,7 @@ impl ValidatorCore {
                                 // Check that the caller or the program being called 
                                 // is approved to transfer these tokens
                                 if transfer_from_account.validate_approved_token_transfer(
-                                    &token_address, &caller.address().clone(), &transfer.token_ids()
+                                    &token_address, &caller.owner_address().clone(), &transfer.token_ids()
                                 ).is_err() {
                                     transfer_from_account.validate_approved_token_transfer(
                                         &token_address, &program_id, &transfer.token_ids()
@@ -230,7 +230,7 @@ impl ValidatorCore {
                         };
 
                         // Check if the transferrer is the caller
-                        if burn_from.clone() == AddressOrNamespace::Address(caller.clone().address()) { 
+                        if burn_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = burn.amount() {
                                 caller.validate_balance(&program_id, amt.clone())?;
                             } else {
@@ -273,7 +273,7 @@ impl ValidatorCore {
                                 // is approved to spend this token
                                 if transfer_from_account.validate_approved_spend(
                                     &token_address,
-                                    &caller.address().clone(), 
+                                    &caller.owner_address().clone(), 
                                     amt
                                 ).is_err() {
                                     transfer_from_account.validate_approved_spend(
@@ -293,7 +293,7 @@ impl ValidatorCore {
                                 // is approved to transfer these tokens
                                 if transfer_from_account.validate_approved_token_transfer(
                                     &token_address,
-                                    &caller.address().clone(),
+                                    &caller.owner_address().clone(),
                                     &burn.token_ids()
                                 ).is_err() {
                                     transfer_from_account.validate_approved_token_transfer(
@@ -321,7 +321,7 @@ impl ValidatorCore {
                                             },
                                             TokenFieldValue::Approvals(approval_value) => {
                                                 if let Some(Some(acct)) = account_map.get(token_update.account()) {
-                                                    if acct.address() != caller.address() {
+                                                    if acct.owner_address() != caller.owner_address() {
                                                         return Err(
                                                             Box::new(
                                                                 ValidatorError::Custom(
@@ -343,7 +343,7 @@ impl ValidatorCore {
                                             },
                                             TokenFieldValue::Allowance(allowance_value) => {
                                                 if let Some(Some(acct)) = account_map.get(token_update.account()) {
-                                                    if acct.address() != caller.address() {
+                                                    if acct.owner_address() != caller.owner_address() {
                                                         return Err(
                                                             Box::new(
                                                                 ValidatorError::Custom(
@@ -372,7 +372,7 @@ impl ValidatorCore {
                                         if &AddressOrNamespace::Address(tx.to()) != program_update.account() {
                                             match account_map.get(program_update.account()) {
                                                 Some(Some(acct)) => {
-                                                    if acct.address() != tx.from() {
+                                                    if acct.owner_address() != tx.from() {
                                                         if !acct.program_account_linked_programs().contains(&AddressOrNamespace::Address(tx.to())) {
                                                             return Err(
                                                                 Box::new(
@@ -401,20 +401,34 @@ impl ValidatorCore {
                         }
                     }
                     Instruction::Create(create) => {
-
+                        if &caller.owner_address() != create.program_owner() {
+                            return Err(
+                                Box::new(
+                                    ValidatorError::Custom(
+                                        "caller must be program owner for Create Instruction".to_string()
+                                    )
+                                ) as Box<dyn std::error::Error + Send>
+                            )
+                        }
+                        //TODO(asmith): validate against program schema
                     }
                     Instruction::Log(log) => {
                     }
                 }
             }
-            // For any updates, check that the account is owned by the caller, or that the 
-            // caller has an approval over the account/token, or if not the caller, and the 
-            // caller does not have approval over the account/token, that the program that , 
-            // was called has approval over the account/token
-            //
-            // For any create instructions, check that the caller is the program owner
-            // or is approved,
-            Ok(true)
+            let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+                ActorType::PendingTransactions.to_string()
+            ).ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "unable to acquire pending transaction actor".to_string()
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )?.into();
+            log::info!("transaction {} is valid, responding", tx.hash_string());
+            let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
+            actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            Ok(())
         }
         // Validate transaction structure and caller signature, including nonce
         // balance as it relates to value, and then validate instructions

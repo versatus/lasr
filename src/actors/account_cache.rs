@@ -65,7 +65,7 @@ impl AccountCache {
         &mut self,
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        if let Some(a) = self.cache.get_mut(&account.address()) {
+        if let Some(a) = self.cache.get_mut(&account.owner_address()) {
             *a = account;
             return Ok(())
         }
@@ -77,14 +77,27 @@ impl AccountCache {
         &mut self,
         account: Account
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        let address = account.address(); 
-        if let Some(entry) = self.cache.get_mut(&address) {
-            log::info!("Found account: 0x{:x} in cache, updating...", &address);
-            *entry = account;
-        } else {
-            log::info!("Did not find account: 0x{:x} in cache, inserting...", &address);
-            self.cache.insert(address, account);
-            log::info!("Inserted account: 0x{:x} in cache, cache.len(): {}", &address, self.cache.len());
+        match account.account_type() {
+            crate::AccountType::User => {
+                let address = account.owner_address(); 
+                if let Some(entry) = self.cache.get_mut(&address) {
+                    log::info!("Found account: 0x{:x} in cache, updating...", &address);
+                    *entry = account;
+                } else {
+                    log::info!("Did not find account: 0x{:x} in cache, inserting...", &address);
+                    self.cache.insert(address, account);
+                    log::info!("Inserted account: 0x{:x} in cache, cache.len(): {}", &address, self.cache.len());
+                }
+            }
+            crate::AccountType::Program(program_address) => {
+                if let Some(entry) = self.cache.get_mut(&program_address) {
+                    log::info!("Found program_account: 0x{:x} in cache, updating...", &program_address);
+                } else {
+                    log::info!("Did not find account: 0x{:x} in cache, inserting...", &program_address);
+                    self.cache.insert(program_address, account);
+                    log::info!("Inserted account: 0x{:x} in cache, cache.len(): {}", &program_address, self.cache.len());
+                }
+            }
         }
 
         self.check_build_batch()?;
@@ -143,7 +156,7 @@ impl Actor for AccountCacheActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             AccountCacheMessage::Write { account } => {
-                log::info!("Received account cache write request: 0x{:x}", &account.address());
+                log::info!("Received account cache write request: 0x{:x}", &account.owner_address());
                 let _ = state.handle_cache_write(account.clone());
                 log::info!("Account: {:?}", &account);
             }

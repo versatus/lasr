@@ -112,13 +112,61 @@ impl CreateInstruction {
 
         accounts_involved
     }
+
+    pub(crate) fn program_namespace(&self) -> &AddressOrNamespace {
+        &self.program_namespace
+    }
+
+    pub(crate) fn program_id(&self) -> &AddressOrNamespace {
+        &self.program_id
+    }
+
+    pub(crate) fn program_owner(&self) -> &Address {
+        &self.program_owner
+    }
+
+    pub(crate) fn total_supply(&self) -> &crate::U256 {
+        &self.total_supply
+    }
+
+    pub(crate) fn initialized_supply(&self) -> &crate::U256 {
+        &self.initialized_supply
+    }
+
+    pub(crate) fn distribution(&self) -> &Vec<TokenDistribution> {
+        &self.distribution
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenDistribution {
+    program_id: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: crate::U256,
-    update_fields: Vec<TokenOrProgramUpdateField>
+    token_ids: Vec<crate::U256>,
+    update_fields: Vec<TokenUpdateField>
+}
+
+impl TokenDistribution { 
+    pub fn program_id(&self) -> &AddressOrNamespace {
+        &self.program_id
+    }
+
+    pub fn to(&self) -> &AddressOrNamespace {
+        &self.to
+    }
+
+    pub fn amount(&self) -> &crate::U256 {
+        &self.amount
+    }
+
+    pub fn token_ids(&self) -> &Vec<crate::U256> {
+        &self.token_ids
+    }
+
+    pub fn update_fields(&self) -> &Vec<TokenUpdateField> {
+        &self.update_fields
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]

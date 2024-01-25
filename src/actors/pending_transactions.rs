@@ -128,7 +128,7 @@ impl PendingTransactions {
         Ok(())
     }
 
-    async fn handle_confirmed(
+    async fn handle_valid(
         &mut self,
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -215,7 +215,7 @@ impl Actor for PendingTransactionActor {
             }
             PendingTransactionMessage::Valid { transaction, .. } => {
                 log::info!("received notice transaction is valid: {}", transaction.hash_string());
-                let _ = state.handle_confirmed(transaction.clone()).await;
+                let _ = state.handle_valid(transaction.clone()).await;
                 // Send to batcher
                 // batcher certifies transaction
                 // batcher consolidates transactions from account
@@ -227,11 +227,14 @@ impl Actor for PendingTransactionActor {
             }
             PendingTransactionMessage::Confirmed { map, .. }=> {
                 for (_, tx) in map.into_iter() {
-                    let _ = state.handle_confirmed(tx).await;
+                    let _ = state.handle_valid(tx).await;
                 }
             }
             PendingTransactionMessage::GetPendingTransaction { .. } => {
-
+                todo!()
+            }
+            PendingTransactionMessage::ValidCall { .. } => {
+                todo!()
             }
         }
         Ok(())

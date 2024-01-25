@@ -175,7 +175,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         value: crate::U256,
         op: &String,
         inputs: &String,
-    ) -> WalletResult<Vec<Token>> {
+    ) -> WalletResult<Account> {
 
         let account = self.account();
         let address = self.address();
@@ -211,24 +211,17 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         dbg!("submitting transaction to RPC");
-        let token_bytes_vec = self.client.call(
+        let account_bytes = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        let tokens = {
-            let mut token_vec = Vec::new();
-            for token_bytes in token_bytes_vec {
-                token_vec.push(bincode::deserialize(&token_bytes).map_err(|e| {
-                    Box::new(e) as Box<dyn std::error::Error + Send>
-                })?)
-            }
-
-            token_vec
-        };
+        let account = bincode::deserialize(&account_bytes).map_err(|e| {
+            Box::new(e) as Box<dyn std::error::Error + Send>
+        })?;
 
         self.get_account(&self.address()).await?;
 
-        Ok(tokens)
+        Ok(account)
     }
 
     pub async fn register_program(&mut self, inputs: &String) -> WalletResult<()> {

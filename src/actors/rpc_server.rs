@@ -128,7 +128,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<Vec<u8>>, RpcError> {
+    ) -> Result<Vec<u8>, RpcError> {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
@@ -149,14 +149,11 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }) {
             Ok(resp) => {
                 match resp {
-                    TransactionResponse::CallResponse(tokens) => {
-                        let mut token_bytes = Vec::new();
-                        for token in tokens {
-                            token_bytes.push(bincode::serialize(&token).map_err(|e| {
-                                RpcError::Custom(e.to_string())
-                            })?);
-                        }
-                        return Ok(token_bytes)
+                    TransactionResponse::CallResponse(account) => {
+                        let account_bytes = bincode::serialize(&account).map_err(|e| {
+                            RpcError::Custom(e.to_string())
+                        })?;
+                        return Ok(account_bytes)
                     }
                     _ => Err(jsonrpsee::core::Error::Custom("invalid response to `call` method".to_string())) 
                 }
