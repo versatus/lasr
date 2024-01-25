@@ -274,6 +274,10 @@ impl Metadata {
     pub fn inner_mut(&mut self) -> &mut Vec<u8> {
         &mut self.0
     }
+
+    pub fn inner(&self) -> &Vec<u8> {
+        &self.0
+    }
 }
 
 // Implementing Serialize for Metadata
