@@ -140,12 +140,18 @@ impl CreateInstruction {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenDistribution {
+    program_id: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: crate::U256,
-    update_fields: Vec<TokenOrProgramUpdateField>
+    token_ids: Vec<crate::U256>,
+    update_fields: Vec<TokenUpdateField>
 }
 
 impl TokenDistribution { 
+    pub fn program_id(&self) -> &AddressOrNamespace {
+        &self.program_id
+    }
+
     pub fn to(&self) -> &AddressOrNamespace {
         &self.to
     }
@@ -154,7 +160,11 @@ impl TokenDistribution {
         &self.amount
     }
 
-    pub fn update_fields(&self) -> &Vec<TokenOrProgramUpdateField> {
+    pub fn token_ids(&self) -> &Vec<crate::U256> {
+        &self.token_ids
+    }
+
+    pub fn update_fields(&self) -> &Vec<TokenUpdateField> {
         &self.update_fields
     }
 }

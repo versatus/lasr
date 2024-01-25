@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder, TokenUpdateField, TokenFieldValue};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -529,7 +529,92 @@ impl Account {
     }
 
     pub(crate) fn apply_token_distribution(&mut self, distribution: TokenDistribution) -> AccountResult<Token> {
-        todo!()
+        let is_distribution_account = {
+            if let AccountType::Program(program_address) = self.account_type() {
+                &AddressOrNamespace::Address(program_address) == distribution.to()
+            } else {
+                &AddressOrNamespace::Address(self.owner_address()) == distribution.to()
+            }
+        };
+        if !is_distribution_account {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "This account is not party to the distribution"
+                    )
+                )
+            )
+        }
+        match distribution.program_id() {
+            AddressOrNamespace::Address(program_addr) => {
+                let token_address = {
+                    match distribution.program_id() {
+                        AddressOrNamespace::Address(addr) => {
+                            addr
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        format!("Token Namespaces are not enabled, use address for {:?} instead", namespace)
+                                    )
+                                )
+                            )
+                        }
+                    }
+                };
+                    
+                if let Some(mut token) = self.programs_mut().get_mut(token_address) {
+                    token.credit(distribution.amount())?;
+                    for update in distribution.update_fields() {
+                        token.apply_token_update_field_values(update.value())?;
+                    }
+                    return Ok(token.clone())
+                } else {
+                    let token_owner = {
+                        if let AccountType::Program(program_account_address) = self.account_type() {
+                            program_account_address
+                        } else {
+                            self.owner_address()
+                        }
+                    };
+                    let mut token = TokenBuilder::default()
+                        .program_id(program_addr.clone())
+                        .owner_id(token_owner)
+                        .balance(distribution.amount().clone())
+                        .token_ids(distribution.token_ids().clone())
+                        .metadata(Metadata::new())
+                        .data(ArbitraryData::new())
+                        .approvals(BTreeMap::new())
+                        .allowance(BTreeMap::new())
+                        .build()
+                        .map_err(|e| {
+                            Box::new(
+                                e
+                            ) as Box<dyn std::error::Error + Send>
+                        })?;
+
+                    for update in distribution.update_fields() {
+                        token.apply_token_update_field_values(update.value())?;
+                    }
+
+                    self.programs_mut().insert(token.program_id(), token.clone());
+                    Ok(token.clone())
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Namespaces are not enabled for token updates, use address for {:?} instead", namespace)
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        }
     }
 
     pub(crate) fn apply_token_update(&mut self, update: TokenUpdate) -> AccountResult<Token> {

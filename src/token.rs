@@ -104,6 +104,52 @@ impl SubAssign for U256 {
     }
 }
 
+impl AddAssign for &mut U256 {
+    fn add_assign(&mut self, rhs: Self) {
+        let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
+        *self = new.into();
+    }
+}
+
+impl SubAssign for &mut U256 {
+    fn sub_assign(&mut self, rhs: Self) {
+        let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
+        *self = new.into();
+    }
+}
+
+impl AddAssign for &U256 {
+    fn add_assign(&self, rhs: Self) {
+        let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
+        *self = new.into();
+    }
+}
+
+impl SubAssign for &U256 {
+    fn sub_assign(&self, rhs: Self) {
+        let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
+        *self = new.into();
+    }
+}
+
+impl From<EthU256> for &mut U256 {
+    fn from(value: EthU256) -> Self {
+        value.into()
+    }
+}
+
+impl From<&mut U256> for U256 {
+    fn from(value: &mut U256) -> Self {
+        value.clone()
+    }
+}
+
+impl From<&mut U256> for EthU256 {
+    fn from(value: &mut U256) -> Self {
+        EthU256(value.0.clone())
+    }
+}
+
 impl From<U256> for EthU256 {
     fn from(value: U256) -> Self {
         EthU256(value.0)
@@ -140,6 +186,18 @@ pub struct ArbitraryData(Vec<u8>);
 impl ArbitraryData {
     pub fn new() -> Self {
         Self(vec![])
+    }
+
+    pub fn pop(&mut self) -> Option<u8> {
+        self.0.pop()
+    }
+
+    pub fn inner(&self) -> &Vec<u8> {
+        &self.0
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.0
     }
 }
 
@@ -211,6 +269,10 @@ pub struct Metadata(Vec<u8>);
 impl Metadata {
     pub fn new() -> Self {
         Self(vec![])
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.0
     }
 }
 
@@ -341,6 +403,235 @@ impl Token {
         self.token_ids.extend(token_ids);
         Ok(())
     }
+
+    pub(crate) fn apply_token_update_field_values(&mut self, token_update_value: &TokenFieldValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match token_update_value { 
+            TokenFieldValue::Data(data_update) => {
+                self.apply_data_update(data_update)?;
+            }
+            TokenFieldValue::Metadata(metadata_update) => {
+                self.apply_metadata_update(metadata_update)?;
+            }
+            TokenFieldValue::Approvals(approvals_update) => {
+                self.apply_approvals_update(approvals_update)?;
+            }
+            TokenFieldValue::Allowance(allowance_update) => {
+                self.apply_allowance_update(allowance_update)?;
+            }
+            TokenFieldValue::Status(status_update) => {
+                self.apply_status_update(status_update)?;
+            }
+            TokenFieldValue::TokenIds(token_ids_update) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Updating token_ids through a Create should be done via the `token_ids` field not as a TokenFieldValue"
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+            TokenFieldValue::Balance(balance_update) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Updating balance through a Create should be done via the `amount` field not as a TokenFieldValue"
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        }
+
+        Ok(())
+    }
+
+    fn apply_data_update(&mut self, data_update: &DataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match data_update {
+            DataValue::Pop => {
+                self.data.inner_mut().pop();
+            }
+            DataValue::Push(byte) => {
+                self.data.inner_mut().push(*byte);
+            }
+            DataValue::Extend(bytes) => {
+                self.data.inner_mut().extend(bytes.0);
+            }
+            DataValue::ReplaceAll(bytes) => {
+                self.data = ArbitraryData::from(bytes.0);
+            }
+            DataValue::ReplaceByte(index, byte) => {
+                if self.data().0.len() < index + 1 {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Index out of range trying to replace a single byte in Arbitrary data in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                self.data.inner_mut()[*index] = *byte;
+            }
+            DataValue::ReplaceSlice(start, end, bytes) => {
+                if bytes.0.len() != (end - start) {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "bytes do not equal the length of the slice to replace in Arbitrary data in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                if bytes.0.len() < *start || bytes.0.len() < *end {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Index out of range trying to replace a slice of bytes in Arbitrary data in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                self.data.inner_mut().splice(start..end, bytes.0);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn apply_metadata_update(&mut self, metadata_update: &MetadataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match metadata_update {
+            MetadataValue::Pop => {
+                self.metadata.inner_mut().pop();
+            }
+            MetadataValue::Extend(bytes) => {
+                self.metadata.inner_mut().extend(bytes.0);
+            }
+            MetadataValue::Push(byte) => {
+                self.metadata.inner_mut().push(*byte);
+            }
+            MetadataValue::ReplaceAll(bytes) => {
+                self.metadata = *bytes;
+            }
+            MetadataValue::ReplaceByte(index, byte) => {
+                if self.metadata().0.len() < index + 1 {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Index out of range trying to replace a single byte in Metadata in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                self.data.inner_mut()[*index] = *byte;
+            }
+            MetadataValue::ReplaceSlice(start, end, bytes) => {
+                if bytes.len() != (end - start) {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "bytes do not equal the length of the slice to replace in Metadata in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                if bytes.len() < *start || bytes.len() < *end {
+                    return Err(
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Index out of range trying to replace a slice of bytes in Metadata in a token"
+                            )
+                        ) as Box<dyn std::error::Error + Send> 
+                    )
+                }
+                self.data.inner_mut().splice(start..end, *bytes);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn apply_approvals_update(&mut self, approvals_update: &ApprovalsValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match approvals_update {
+            ApprovalsValue::Insert(key, value) => {
+                if let Some(mut entry) = self.approvals.get_mut(key) {
+                    entry.extend(value.clone());
+                } else {
+                    self.approvals.insert(key.clone(), value.clone());
+                }
+            }
+            ApprovalsValue::Extend(values) => {
+                self.approvals.extend(values.into_iter().cloned());
+            }
+            ApprovalsValue::Remove(key, values) => {
+                let mut is_empty = false;
+                if let Some(mut entry) = self.approvals.get_mut(key) {
+                    entry.retain(|v| !values.contains(v));
+                    is_empty = entry.is_empty(); 
+                }
+                if is_empty {
+                    self.approvals.remove(key);
+                }
+            }
+            ApprovalsValue::Revoke(key) => {
+                self.approvals.remove(key);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_allowance_update(&mut self, allowance_update: &AllowanceValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match allowance_update {
+            AllowanceValue::Insert(key, value) => {
+                if let Some(mut entry) = self.allowance.get_mut(key) {
+                    *entry += *value;
+                } else {
+                    self.allowance.insert(key.clone(), value.clone());
+                }
+            }
+            AllowanceValue::Extend(values) => {
+                self.allowance.extend(values.into_iter().cloned());
+            }
+            AllowanceValue::Remove(key, value) => {
+                let mut is_empty = false;
+                if let Some(mut entry) = self.allowance.get_mut(key) {
+                    *entry -= *value;
+                    is_empty = *entry == U256::from(EthU256::from(0)); 
+                }
+                if is_empty {
+                    self.approvals.remove(key);
+                }
+            }
+            AllowanceValue::Revoke(key) => {
+                self.allowance.remove(key);
+            }
+        }
+        Ok(())
+
+    }
+
+    fn apply_status_update(&mut self, status_update: &StatusValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        match status_update {
+            StatusValue::Lock => {
+                self.status = Status::Locked;
+            }
+            StatusValue::Unlock => {
+                self.status = Status::Free;
+            }
+            StatusValue::Reverse => {
+                match &self.status {
+                    Status::Locked => self.status = Status::Free,
+                    Status::Free => self.status = Status::Locked,
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -397,13 +688,15 @@ pub enum AllowanceValue {
     Insert(Address, U256),
     Extend(Vec<(Address, U256)>),
     Remove(Address, U256),
+    Revoke(Address),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ApprovalsValue {
-    Insert(Address, Option<U256>),
-    Extend(Vec<(Address, Option<U256>)>),
-    Remove(Address, Option<U256>),
+    Insert(Address, Vec<U256>),
+    Extend(Vec<(Address, Vec<U256>)>),
+    Remove(Address, Vec<U256>),
+    Revoke(Address),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
