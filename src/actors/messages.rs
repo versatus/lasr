@@ -30,7 +30,7 @@ impl Display for RpcResponseError {
 #[derive(Debug, Clone)]
 pub enum TransactionResponse {
     SendResponse(Token),
-    CallResponse(Vec<Token>),
+    CallResponse(Account),
     GetAccountResponse(Account),
     RegisterProgramResponse(Option<String>),
     TransactionError(RpcResponseError)
@@ -90,6 +90,15 @@ pub enum SchedulerMessage {
     TransactionApplied {
         transaction_hash: String,
         token: Token
+    },
+    CallTransactionApplied {
+        transaction_hash: String,
+        account: Account, 
+    },
+    CallTransactionFailure {
+        transaction_hash: String,
+        outputs: String,
+        error: String,
     },
     RegistrationSuccess {
         transaction_hash: String,

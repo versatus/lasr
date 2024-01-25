@@ -744,6 +744,19 @@ impl Batcher {
             })?;
         }
 
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            BatcherError::Custom("Error: batcher.rs: 747: unable to acquire scheduler actor".to_string())
+        )?.into();
+
+        let account = get_account(transaction.from()).await.ok_or(
+            BatcherError::Custom("unable to acquire caller account".to_string())
+        )?;
+        
+        let message = SchedulerMessage::CallTransactionApplied { 
+            transaction_hash: transaction.hash_string(), 
+            account 
+        };
+
         Ok(())
 
     }

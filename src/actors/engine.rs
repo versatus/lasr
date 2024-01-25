@@ -8,7 +8,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, Oneshot
 use serde_json::Value;
 use thiserror::Error;
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage, AccountType};
+use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage, AccountType, SchedulerMessage};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 
@@ -364,6 +364,20 @@ impl Engine {
         Ok(())
     }
 
+    fn respond_with_error(&self, transaction_hash: String, outputs: String, error: String) -> Result<(), EngineError> {
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            EngineError::Custom("Error: engine.rs: 367: unable to acquire scheuler".to_string())
+        )?.into();
+
+        let message = SchedulerMessage::CallTransactionFailure {
+            transaction_hash, outputs, error
+        };
+
+        scheduler.cast(message);
+
+        Ok(())
+    }
+
     fn handle_registration_success(&self, transaction_hash: String) -> Result<(), EngineError> {
         todo!()
     }
@@ -417,7 +431,13 @@ impl Actor for Engine {
                 self.handle_register_program(transaction).await;
             },
             EngineMessage::CallSuccess { transaction_hash, outputs } => {
-                self.handle_call_success(transaction_hash, &outputs);
+                match self.handle_call_success(transaction_hash.clone(), &outputs).await {
+                    Err(e) => {
+                        //TODO Handle error cases
+                        let _ = self.respond_with_error(transaction_hash, outputs.clone(), e.to_string());
+                    }
+                    Ok(()) => log::info!("Successfully parsed outputs from {:?} and sent to pending transactions", transaction_hash),
+                }
             },
             EngineMessage::RegistrationSuccess { transaction_hash } => {
                 self.handle_registration_success(transaction_hash);

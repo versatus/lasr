@@ -680,8 +680,8 @@ impl Account {
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            self.programs_mut().insert(token_address.clone(), token);
-            Ok(token.clone())
+            self.programs_mut().insert(token_address.clone(), token.clone());
+            Ok(token)
         }
     }
 
@@ -773,7 +773,7 @@ impl Account {
                             self.program_account_metadata.inner_mut().splice(start..end, bytes.into_iter().cloned());
                         }
                         MetadataValue::ReplaceAll(bytes) => {
-                            self.program_account_metadata = *bytes;
+                            self.program_account_metadata = bytes.clone();
                         }
                     }
                 }
@@ -825,7 +825,7 @@ impl Account {
                             self.program_account_data.inner_mut().splice(start..end, bytes.inner().into_iter().cloned());
                         }
                         DataValue::ReplaceAll(bytes) => {
-                            self.program_account_data = *bytes;
+                            self.program_account_data = bytes.clone();
                         }
                     }
                 }
