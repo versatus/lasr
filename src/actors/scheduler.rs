@@ -197,6 +197,35 @@ impl Actor for TaskScheduler {
                     let message = RpcMessage::Response { response, reply: None };
                     reply_port.send(message);
                 }
+            },
+            SchedulerMessage::CallTransactionApplied { transaction_hash, account } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(
+                        TransactionResponse::CallResponse(account)
+                    );
+                    let message = RpcMessage::Response {
+                        response,
+                        reply: None
+                    };
+                    reply_port.send(message);
+                }
+            },
+            SchedulerMessage::CallTransactionFailure { transaction_hash, outputs, error } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(
+                        //TODO(asmith): Add more verbose and descriptive error options for RPC Response
+                        //Error
+                        TransactionResponse::TransactionError(
+                            RpcResponseError
+                        )
+                    );
+
+                    let message = RpcMessage::Response {
+                        response,
+                        reply: None
+                    };
+                    reply_port.send(message);
+                }
             }
             _ => {}
         }

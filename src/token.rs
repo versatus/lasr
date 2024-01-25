@@ -106,33 +106,39 @@ impl SubAssign for U256 {
 
 impl AddAssign for &mut U256 {
     fn add_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
+        let new: EthU256 = EthU256::from(self.clone()) + EthU256::from(rhs);
         *self = new.into();
     }
 }
 
 impl SubAssign for &mut U256 {
     fn sub_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
+        let new: EthU256 = EthU256::from(self.clone()) - EthU256::from(rhs);
         *self = new.into();
     }
 }
 
 impl AddAssign for &U256 {
-    fn add_assign(&self, rhs: Self) {
+    fn add_assign(&mut self, rhs: Self) {
         let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
         *self = new.into();
     }
 }
 
 impl SubAssign for &U256 {
-    fn sub_assign(&self, rhs: Self) {
+    fn sub_assign(&mut self, rhs: Self) {
         let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
         *self = new.into();
     }
 }
 
 impl From<EthU256> for &mut U256 {
+    fn from(value: EthU256) -> Self {
+        value.into()
+    }
+}
+
+impl From<EthU256> for &U256 {
     fn from(value: EthU256) -> Self {
         value.into()
     }
@@ -425,7 +431,7 @@ impl Token {
             TokenFieldValue::Status(status_update) => {
                 self.apply_status_update(status_update)?;
             }
-            TokenFieldValue::TokenIds(token_ids_update) => {
+            TokenFieldValue::TokenIds(_token_ids_update) => {
                 return Err(
                     Box::new(
                         std::io::Error::new(
@@ -435,7 +441,7 @@ impl Token {
                     ) as Box<dyn std::error::Error + Send>
                 )
             }
-            TokenFieldValue::Balance(balance_update) => {
+            TokenFieldValue::Balance(_balance_update) => {
                 return Err(
                     Box::new(
                         std::io::Error::new(
@@ -459,10 +465,10 @@ impl Token {
                 self.data.inner_mut().push(*byte);
             }
             DataValue::Extend(bytes) => {
-                self.data.inner_mut().extend(bytes.0);
+                self.data.inner_mut().extend(bytes.0.clone());
             }
             DataValue::ReplaceAll(bytes) => {
-                self.data = ArbitraryData::from(bytes.0);
+                self.data = ArbitraryData::from(bytes.0.clone());
             }
             DataValue::ReplaceByte(index, byte) => {
                 if self.data().0.len() < index + 1 {
@@ -498,7 +504,7 @@ impl Token {
                         ) as Box<dyn std::error::Error + Send> 
                     )
                 }
-                self.data.inner_mut().splice(start..end, bytes.0);
+                self.data.inner_mut().splice(start..end, bytes.0.clone());
             }
         }
 
@@ -511,13 +517,13 @@ impl Token {
                 self.metadata.inner_mut().pop();
             }
             MetadataValue::Extend(bytes) => {
-                self.metadata.inner_mut().extend(bytes.0);
+                self.metadata.inner_mut().extend(bytes.0.clone());
             }
             MetadataValue::Push(byte) => {
                 self.metadata.inner_mut().push(*byte);
             }
             MetadataValue::ReplaceAll(bytes) => {
-                self.metadata = *bytes;
+                self.metadata = bytes.clone();
             }
             MetadataValue::ReplaceByte(index, byte) => {
                 if self.metadata().0.len() < index + 1 {
@@ -553,7 +559,7 @@ impl Token {
                         ) as Box<dyn std::error::Error + Send> 
                     )
                 }
-                self.data.inner_mut().splice(start..end, *bytes);
+                self.data.inner_mut().splice(start..end, bytes.clone());
             }
         }
 
@@ -563,7 +569,7 @@ impl Token {
     fn apply_approvals_update(&mut self, approvals_update: &ApprovalsValue) -> Result<(), Box<dyn std::error::Error + Send>> {
         match approvals_update {
             ApprovalsValue::Insert(key, value) => {
-                if let Some(mut entry) = self.approvals.get_mut(key) {
+                if let Some(entry) = self.approvals.get_mut(key) {
                     entry.extend(value.clone());
                 } else {
                     self.approvals.insert(key.clone(), value.clone());
@@ -574,7 +580,7 @@ impl Token {
             }
             ApprovalsValue::Remove(key, values) => {
                 let mut is_empty = false;
-                if let Some(mut entry) = self.approvals.get_mut(key) {
+                if let Some(entry) = self.approvals.get_mut(key) {
                     entry.retain(|v| !values.contains(v));
                     is_empty = entry.is_empty(); 
                 }
@@ -592,7 +598,7 @@ impl Token {
     fn apply_allowance_update(&mut self, allowance_update: &AllowanceValue) -> Result<(), Box<dyn std::error::Error + Send>> {
         match allowance_update {
             AllowanceValue::Insert(key, value) => {
-                if let Some(mut entry) = self.allowance.get_mut(key) {
+                if let Some(entry) = self.allowance.get_mut(key) {
                     *entry += *value;
                 } else {
                     self.allowance.insert(key.clone(), value.clone());
@@ -603,7 +609,7 @@ impl Token {
             }
             AllowanceValue::Remove(key, value) => {
                 let mut is_empty = false;
-                if let Some(mut entry) = self.allowance.get_mut(key) {
+                if let Some(entry) = self.allowance.get_mut(key) {
                     *entry -= *value;
                     is_empty = *entry == U256::from(EthU256::from(0)); 
                 }
