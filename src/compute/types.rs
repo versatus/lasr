@@ -146,7 +146,6 @@ pub struct TokenDistribution {
     token_ids: Vec<crate::U256>,
     update_fields: Vec<TokenUpdateField>
 }
-
 impl TokenDistribution { 
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
@@ -688,8 +687,10 @@ mod test {
             for address in random_addresses {
                 let amount = crate::U256::from(ethereum_types::U256::from(1000000 as u128));
                 dist.push(TokenDistribution {
+                    program_id: program_id.clone(),
                     to: AddressOrNamespace::Address(address.clone()),
                     amount,
+                    token_ids: vec![],
                     update_fields: vec![]
                 });
 
@@ -701,8 +702,10 @@ mod test {
 
         distribution.push(
             TokenDistribution {
+                program_id: program_id.clone(),
                 to: AddressOrNamespace::Address(program_owner.clone()),
                 amount: remaining,
+                token_ids: vec![],
                 update_fields: vec![]
             }
         );
