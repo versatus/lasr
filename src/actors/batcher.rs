@@ -347,6 +347,7 @@ impl Batcher {
 
             log::info!("transaction is first for account {:x} bridge_in, building account", transaction.from());
             let mut account = AccountBuilder::default()
+                .account_type(crate::AccountType::User)
                 .program_namespace(None)
                 .owner_address(transaction.from())
                 .programs(BTreeMap::new())
@@ -393,6 +394,7 @@ impl Batcher {
             } else {
                 log::info!("first transaction send to account {:x} building account", transaction.to());
                 let mut account = AccountBuilder::default()
+                    .account_type(crate::AccountType::User)
                     .program_namespace(None)
                     .owner_address(transaction.to())
                     .programs(BTreeMap::new())
