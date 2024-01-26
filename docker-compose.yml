@@ -15,12 +15,33 @@ services:
     networks:
       - lasr
 
-  foundry:
+  anvil:
+    platform: linux/amd64
     build:
       context: ./infra/foundry
     ports:
       - "8545:8545"
     restart: unless-stopped
+    networks:
+      - lasr
+
+  executable_oracle:
+    container_name: executable_oracle
+    platform: linux/amd64
+    image: ghcr.io/foundry-rs/foundry:latest
+    depends_on:
+      - anvil
+    volumes:
+      - ./executable-oracle-eth:/executable-oracle-eth
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        echo "Hello from the inline shell script!"
+        # Additional shell commands can go here
+        # cat /executable-oracle-eth/script/Deploy.s.sol 
+        forge script /executable-oracle-eth/script/Deploy.s.sol --broadcast --fork-url http://anvil:8545;
+        # forge --version  # This is an example command; replace with the command you need
     networks:
       - lasr
 
