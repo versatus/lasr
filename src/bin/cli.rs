@@ -580,7 +580,8 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         };
 
         let address: Address = public_key.into();
-        let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
+        let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
+        let client = HttpClientBuilder::default().build(format!("127.0.0.1:{}", port))?;
         let res = &client.get_account(format!("{:x}", address)).await;
         let account = if let Ok(account_bytes) = res {
             let account: Account = bincode::deserialize(account_bytes)?;
