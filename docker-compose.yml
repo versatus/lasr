@@ -53,7 +53,7 @@ services:
     networks:
       - lasr
 
-  lasr:
+  main:
     build:
       context: .
     ports:
