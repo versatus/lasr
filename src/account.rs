@@ -684,8 +684,12 @@ impl Account {
                 } else {
                     return Err(Box::new(AccountCacheError))
                 }
+            } else if let AccountType::Program(program_addr) = self.account_type() {
+                if &program_addr == program_id {
+                    return Ok(())
+                } 
             }
-        } 
+        }
 
         return Err(Box::new(AccountCacheError))
     }
@@ -704,8 +708,12 @@ impl Account {
                         return Ok(())
                     }
                 }
+            } else if let AccountType::Program(program_addr) = self.account_type() {
+                if &program_addr == program_id {
+                    return Ok(())
+                }
             }
-        }
+        } 
 
         return Err(Box::new(AccountCacheError))
     }
@@ -747,7 +755,7 @@ impl From<&[u8; 20]> for Address {
 impl FromStr for Address {
     type Err = FromHexError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut hex_str = if s.starts_with("0x") {
+        let hex_str = if s.starts_with("0x") {
             &s[2..]
         } else {
             s
