@@ -334,6 +334,7 @@ impl Actor for ExecutorActor {
                             Some(handle) => {
                                 match handle.await {
                                     Ok(Ok(output)) => {
+                                        dbg!(&output);
                                         match self.execution_success(&hash, &output) {
                                             Ok(_) => {
                                                 log::info!(

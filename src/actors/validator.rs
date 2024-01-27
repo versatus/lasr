@@ -422,7 +422,7 @@ impl ValidatorCore {
     }
 
     fn validate_register_program(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |_tx| Ok(false)
+        |_tx| Ok(true)
         // Validate signature
         // Validate schema
         // validate account nonce in transaction

@@ -319,9 +319,20 @@ impl Engine {
     async fn handle_call_success(&self, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
-        let outputs: Outputs = serde_json::from_str(outputs).map_err(|e| {
+        let outputs = serde_json::from_str(outputs).map_err(|e| {
             EngineError::Custom(e.to_string())
-        })?;
+        });
+        
+        let outputs: Outputs = match outputs {
+            Ok(outputs) => {
+                log::info!("Output parsed: {:?}", &outputs);
+                outputs
+            },
+            Err(e) => {
+                log::error!("{}", e);
+                return Err(e);
+            }
+        };
 
         // Get transaction from pending transactions
         let pending_transactions: ActorRef<PendingTransactionMessage> = {

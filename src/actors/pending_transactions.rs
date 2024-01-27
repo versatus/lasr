@@ -231,7 +231,7 @@ impl Actor for PendingTransactionActor {
                 }
             }
             PendingTransactionMessage::GetPendingTransaction { .. } => {
-                todo!()
+                log::info!("Requesting a pending transaction")
             }
             PendingTransactionMessage::ValidCall { .. } => {
                 todo!()
