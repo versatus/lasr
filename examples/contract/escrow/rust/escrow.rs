@@ -93,9 +93,7 @@ impl PayableContract for EscrowContract {
                 TransferInstruction::new(
                     AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
                     from,
-                    lasr::AddressOrNamespace::Namespace(
-                        Namespace(Self::NAMESPACE.to_string())
-                    ),
+                    AddressOrNamespace::This,
                     amount,
                     token_ids
             ))
@@ -193,7 +191,7 @@ impl Escrow for EscrowContract {
         let transfer_deposit_instruction = Instruction::Transfer(
             TransferInstruction::new(
                 AddressOrNamespace::Address(Address::from(conditions.payment_token)),
-                AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+                AddressOrNamespace::This,
                 AddressOrNamespace::Address(Address::from(conditions.redeemer)),
                 Some(conditions.payment_amount.into()),
                 vec![]

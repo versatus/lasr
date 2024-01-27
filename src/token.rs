@@ -1,3 +1,4 @@
+use hex::FromHexError;
 use serde::{Serialize, Deserialize, Serializer, Deserializer, de::Visitor};
 use ethereum_types::U256 as EthU256;
 use std::collections::BTreeMap;
@@ -186,81 +187,53 @@ impl From<&EthU256> for U256 {
 /// This structure is used to store arbitrary data as a vector of bytes (`Vec<u8>`).
 /// It provides a default, cloneable, serializable, and debuggable interface. It is
 /// typically used for storing data that doesn't have a fixed format or structure.
-#[derive(Clone, Default, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-pub struct ArbitraryData(Vec<u8>);
+#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct ArbitraryData(BTreeMap<String, String>);
+
+impl Display for ArbitraryData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#?}", self.0)
+    }
+}
 
 impl ArbitraryData {
     pub fn new() -> Self {
-        Self(vec![])
+        Self(BTreeMap::new())
     }
 
-    pub fn pop(&mut self) -> Option<u8> {
-        self.0.pop()
+    pub fn insert(&mut self, key: String, value: String) {
+        self.0.insert(key, value);
     }
 
-    pub fn inner(&self) -> &Vec<u8> {
+    pub fn remove(&mut self, key: &str) -> Option<String> {
+        self.0.remove(key)
+    }
+    
+    pub fn extend(&mut self, iter: BTreeMap<String, String>) {
+        self.0.extend(iter);
+    }
+
+    pub fn inner(&self) -> &BTreeMap<String, String> {
         &self.0
     }
 
-    pub fn inner_mut(&mut self) -> &mut Vec<u8> {
+    pub fn inner_mut(&mut self) -> &mut BTreeMap<String, String> {
         &mut self.0
     }
-}
 
-// Implementing the Serialize trait for Address
-impl Serialize for ArbitraryData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_string = self.0.iter().map(|byte| format!("{:02x}", byte)).collect::<String>();
-        serializer.serialize_str(&hex_string)
-    }
-}
-
-// Implementing Deserialize for ArbitraryData
-impl<'de> Deserialize<'de> for ArbitraryData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(ArbitraryDataVisitor)
-    }
-}
-
-// Implementing a visitor for ArbitraryData
-struct ArbitraryDataVisitor;
-
-impl<'de> Visitor<'de> for ArbitraryDataVisitor {
-    type Value = ArbitraryData;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a hex string")
+    pub fn to_hex(&self) -> Result<String, Box<bincode::ErrorKind>> {
+        let bytes = self.to_bytes()?;
+        Ok(hex::encode(&bytes))
     }
 
-    fn visit_str<E>(self, v: &str) -> Result<ArbitraryData, E>
-    where
-        E: serde::de::Error,
-    {
-        let bytes = hex::decode(v).map_err(serde::de::Error::custom)?;
-        Ok(ArbitraryData(bytes))
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
+        bincode::serialize(&self)
     }
-}
 
-impl AsRef<[u8]> for ArbitraryData {
-    /// Provides a reference to the internal byte array.
-    ///
-    /// This method enables the `ArbitraryData` struct to be easily converted into a
-    /// byte slice reference, facilitating interoperability with functions expecting
-    /// a byte slice.
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl From<Vec<u8>> for ArbitraryData {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value.clone())
+    pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
+        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|e| {
+            FromHexError::InvalidStringLength
+        }))?
     }
 }
 
@@ -269,80 +242,37 @@ impl From<Vec<u8>> for ArbitraryData {
 /// This structure is designed to encapsulate metadata, stored as a vector of bytes.
 /// It supports cloning, serialization, and debugging. The metadata can be of any
 /// form that fits into a byte array, making it a flexible container.
-#[derive(Clone, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-pub struct Metadata(Vec<u8>);
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct Metadata(BTreeMap<String, String>);
 
 impl Metadata {
     pub fn new() -> Self {
-        Self(vec![])
+        Self(BTreeMap::new())
     }
 
-    pub fn inner_mut(&mut self) -> &mut Vec<u8> {
+    pub fn inner_mut(&mut self) -> &mut BTreeMap<String, String> {
         &mut self.0
     }
 
-    pub fn inner(&self) -> &Vec<u8> {
+    pub fn inner(&self) -> &BTreeMap<String, String> {
         &self.0
     }
-}
 
-// Implementing Serialize for Metadata
-impl Serialize for Metadata {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let hex_string = self.0.iter().map(|byte| format!("{:02x}", byte)).collect::<String>();
-        serializer.serialize_str(&hex_string)
-    }
-}
-
-// Implementing Deserialize for Metadata
-impl<'de> Deserialize<'de> for Metadata {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(MetadataVisitor)
-    }
-}
-
-// Implementing a visitor for Metadata
-struct MetadataVisitor;
-
-impl<'de> Visitor<'de> for MetadataVisitor {
-    type Value = Metadata;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a hex string")
+    pub fn to_hex(&self) -> Result<String, Box<bincode::ErrorKind>> {
+        let bytes = self.to_bytes()?;
+        Ok(hex::encode(&bytes))
     }
 
-    fn visit_str<E>(self, v: &str) -> Result<Metadata, E>
-    where
-        E: serde::de::Error,
-    {
-        let bytes = hex::decode(v).map_err(serde::de::Error::custom)?;
-        Ok(Metadata(bytes))
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
+        bincode::serialize(&self)
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
+        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|e| {
+            FromHexError::InvalidStringLength
+        }))?
     }
 }
-
-impl AsRef<[u8]> for Metadata {
-    /// Provides a reference to the internal byte array.
-    ///
-    /// This implementation allows instances of `Metadata` to be passed to functions
-    /// that require a reference to a byte slice, thereby facilitating easy access
-    /// to the underlying data.
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl From<Vec<u8>> for Metadata {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-}
-
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub enum TokenType {
@@ -458,53 +388,14 @@ impl Token {
 
     fn apply_data_update(&mut self, data_update: &DataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
         match data_update {
-            DataValue::Pop => {
-                self.data.inner_mut().pop();
+            DataValue::Insert(key, value) => {
+                self.data.insert(key.clone(), value.clone());
             }
-            DataValue::Push(byte) => {
-                self.data.inner_mut().push(*byte);
+            DataValue::Extend(iter) => {
+                self.data.inner_mut().extend(iter.clone());
             }
-            DataValue::Extend(bytes) => {
-                self.data.inner_mut().extend(bytes.0.clone());
-            }
-            DataValue::ReplaceAll(bytes) => {
-                self.data = ArbitraryData::from(bytes.0.clone());
-            }
-            DataValue::ReplaceByte(index, byte) => {
-                if self.data().0.len() < index + 1 {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Index out of range trying to replace a single byte in Arbitrary data in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                self.data.inner_mut()[*index] = *byte;
-            }
-            DataValue::ReplaceSlice(start, end, bytes) => {
-                if bytes.0.len() != (end - start) {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "bytes do not equal the length of the slice to replace in Arbitrary data in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                if bytes.0.len() < *start || bytes.0.len() < *end {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Index out of range trying to replace a slice of bytes in Arbitrary data in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                self.data.inner_mut().splice(start..end, bytes.0.clone());
+            DataValue::Remove(key) => {
+                self.data.remove(key);
             }
         }
 
@@ -513,53 +404,14 @@ impl Token {
 
     fn apply_metadata_update(&mut self, metadata_update: &MetadataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
         match metadata_update {
-            MetadataValue::Pop => {
-                self.metadata.inner_mut().pop();
+            MetadataValue::Insert(key, value) => {
+                self.metadata().inner_mut().insert(key.clone(), value.clone());
             }
-            MetadataValue::Extend(bytes) => {
-                self.metadata.inner_mut().extend(bytes.0.clone());
+            MetadataValue::Extend(iter) => {
+                self.metadata().inner_mut().extend(iter.clone());
             }
-            MetadataValue::Push(byte) => {
-                self.metadata.inner_mut().push(*byte);
-            }
-            MetadataValue::ReplaceAll(bytes) => {
-                self.metadata = bytes.clone();
-            }
-            MetadataValue::ReplaceByte(index, byte) => {
-                if self.metadata().0.len() < index + 1 {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Index out of range trying to replace a single byte in Metadata in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                self.data.inner_mut()[*index] = *byte;
-            }
-            MetadataValue::ReplaceSlice(start, end, bytes) => {
-                if bytes.len() != (end - start) {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "bytes do not equal the length of the slice to replace in Metadata in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                if bytes.len() < *start || bytes.len() < *end {
-                    return Err(
-                        Box::new(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Index out of range trying to replace a slice of bytes in Metadata in a token"
-                            )
-                        ) as Box<dyn std::error::Error + Send> 
-                    )
-                }
-                self.data.inner_mut().splice(start..end, bytes.clone());
+            MetadataValue::Remove(key) => {
+                self.metadata().inner_mut().remove(key);
             }
         }
 
@@ -676,12 +528,9 @@ pub enum BalanceValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MetadataValue {
-    ReplaceAll(Metadata),
-    ReplaceSlice(usize, usize, Vec<u8>),
-    ReplaceByte(usize, u8),
-    Extend(Metadata),
-    Push(u8),
-    Pop,
+    Insert(String, String),
+    Extend(BTreeMap<String, String>),
+    Remove(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -711,12 +560,9 @@ pub enum ApprovalsValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataValue {
-    ReplaceAll(ArbitraryData),
-    ReplaceSlice(usize, usize, ArbitraryData),
-    ReplaceByte(usize, u8),
-    Extend(ArbitraryData),
-    Push(u8),
-    Pop,
+    Insert(String, String),
+    Extend(BTreeMap<String, String>),
+    Remove(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
