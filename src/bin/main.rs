@@ -13,6 +13,8 @@ use lasr::EoClient;
 use lasr::EoClientActor;
 use lasr::EoServerWrapper;
 use lasr::LasrRpcServerActor;
+use lasr::OciBundlerBuilder;
+use lasr::OciManager;
 use lasr::PendingTransactionActor;
 use lasr::TaskScheduler;
 use lasr::Engine;
@@ -20,6 +22,9 @@ use lasr::Validator;
 use lasr::EoServer;
 use lasr::BatcherActor;
 use lasr::Batcher;
+use lasr::ExecutionEngine;
+use lasr::ExecutorActor;
+use lasr::OciBundler;
 use eo_listener::EoServer as EoListener;
 use lasr::DaClient;
 use lasr::rpc::LasrRpcServer;
@@ -36,8 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::Level::Info
     ).map_err(|e| EoServerError::Other(e.to_string()))?;
 
+    log::info!("Current Working Directory: {:?}", std::env::current_dir());
+
     dotenv::dotenv().ok();
 
+    //TODO(asmith): Move this to be read in when and where needed and dropped 
+    //afterwards to minimize security vulnerabilities
     let (_, sk_string) = std::env::vars().find(|(k, _)| k == "SECRET_KEY").ok_or(
         Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
     )?;
@@ -57,13 +66,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
-    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
-        EoServerError::Other(err.to_string())
-    })?;
-
+    let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
+    println!("Ethereum RPC URL: {}", eth_rpc_url);
+    let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
-
     let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
+
+    let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
+        .runtime("/usr/local/bin/runsc".to_string())
+        .base_images("./base_image".to_string())
+        .containers("./containers".to_string())
+        .payload_path("./payload".to_string())
+        .build()?;
+
+    let oci_manager = OciManager::new(bundler);
+    let execution_engine = ExecutionEngine::new(
+        oci_manager,
+        ipfs_api::IpfsClient::default()
+    );
 
     let blob_cache_actor = BlobCacheActor::new(); 
     let account_cache_actor = AccountCacheActor::new();
@@ -77,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_supervisor = DaSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor;
+    let executor_actor = ExecutorActor;
     let inner_eo_server = setup_eo_server(
         web3_instance.clone(),
         &block_processed_path
@@ -150,6 +171,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         batcher
     ).await.map_err(|e| Box::new(e))?;
 
+    let(_executor_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Executor.to_string()), 
+        executor_actor, 
+        execution_engine 
+    ).await.map_err(|e| Box::new(e))?;
+
     let (_account_cache_actor_ref, _) = Actor::spawn(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
@@ -163,7 +190,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await.map_err(|e| Box::new(e))?;
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
-    let server = RpcServerBuilder::default().build("127.0.0.1:9292").await.map_err(|e| {
+    let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
+    let server = RpcServerBuilder::default().build(format!("127.0.0.1:{}", port)).await.map_err(|e| {
         Box::new(e)
     })?;
     let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| {

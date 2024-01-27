@@ -1,4 +1,5 @@
 use ethereum_types::U256;
+use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};
 use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
@@ -19,13 +20,13 @@ impl Display for ToTokenError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub enum TransactionType {
-    BridgeIn(U256),
-    Send(U256),
-    Call(U256),
-    BridgeOut(U256),
-    Deploy(U256)
+    BridgeIn(crate::U256),
+    Send(crate::U256),
+    Call(crate::U256),
+    BridgeOut(crate::U256),
+    RegisterProgram(crate::U256)
 }
 
 impl TransactionType {
@@ -57,9 +58,9 @@ impl TransactionType {
         }
     }
 
-    pub fn is_deploy(&self) -> bool {
+    pub fn is_register_program(&self) -> bool {
         match self {
-            TransactionType::Deploy(_) => true,
+            TransactionType::RegisterProgram(_) => true,
             _ => false
         }
     }
@@ -72,7 +73,7 @@ impl ToString for TransactionType {
             TransactionType::Send(n) => format!("send{n}"),
             TransactionType::Call(n) => format!("call{n}"),
             TransactionType::BridgeOut(n) => format!("bridgeOut{n}"),
-            TransactionType::Deploy(n) => format!("deploy{n}"),
+            TransactionType::RegisterProgram(n) => format!("deploy{n}"),
         }
     }
 }
@@ -86,17 +87,14 @@ pub struct Payload {
     program_id: [u8; 20],
     op: String,
     inputs: String,
-    value: U256,
+    value: crate::U256,
+    nonce: crate::U256,
 }
 
 impl Payload {
     pub fn transaction_type(&self) -> TransactionType {
         self.transaction_type.clone()
     }
-
-//    pub fn token_type(&self) -> TokenType {
-//        self.token_type.clone()
-//    }
 
     pub fn from(&self) -> [u8; 20] {
         self.from
@@ -118,8 +116,12 @@ impl Payload {
         self.inputs.clone()
     }
 
-    pub fn value(&self) -> U256 {
+    pub fn value(&self) -> crate::U256 {
         self.value
+    }
+
+    pub fn nonce(&self) -> crate::U256 {
+        self.nonce
     }
 
     pub fn hash_string(&self) -> String {
@@ -154,7 +156,7 @@ impl Payload {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Transaction {
     transaction_type: TransactionType,
     from: [u8; 20],
@@ -162,10 +164,27 @@ pub struct Transaction {
     program_id: [u8; 20],
     op: String,
     inputs: String,
-    value: U256,
+    value: crate::U256,
+    nonce: crate::U256,
     v: i32,
     r: [u8; 32],
     s: [u8; 32],
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all(deserialize="lowercase"))]
+pub enum TransactionFields {
+    TransactionType,
+    From,
+    To,
+    ProgramId,
+    Op,
+    Inputs,
+    Value,
+    Nonce,
+    V,
+    R,
+    S,
 }
 
 impl Transaction {
@@ -185,12 +204,20 @@ impl Transaction {
         self.transaction_type.clone()
     }
 
+    pub fn op(&self) -> String {
+        self.op.to_string()
+    }
+
     pub fn inputs(&self) -> String {
         self.inputs.to_string()
     }
 
-    pub fn value(&self) -> U256 {
+    pub fn value(&self) -> crate::U256 {
         self.value
+    }
+
+    pub fn nonce(&self) -> crate::U256 {
+        self.nonce
     }
 
     pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
@@ -260,13 +287,14 @@ impl LowerHex for Transaction {
 impl Default for Transaction {
     fn default() -> Self {
         Transaction {
-            transaction_type: TransactionType::BridgeIn(0.into()),
+            transaction_type: TransactionType::BridgeIn(ethereum_types::U256::from(0).into()),
             from: [0; 20],
             to: [0; 20],
             program_id: [0; 20],
             op: String::new(),
             inputs: String::new(),
-            value: 0.into(),
+            value: ethereum_types::U256::from(0).into(),
+            nonce: ethereum_types::U256::from(0).into(),
             v: 0,
             r: [0; 32],
             s: [0; 32]
@@ -284,6 +312,7 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
             op: value.0.op(),
             inputs: value.0.inputs(), 
             value: value.0.value(), 
+            nonce: value.0.nonce(),
             v: value.1.get_v(), 
             r: value.1.get_r(), 
             s: value.1.get_s(),

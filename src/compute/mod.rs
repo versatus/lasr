@@ -4,3 +4,4 @@ pub mod types;
 
 pub use compute::*;
 pub use types::*;
+pub use contract::*;

@@ -1,10 +1,12 @@
 use std::{ffi::OsStr, fmt::Display};
 use std::path::Path;
+use ractor::ActorRef;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use std::process::Stdio;
-use crate::Inputs;
+use std::io::Read;
+use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -94,11 +96,18 @@ impl OciManager {
         self.bundler.customize_spec(content_id, entrypoint, program_args)
     }
 
+    pub fn get_program_schema(
+        &self,
+        content_id: impl AsRef<Path>
+    ) -> std::io::Result<ProgramSchema> {
+        self.bundler.get_program_schema(content_id)
+    }
+
     pub async fn run_container(
         &self,
-        content_id: impl AsRef<Path> + Send, 
-        op: Option<String>,
-        inputs: Option<Vec<String>>,
+        content_id: impl AsRef<Path> + Send + 'static, 
+        inputs: Inputs,
+        transaction_hash: Option<String>,
     ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
         let container_path = self.bundler.get_container_path(&content_id)
             .as_ref()
@@ -108,22 +117,6 @@ impl OciManager {
         let container_id = content_id.as_ref()
             .to_string_lossy()
             .into_owned();
-
-        let op_string = if let Some(op_string) = op {
-            op_string
-        } else {
-            String::new()
-        };
-
-        let inputs_vec = if let Some(inputs_vec) = inputs {
-            inputs_vec
-        } else {
-            vec![]
-        };
-
-        let inputs = Inputs {
-            op: op_string, inputs: inputs_vec
-        };
 
         let inner_inputs = inputs.clone();
         Ok(tokio::spawn(async move {
@@ -146,6 +139,7 @@ impl OciManager {
                 )
             })?;
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
+            log::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
             let _ = tokio::task::spawn(async move {
                 stdin.write_all(
                     stdio_inputs.clone().as_bytes()
@@ -154,8 +148,25 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             }).await?;
             let output = child.wait_with_output().await?;
-            let res = String::from_utf8_lossy(&output.stdout).into_owned();
-            log::info!("result from container: {container_id} = {res}");
+            let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
+
+            //.map_err(|e| {
+            //    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            //})?;
+            log::info!("result from container: {container_id} = {:#?}", res);
+
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to acquire Executor actor from inside container execution thread"
+                )
+            )?.into();
+
+            let message = ExecutorMessage::Results {
+                content_id: content_id.as_ref().to_string_lossy().into_owned(), transaction_hash 
+            };
+
+            actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
             Ok::<_, std::io::Error>(res)
         }))
@@ -209,6 +220,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_path = self.get_container_path(&content_id);
         let container_root = self.container_root_path(&container_path);
         let payload_path = self.get_payload_path(&content_id);
+        log::info!("Attempting to copy {:?} to {:?}", &payload_path.as_ref().canonicalize(), &container_root.as_ref().canonicalize());
         if let Err(e) = copy_dir(payload_path, container_root).await {
             log::error!("Error adding payload: {e}");
         };
@@ -254,7 +266,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 })?
         };
         
-        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint.to_string())];
+        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint)];
         if let Some(pargs) = program_args {
             args.extend(pargs);
         }
@@ -311,6 +323,44 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_root_path = container_path.as_ref().join(Self::CONTAINER_ROOT);
         let container_bin_path = container_root_path.join(Self::CONTAINER_BIN);
         container_bin_path
+    }
+
+    pub fn get_program_schema(&self, content_id: impl AsRef<Path>) -> std::io::Result<ProgramSchema> {
+        log::info!("ContentId: {:?}", content_id.as_ref().to_string_lossy());
+        let payload_path = self.get_payload_path(&content_id);
+        let schema_path = self.get_schema_path(payload_path).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to find schema".to_string())
+        )?;
+        let mut str: String = String::new();
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(false)
+            .append(false)
+            .truncate(false)
+            .create(false)
+            .open(schema_path)?.read_to_string(&mut str)?;
+        
+        let schema = toml::from_str(&str).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Error: compute.rs: 328: unable to parse schema file {e}"))
+        })?;
+
+        Ok(schema)
+    }
+
+    fn get_schema_path(&self, payload_path: impl AsRef<Path>) -> Option<String> {
+        log::info!("search for entries in {:?}", payload_path.as_ref().canonicalize());
+        if let Ok(entries) = std::fs::read_dir(payload_path.as_ref()) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_file() {
+                    if path.file_name().unwrap_or_default().to_string_lossy().starts_with("schema") {
+                        return Some(path.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 

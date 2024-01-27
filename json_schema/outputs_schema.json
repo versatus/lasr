@@ -1,0 +1,1291 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Outputs",
+  "description": "The structure returned by a program/call transaction.",
+  "type": "object",
+  "required": [
+    "inputs",
+    "instructions"
+  ],
+  "properties": {
+    "inputs": {
+      "$ref": "#/definitions/Inputs"
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Instruction"
+      }
+    }
+  },
+  "definitions": {
+    "Address": {
+      "description": "Represents a 20-byte Ethereum Compatible address.\n\nThis structure is used to store Ethereum Compatible addresses, which are derived from the public key. It implements traits like Clone, Copy, Debug, Serialize, Deserialize, etc., for ease of use across various contexts.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      },
+      "maxItems": 20,
+      "minItems": 20
+    },
+    "AddressOrNamespace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Address"
+          ],
+          "properties": {
+            "Address": {
+              "$ref": "#/definitions/Address"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Namespace"
+          ],
+          "properties": {
+            "Namespace": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AllowanceValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Insert"
+          ],
+          "properties": {
+            "Insert": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/Address"
+                },
+                {
+                  "$ref": "#/definitions/U256"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": [
+                  {
+                    "$ref": "#/definitions/Address"
+                  },
+                  {
+                    "$ref": "#/definitions/U256"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Remove"
+          ],
+          "properties": {
+            "Remove": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/Address"
+                },
+                {
+                  "$ref": "#/definitions/U256"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ApprovalsValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Insert"
+          ],
+          "properties": {
+            "Insert": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/Address"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/U256"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": [
+                  {
+                    "$ref": "#/definitions/Address"
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "$ref": "#/definitions/U256"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Remove"
+          ],
+          "properties": {
+            "Remove": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/Address"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/U256"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ArbitraryData": {
+      "description": "Represents a generic data container.\n\nThis structure is used to store arbitrary data as a vector of bytes (`Vec<u8>`). It provides a default, cloneable, serializable, and debuggable interface. It is typically used for storing data that doesn't have a fixed format or structure.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      }
+    },
+    "BalanceValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Credit"
+          ],
+          "properties": {
+            "Credit": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Debit"
+          ],
+          "properties": {
+            "Debit": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "BurnInstruction": {
+      "type": "object",
+      "required": [
+        "owner",
+        "token_ids",
+        "token_namespace"
+      ],
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/U256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "$ref": "#/definitions/Address"
+        },
+        "token_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "token_namespace": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        }
+      }
+    },
+    "ContractLogType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Info"
+          ],
+          "properties": {
+            "Info": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Error"
+          ],
+          "properties": {
+            "Error": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Warn"
+          ],
+          "properties": {
+            "Warn": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Debug"
+          ],
+          "properties": {
+            "Debug": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CreateInstruction": {
+      "type": "object",
+      "required": [
+        "distribution",
+        "initialized_supply",
+        "program_id",
+        "program_namespace",
+        "program_owner",
+        "total_supply"
+      ],
+      "properties": {
+        "distribution": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenDistribution"
+          }
+        },
+        "initialized_supply": {
+          "$ref": "#/definitions/U256"
+        },
+        "program_id": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "program_namespace": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "program_owner": {
+          "$ref": "#/definitions/Address"
+        },
+        "total_supply": {
+          "$ref": "#/definitions/U256"
+        }
+      }
+    },
+    "DataValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Pop"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceAll"
+          ],
+          "properties": {
+            "ReplaceAll": {
+              "$ref": "#/definitions/ArbitraryData"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceSlice"
+          ],
+          "properties": {
+            "ReplaceSlice": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0.0
+                  }
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceByte"
+          ],
+          "properties": {
+            "ReplaceByte": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0.0
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "$ref": "#/definitions/ArbitraryData"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Push"
+          ],
+          "properties": {
+            "Push": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Inputs": {
+      "description": "This file contains types the protocol uses to prepare data, structure it and call out to a particular compute payload. The inputs type for a contract call",
+      "type": "object",
+      "required": [
+        "inputs",
+        "op",
+        "version"
+      ],
+      "properties": {
+        "account_info": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProgramAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputs": {
+          "type": "string"
+        },
+        "op": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "Instruction": {
+      "description": "An enum representing the instructions that a program can return to the protocol. Also represent types that tell the protocol what the pre-requisites of a given function call are. All enabled languages have equivalent types",
+      "oneOf": [
+        {
+          "description": "The return type created by the construction method of a contract",
+          "type": "object",
+          "required": [
+            "Create"
+          ],
+          "properties": {
+            "Create": {
+              "$ref": "#/definitions/CreateInstruction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Tells the protocol to update a field, should almost never be used to add balance to a token or add a token id (for Non-fungible or Data tokens) should prrimarily be used to update approvals, allowances, metadata, arbitrary data etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used to lock value",
+          "type": "object",
+          "required": [
+            "Update"
+          ],
+          "properties": {
+            "Update": {
+              "$ref": "#/definitions/UpdateInstruction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Tells the protocol to subtract balance of one address/token pair and add to different address",
+          "type": "object",
+          "required": [
+            "Transfer"
+          ],
+          "properties": {
+            "Transfer": {
+              "$ref": "#/definitions/TransferInstruction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Tells the protocol to burn a token (amount or id for NFT/Data tokens)",
+          "type": "object",
+          "required": [
+            "Burn"
+          ],
+          "properties": {
+            "Burn": {
+              "$ref": "#/definitions/BurnInstruction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Tells the protocol to log something",
+          "type": "object",
+          "required": [
+            "Log"
+          ],
+          "properties": {
+            "Log": {
+              "$ref": "#/definitions/LogInstruction"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "LinkedProgramsValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Insert"
+          ],
+          "properties": {
+            "Insert": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/Address"
+                },
+                {
+                  "$ref": "#/definitions/Token"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": [
+                  {
+                    "$ref": "#/definitions/Address"
+                  },
+                  {
+                    "$ref": "#/definitions/Token"
+                  }
+                ],
+                "maxItems": 2,
+                "minItems": 2
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "LogInstruction": {
+      "$ref": "#/definitions/ContractLogType"
+    },
+    "Metadata": {
+      "description": "Represents metadata as a byte vector.\n\nThis structure is designed to encapsulate metadata, stored as a vector of bytes. It supports cloning, serialization, and debugging. The metadata can be of any form that fits into a byte array, making it a flexible container.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0.0
+      }
+    },
+    "MetadataValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Pop"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceAll"
+          ],
+          "properties": {
+            "ReplaceAll": {
+              "$ref": "#/definitions/Metadata"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceSlice"
+          ],
+          "properties": {
+            "ReplaceSlice": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "uint8",
+                    "minimum": 0.0
+                  }
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ReplaceByte"
+          ],
+          "properties": {
+            "ReplaceByte": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0.0
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "$ref": "#/definitions/Metadata"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Push"
+          ],
+          "properties": {
+            "Push": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0.0
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Namespace": {
+      "type": "string"
+    },
+    "ProgramAccount": {
+      "type": "object",
+      "required": [
+        "data",
+        "linked_programs",
+        "metadata",
+        "namespace"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/ArbitraryData"
+        },
+        "linked_programs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Token"
+          }
+        },
+        "metadata": {
+          "$ref": "#/definitions/Metadata"
+        },
+        "namespace": {
+          "$ref": "#/definitions/Namespace"
+        }
+      }
+    },
+    "ProgramField": {
+      "type": "string",
+      "enum": [
+        "LinkedPrograms",
+        "Metadata",
+        "Data"
+      ]
+    },
+    "ProgramFieldValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "LinkedPrograms"
+          ],
+          "properties": {
+            "LinkedPrograms": {
+              "$ref": "#/definitions/LinkedProgramsValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Metadata"
+          ],
+          "properties": {
+            "Metadata": {
+              "$ref": "#/definitions/MetadataValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Data"
+          ],
+          "properties": {
+            "Data": {
+              "$ref": "#/definitions/DataValue"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProgramUpdate": {
+      "type": "object",
+      "required": [
+        "account",
+        "updates"
+      ],
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProgramUpdateField"
+          }
+        }
+      }
+    },
+    "ProgramUpdateField": {
+      "type": "object",
+      "required": [
+        "field",
+        "value"
+      ],
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/ProgramField"
+        },
+        "value": {
+          "$ref": "#/definitions/ProgramFieldValue"
+        }
+      }
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "Locked",
+        "Free"
+      ]
+    },
+    "StatusValue": {
+      "type": "string",
+      "enum": [
+        "Reverse",
+        "Lock",
+        "Unlock"
+      ]
+    },
+    "Token": {
+      "type": "object",
+      "required": [
+        "allowance",
+        "approvals",
+        "balance",
+        "data",
+        "metadata",
+        "owner_id",
+        "program_id",
+        "status",
+        "token_ids"
+      ],
+      "properties": {
+        "allowance": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "approvals": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "balance": {
+          "$ref": "#/definitions/U256"
+        },
+        "data": {
+          "$ref": "#/definitions/ArbitraryData"
+        },
+        "metadata": {
+          "$ref": "#/definitions/Metadata"
+        },
+        "owner_id": {
+          "$ref": "#/definitions/Address"
+        },
+        "program_id": {
+          "$ref": "#/definitions/Address"
+        },
+        "status": {
+          "$ref": "#/definitions/Status"
+        },
+        "token_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/U256"
+          }
+        }
+      }
+    },
+    "TokenDistribution": {
+      "type": "object",
+      "required": [
+        "amount",
+        "to",
+        "update_fields"
+      ],
+      "properties": {
+        "amount": {
+          "$ref": "#/definitions/U256"
+        },
+        "to": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "update_fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenOrProgramUpdateField"
+          }
+        }
+      }
+    },
+    "TokenField": {
+      "type": "string",
+      "enum": [
+        "ProgramId",
+        "OwnerId",
+        "Balance",
+        "Metadata",
+        "TokenIds",
+        "Allowance",
+        "Approvals",
+        "Data",
+        "Status"
+      ]
+    },
+    "TokenFieldValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Balance"
+          ],
+          "properties": {
+            "Balance": {
+              "$ref": "#/definitions/BalanceValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Metadata"
+          ],
+          "properties": {
+            "Metadata": {
+              "$ref": "#/definitions/MetadataValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "TokenIds"
+          ],
+          "properties": {
+            "TokenIds": {
+              "$ref": "#/definitions/TokenIdValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Allowance"
+          ],
+          "properties": {
+            "Allowance": {
+              "$ref": "#/definitions/AllowanceValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Approvals"
+          ],
+          "properties": {
+            "Approvals": {
+              "$ref": "#/definitions/ApprovalsValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Data"
+          ],
+          "properties": {
+            "Data": {
+              "$ref": "#/definitions/DataValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Status"
+          ],
+          "properties": {
+            "Status": {
+              "$ref": "#/definitions/StatusValue"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TokenIdValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Pop"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Push"
+          ],
+          "properties": {
+            "Push": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Extend"
+          ],
+          "properties": {
+            "Extend": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/U256"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Insert"
+          ],
+          "properties": {
+            "Insert": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0.0
+                },
+                {
+                  "$ref": "#/definitions/U256"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Remove"
+          ],
+          "properties": {
+            "Remove": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TokenOrProgramUpdate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "TokenUpdate"
+          ],
+          "properties": {
+            "TokenUpdate": {
+              "$ref": "#/definitions/TokenUpdate"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ProgramUpdate"
+          ],
+          "properties": {
+            "ProgramUpdate": {
+              "$ref": "#/definitions/ProgramUpdate"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TokenOrProgramUpdateField": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "TokenUpdateField"
+          ],
+          "properties": {
+            "TokenUpdateField": {
+              "$ref": "#/definitions/TokenUpdateField"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ProgramUpdateField"
+          ],
+          "properties": {
+            "ProgramUpdateField": {
+              "$ref": "#/definitions/ProgramUpdateField"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TokenUpdate": {
+      "type": "object",
+      "required": [
+        "account",
+        "token",
+        "updates"
+      ],
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "token": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenUpdateField"
+          }
+        }
+      }
+    },
+    "TokenUpdateField": {
+      "type": "object",
+      "required": [
+        "field",
+        "value"
+      ],
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/TokenField"
+        },
+        "value": {
+          "$ref": "#/definitions/TokenFieldValue"
+        }
+      }
+    },
+    "TransferInstruction": {
+      "type": "object",
+      "required": [
+        "from",
+        "to",
+        "token_ids",
+        "token_namespace"
+      ],
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/U256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "to": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        },
+        "token_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/U256"
+          }
+        },
+        "token_namespace": {
+          "$ref": "#/definitions/AddressOrNamespace"
+        }
+      }
+    },
+    "U256": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0.0
+      },
+      "maxItems": 4,
+      "minItems": 4
+    },
+    "UpdateInstruction": {
+      "type": "object",
+      "required": [
+        "updates"
+      ],
+      "properties": {
+        "updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenOrProgramUpdate"
+          }
+        }
+      }
+    }
+  }
+}

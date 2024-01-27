@@ -1,5 +1,5 @@
 #![allow(unused)]
-use std::{collections::{HashMap, VecDeque, BTreeMap}, fmt::Display};
+use std::{collections::{HashMap, VecDeque, BTreeMap, BTreeSet}, fmt::Display};
 
 use async_trait::async_trait;
 use eigenda_client::{response::BlobResponse, proof::BlobVerificationProof};
@@ -13,7 +13,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -47,15 +47,13 @@ impl Batch {
     }
 
     pub fn empty(&self) -> bool {
-        let mut empty = false;
-        empty = self.transactions().is_empty();
-        empty = self.accounts().is_empty();
-        return empty
+        self.transactions().is_empty() &&
+        self.accounts().is_empty()
     }
 
-    pub fn get_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
-        if let Some(account) = self.accounts().get(&address.into()) {
-            return Some(account.clone())
+    pub fn get_user_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
+        if let Some(ua) = self.accounts().get(&address.into()) {
+            return Some(ua.clone())
         }
 
         None
@@ -64,6 +62,16 @@ impl Batch {
     pub fn get_transaction(&self, id: impl Into<[u8; 32]>) -> Option<Transaction> {
         if let Some(transaction) = self.transactions().get(&id.into()) {
             return Some(transaction.clone())
+        }
+
+        None
+    }
+
+    pub fn get_program_account(&self, account_type: AccountType) -> Option<Account> {
+        if let AccountType::Program(program_address) = account_type {
+            if let Some(program_account) = self.accounts().get(&program_address.inner()) {
+                return Some(program_account.clone())
+            }
         }
 
         None
@@ -119,7 +127,7 @@ impl Batch {
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
         let encoded = base64::encode(self.compress_batch()?);
-
+        log::info!("encoded batch: {:?}", &encoded);
         Ok(encoded)
     }
 
@@ -156,7 +164,7 @@ impl Batch {
         account: Account
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.accounts.insert(account.address().into(), account);
+        test_batch.accounts.insert(account.owner_address().into(), account);
         test_batch.at_capacity()
     }
 
@@ -181,8 +189,10 @@ impl Batch {
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
         if !self.clone().account_would_exceed_capacity(account.clone())? {
-            let mut id: [u8; 20] = account.address().into();
+            log::info!("inserting account into batch");
+            let mut id: [u8; 20] = account.owner_address().into();
             self.accounts.insert(id, account.clone());
+            log::info!("{:?}", &self);
             return Ok(())
         }
 
@@ -337,9 +347,14 @@ impl Batcher {
 
             log::info!("transaction is first for account {:x} bridge_in, building account", transaction.from());
             let mut account = AccountBuilder::default()
-                .address(transaction.from())
+                .account_type(crate::AccountType::User)
+                .program_namespace(None)
+                .owner_address(transaction.from())
                 .programs(BTreeMap::new())
-                .nonce(0.into())
+                .nonce(ethereum_types::U256::from(0).into())
+                .program_account_data(ArbitraryData::new())
+                .program_account_metadata(Metadata::new())
+                .program_account_linked_programs(BTreeSet::new())
                 .build()?;
             let token = account.apply_transaction(
                 transaction.clone()
@@ -351,7 +366,7 @@ impl Batcher {
         log::info!(
             "applied transaction {} to account {:x}, informing scheduler",
             transaction.clone().hash_string(),
-            from_account.address()
+            from_account.owner_address()
         );
 
         let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
@@ -379,9 +394,14 @@ impl Batcher {
             } else {
                 log::info!("first transaction send to account {:x} building account", transaction.to());
                 let mut account = AccountBuilder::default()
-                    .address(transaction.to())
+                    .account_type(crate::AccountType::User)
+                    .program_namespace(None)
+                    .owner_address(transaction.to())
                     .programs(BTreeMap::new())
-                    .nonce(0.into())
+                    .nonce(ethereum_types::U256::from(0).into())
+                    .program_account_data(ArbitraryData::new())
+                    .program_account_metadata(Metadata::new())
+                    .program_account_linked_programs(BTreeSet::new())
                     .build()?;
 
                 log::info!("applying transaction to `to` account");
@@ -398,6 +418,351 @@ impl Batcher {
         Ok(())
     }
 
+    async fn apply_instructions_to_accounts(
+        &mut self,
+        transaction: Transaction, 
+        instructions: Vec<Instruction>
+    ) -> Result<(), BatcherError> {
+        let mut accounts_to_batch = Vec::new();
+        for instruction in instructions {
+            match instruction {
+                Instruction::Transfer(transfer) => {
+                    let from = transfer.from();
+                    match from {
+                        AddressOrNamespace::Address(from_address) => {
+                            let mut account = get_account(from_address.clone()).await;
+                            match account {
+                                Some(mut acct) => {
+                                    acct.apply_transfer_instruction(
+                                        transfer.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+                                    accounts_to_batch.push(acct);
+                                }
+                                None => {
+                                    return Err(
+                                        BatcherError::Custom(
+                                            format!("from account must exist for Transfer Instruction to be valid")
+                                        )
+                                    )
+                                }
+                            }
+                        },
+                        AddressOrNamespace::Namespace(from_namespace) => {
+                            return Err(
+                                BatcherError::Custom(
+                                    format!("Namespaces not yet supported for Transfer instruction. Use account address for {:?}", from_namespace)
+                                )
+                            )
+                        }
+                    }
+                    match transfer.to() {
+                        AddressOrNamespace::Address(to_address) => {
+                            let mut account = get_account(to_address.clone()).await;
+                            match account {
+                                Some(mut acct) => {
+                                    acct.apply_transfer_instruction(
+                                        transfer.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+                                    accounts_to_batch.push(acct);
+                                }
+                                None => {
+                                    let mut acct = AccountBuilder::default()
+                                        .account_type(crate::AccountType::User)
+                                        .program_namespace(None)
+                                        .owner_address(to_address.clone())
+                                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                                        .programs(BTreeMap::new())
+                                        .program_account_linked_programs(BTreeSet::new())
+                                        .program_account_metadata(Metadata::new())
+                                        .program_account_data(ArbitraryData::new())
+                                        .build().map_err(|e| {
+                                            BatcherError::Custom(e.to_string())
+                                        })?;
+                                    acct.apply_transfer_instruction(
+                                        transfer.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+                                    self.cache_account(acct.clone())
+                                        .await
+                                        .map_err(|e| {
+                                            BatcherError::Custom(
+                                                e.to_string()
+                                            )
+                                    })?;
+                                    accounts_to_batch.push(acct);
+                                }
+                            }
+                        }
+                        AddressOrNamespace::Namespace(to_namespace) => {
+                            return Err(
+                                BatcherError::Custom(
+                                    format!("Namespaces not yet supported for Transfer Instruction. Use account address for {:?}", to_namespace)
+                                )
+                            )
+                        }
+                    }
+                }
+                Instruction::Burn(burn) => {
+                    let burn_address = burn.from();
+                    match burn_address {
+                        AddressOrNamespace::Address(address) => {
+                            let mut account = get_account(address.clone()).await;
+                            match account {
+                                Some(mut acct) => {
+                                    acct.apply_burn_instruction(
+                                        burn.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+                                    accounts_to_batch.push(acct);
+                                }
+                                None => {
+                                    return Err(
+                                        BatcherError::Custom(
+                                            "account must exist in order to have a burn instruction applied to it".to_string()
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                BatcherError::Custom(
+                                    format!("Namespaces not yet supported for Burn Instruction. Use account address for {:?}", namespace)
+                                )
+                            )
+                        }
+                    }
+                }
+                Instruction::Create(create) => {
+                    let program_namespace = create.program_namespace();
+                    let program_id = create.program_id();
+                    let program_owner = create.program_owner();
+                    //TODO: Add TokenStatics struct that can used to serialize metadata
+                    let token_metadata = bincode::serialize(&[create.total_supply(), create.initialized_supply()])
+                        .map_err(|e| {
+                            BatcherError::Custom(e.to_string())
+                        })?;
+                    let distribution = create.distribution();
+                    match program_id {
+                        AddressOrNamespace::Address(program_address) => {
+                            let account_type = AccountType::Program(program_address.clone());
+                            if let Some(acct) = get_account(program_address.clone()).await {
+                                return Err(
+                                    BatcherError::Custom(
+                                        "unable to create a new program account at a program address that already exists".to_string()
+                                    )
+                                )
+                            }
+                            let program_account = AccountBuilder::default()
+                                .account_type(account_type)
+                                .program_namespace(Some(program_namespace.clone()))
+                                .owner_address(program_owner.clone())
+                                .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                                .programs(BTreeMap::new())
+                                .program_account_linked_programs(BTreeSet::new())
+                                .program_account_metadata(Metadata::from(token_metadata))
+                                .program_account_data(ArbitraryData::new())
+                                .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
+                                
+                            self.cache_account(program_account.clone())
+                                .await
+                                .map_err(|e| {
+                                    BatcherError::Custom(
+                                        e.to_string()
+                                    )
+                            })?;
+                            accounts_to_batch.push(program_account);
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                BatcherError::Custom(
+                                    format!("Namespaces not yet supported for Create Instruction, use address for {:?} instead", namespace)
+                                )
+                            )
+                        }
+                    }
+                    for dist in distribution {
+                        let to = dist.to();
+                        match to {
+                            AddressOrNamespace::Address(to_addr) => {
+                                if let Some(mut acct) = get_account(to_addr.clone()).await {
+                                    acct.apply_token_distribution(
+                                        dist.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+
+                                    accounts_to_batch.push(acct);
+                                } else {
+                                    let mut acct = AccountBuilder::default()
+                                        .account_type(AccountType::User)
+                                        .program_namespace(None)
+                                        .owner_address(to_addr.clone())
+                                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                                        .programs(BTreeMap::new())
+                                        .program_account_linked_programs(BTreeSet::new())
+                                        .program_account_metadata(Metadata::new())
+                                        .program_account_data(ArbitraryData::new())
+                                        .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+                                    acct.apply_token_distribution(
+                                        dist.clone()
+                                    ).map_err(|e| {
+                                        BatcherError::Custom(
+                                            e.to_string()
+                                        )
+                                    })?;
+
+                                    accounts_to_batch.push(acct);
+                                }
+                            }
+                            AddressOrNamespace::Namespace(namespace) => {
+                                return Err(
+                                    BatcherError::Custom(
+                                        format!("Namespaced are not yet supported for Token Distrubtion applications, use address for {:?} instead", namespace)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+                Instruction::Update(update) => {
+                    for token_or_program_update in update.updates() {
+                        match token_or_program_update {
+                            TokenOrProgramUpdate::TokenUpdate(token_update) => {
+                                match token_update.account() {
+                                    AddressOrNamespace::Address(addr) => {
+                                        if let Some(mut acct) = get_account(addr.clone()).await {
+                                            acct.apply_token_update(
+                                                token_update.clone()
+                                            ).map_err(|e| {
+                                                BatcherError::Custom(
+                                                    e.to_string()
+                                                )
+                                            })?;
+                                            accounts_to_batch.push(acct);
+                                        } else {
+                                            let mut acct = AccountBuilder::default()
+                                                .account_type(AccountType::User)
+                                                .program_namespace(None)
+                                                .owner_address(addr.clone())
+                                                .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                                                .programs(BTreeMap::new())
+                                                .program_account_linked_programs(BTreeSet::new())
+                                                .program_account_metadata(Metadata::new())
+                                                .program_account_data(ArbitraryData::new())
+                                                .build()
+                                                .map_err(|e| {
+                                                    BatcherError::Custom(
+                                                        e.to_string()
+                                                    )
+                                                })?;
+
+                                            acct.apply_token_update(
+                                                token_update.clone()
+                                            ).map_err(|e| {
+                                                BatcherError::Custom(
+                                                    e.to_string()
+                                                )
+                                            })?;
+                                            accounts_to_batch.push(acct);
+                                        }
+                                    }
+                                    AddressOrNamespace::Namespace(namespace) => {
+                                        return Err(
+                                            BatcherError::Custom(
+                                                format!("Update Instruction does not yet support namespaces for accounts, use address for {:?} instead", namespace)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            TokenOrProgramUpdate::ProgramUpdate(program_update) => {
+                                match program_update.account() {
+                                    AddressOrNamespace::Address(addr) => {
+                                        if let Some(mut acct) = get_account(addr.clone()).await {
+                                            acct.apply_program_update(
+                                                &program_update.clone()
+                                            ).map_err(|e| {
+                                                BatcherError::Custom(
+                                                    e.to_string()
+                                                )
+                                            })?;
+                                            accounts_to_batch.push(acct);
+                                        } else {
+                                            return Err(
+                                                BatcherError::Custom(
+                                                    "Program updates can only be applied to programs that already exist".to_string()
+                                                )
+                                            )
+                                        }
+                                    }
+                                    AddressOrNamespace::Namespace(namespace) => {
+                                        return Err(
+                                            BatcherError::Custom(
+                                                format!("Update Instruction does not yet support namespaces for accounts, use address for {:?}, instead", namespace)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Instruction::Log(log) => {
+                    match &log.0 {
+                        ContractLogType::Info(log_str) => log::info!("{}", log_str),
+                        ContractLogType::Warn(log_str) => log::warn!("{}", log_str),
+                        ContractLogType::Error(log_str) => log::error!("{}", log_str),
+                        ContractLogType::Debug(log_str) => log::debug!("{}", log_str),
+                    }
+                }
+            }
+        }
+
+        for account in accounts_to_batch {
+            self.cache_account(
+                account.clone()
+            ).await.map_err(|e| {
+                BatcherError::Custom(
+                    e.to_string()
+                )
+            })?;
+        }
+
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            BatcherError::Custom("Error: batcher.rs: 747: unable to acquire scheduler actor".to_string())
+        )?.into();
+
+        let account = get_account(transaction.from()).await.ok_or(
+            BatcherError::Custom("unable to acquire caller account".to_string())
+        )?;
+        
+        let message = SchedulerMessage::CallTransactionApplied { 
+            transaction_hash: transaction.hash_string(), 
+            account 
+        };
+
+        Ok(())
+
+    }
+
     async fn handle_next_batch_request(&mut self) -> Result<(), BatcherError> {
         if !self.parent.empty() {
             let da_client: ActorRef<DaClientMessage> = ractor::registry::where_is(
@@ -407,6 +772,7 @@ impl Batcher {
             )?.into();
 
             let (tx, rx) = oneshot();
+            log::info!("Sending message to DA Client to store batch");
             let message = DaClientMessage::StoreBatch { batch: self.parent.encode_batch()?, tx };
             da_client.cast(message).map_err(|e| BatcherError::Custom(e.to_string()))?;
             let handler = |resp: Result<BlobResponse, std::io::Error> | {
@@ -436,6 +802,7 @@ impl Batcher {
         }
 
         log::warn!("batch is currently empty, skipping");
+        dbg!(&self.parent);
 
         return Ok(())
     }
@@ -526,7 +893,6 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             BatcherMessage::GetNextBatch => {
-                log::info!("sending batch to DA Client");
                 let res = state.handle_next_batch_request().await;
                 if let Err(e) = res {
                     log::error!("{e}");

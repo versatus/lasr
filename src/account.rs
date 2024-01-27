@@ -1,22 +1,928 @@
 #![allow(unused)]
-use std::{collections::BTreeMap, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
+use std::{collections::{BTreeMap, HashMap, HashSet, BTreeSet}, hash::Hash, fmt::{Debug, LowerHex, Display}, ops::{AddAssign, SubAssign}, str::FromStr};
 use eigenda_client::batch::BatchHeaderHash;
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
-use serde::{Serialize, Deserialize};
+use schemars::JsonSchema;
+use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use secp256k1::PublicKey;
 use sha3::{Digest, Sha3_256, Keccak256};
-use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError};
+use crate::{Transaction, RecoverableSignature, Certificate, RecoverableSignatureBuilder, AccountCacheError, ValidatorError, Token, ToTokenError, ArbitraryData, Metadata, MetadataValue, DataValue, AccountCache, AddressOrNamespace, TransferInstruction, BurnInstruction, TokenDistribution, TokenOrProgramUpdate, TokenUpdate, ProgramUpdate, TokenBuilder, TokenUpdateField, TokenFieldValue, CreateInstruction};
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
+
+impl Serialize for Address {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> 
+    where
+        S: Serializer
+    {
+        let hex = self.inner().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hex_repr = format!("0x{}", hex);
+        serializer.serialize_str(&hex_repr)
+    }
+}
+
+impl<'de> Deserialize<'de> for Address {
+    fn deserialize<D>(deserializer: D) -> Result<Address, D::Error> 
+    where 
+        D: Deserializer<'de>
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.len() != 42 {
+            return Err(serde::de::Error::custom("Invalid length"))
+        }
+
+        if !s.starts_with("0x") {
+            return Err(serde::de::Error::custom("'0x' prefix missing"))
+        }
+
+        let bytes = hex::decode(&s[2..]).map_err(serde::de::Error::custom)?;
+        let mut arr = [0u8; 20];
+        arr.copy_from_slice(&bytes[0..20]);
+        Ok(Address::from(arr))
+    }
+}
+
+
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
 /// This structure is used to store Ethereum Compatible addresses, which are 
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct Address([u8; 20]);
+
+impl Address {
+    /// Creates a new address from a 20 byte array
+    pub fn new(bytes: [u8; 20]) -> Address {
+        Address(bytes)
+    }
+
+    /// Converts the inner Address to a full hexadecimal string
+    /// this exists because in the Disply implementation we abbreviate the 
+    /// address
+    pub fn to_full_string(&self) -> String {
+        format!("0x{:x}", self)
+    }
+
+    pub fn inner(&self) -> [u8; 20] {
+        self.0.clone()
+    }
+}
+
+/// Represents a 32-byte account hash.
+///
+/// This structure is used to store current state hash associated with an account
+// It supports standard traits for easy handling and
+/// comparison operations.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AccountHash([u8; 32]);
+
+impl AccountHash {
+    /// Creates a new `AccountHash` instance from a 32-byte array.
+    ///
+    /// This constructor is used to instantiate an `AccountHash` object with a given hash.
+    pub fn new(hash: [u8; 32]) -> Self {
+        Self(hash)
+    }
+}
+
+/// This is currently not used
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct AccountNonce {
+    bridge_nonce: crate::U256,
+    send_nonce: crate::U256,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProgramNamespace(Namespace, Address);
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Namespace(pub String);
+
+impl FromStr for Namespace {
+    type Err = Box<dyn std::error::Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let string = s.to_string(); 
+        Ok(Self(string))
+    }
+}
+
+impl From<String> for Namespace {
+    fn from(value: String) -> Self {
+        Self(value.clone())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProgramField {
+    LinkedPrograms,
+    Metadata,
+    Data,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProgramFieldValue {
+    LinkedPrograms(LinkedProgramsValue),
+    Metadata(MetadataValue),
+    Data(DataValue),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LinkedProgramsValue {
+    Insert(Address),
+    Extend(Vec<Address>),
+    Remove(Address),
+}
+
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProgramAccount {
+    namespace: Namespace,
+    linked_programs: BTreeMap<Address, Token>,
+    //TODO(asmith): Store Metadata in the Namespace
+    metadata: Metadata,
+    data: ArbitraryData,
+}
+
+impl ProgramAccount {
+    pub fn new(
+        namespace: Namespace,
+        linked_programs: Option<BTreeMap<Address, Token>>,
+        metadata: Option<Metadata>,
+        data: Option<ArbitraryData>
+    ) -> Self {
+        let linked_programs = if let Some(p) = linked_programs {
+            p.clone()
+        } else {
+            BTreeMap::new()
+        };
+
+        let metadata = if let Some(m) = metadata {
+            m.clone()
+        } else {
+            Metadata::new()
+        };
+
+        let data = if let Some(d) = data {
+            d.clone()
+        } else {
+            ArbitraryData::new()
+        };
+
+        Self { namespace, linked_programs, metadata, data }
+    }
+
+    pub fn namespace(&self) -> Namespace {
+        self.namespace.clone()
+    }
+
+    pub fn linked_programs(&self) -> BTreeMap<Address, Token> {
+        self.linked_programs.clone()
+    }
+
+    pub fn metadata(&self) -> Metadata {
+        self.metadata.clone()
+    }
+
+    pub fn data(&self) -> ArbitraryData {
+        self.data.clone()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub enum AccountType {
+    User,
+    Program(Address),
+}
+
+/// Represents an LASR account.
+///
+/// This structure contains details of an LASR account, including its address, associated
+/// programs, nonce, signatures, hashes, and certificates. It implements traits for
+/// serialization, hashing, and comparison.
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+pub struct Account {
+    account_type: AccountType,
+    program_namespace: Option<AddressOrNamespace>,
+    owner_address: Address,
+    programs: BTreeMap<Address, Token>,
+    nonce: crate::U256,
+    program_account_data: ArbitraryData,
+    program_account_metadata: Metadata,
+    program_account_linked_programs: BTreeSet<AddressOrNamespace>,
+}
+
+impl Account {
+    /// Constructs a new `Account` with the given address and optional program data.
+    ///
+    /// This function initializes an account with the provided address and an optional
+    /// map of programs. It updates the account hash before returning.
+    pub fn new(
+        account_type: AccountType,
+        program_namespace: Option<AddressOrNamespace>,
+        owner_address: Address,
+        programs: Option<BTreeMap<Address, Token>>
+    ) -> Self {
+        let mut account = Self {
+            account_type,
+            program_namespace,
+            owner_address,
+            programs: BTreeMap::new(),
+            nonce: U256::default().into(),
+            program_account_data: ArbitraryData::new(),
+            program_account_metadata: Metadata::new(),
+            program_account_linked_programs: BTreeSet::new()
+        };
+
+        account
+    }
+    
+    pub fn account_type(&self) -> AccountType {
+        self.account_type.clone()
+    }
+
+    pub fn program_namespace(&self) -> Option<AddressOrNamespace> {
+        self.program_namespace.clone()
+    }
+
+    pub fn owner_address(&self) -> Address {
+        self.owner_address.clone()
+    }
+
+    pub fn nonce(&self) -> crate::U256 {
+        self.nonce
+    }
+
+    pub fn programs(&self) -> &BTreeMap<Address, Token> {
+        &self.programs
+    }
+
+    pub fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
+        &mut self.programs
+    }
+
+    pub fn program_account_data(&self) -> ArbitraryData {
+        self.program_account_data.clone()
+    }
+    
+    pub fn program_account_metadata(&self) -> Metadata {
+        self.program_account_metadata.clone()
+    }
+
+    pub fn program_account_linked_programs(&self) -> BTreeSet<AddressOrNamespace> {
+        self.program_account_linked_programs.clone()
+    }
+
+    pub fn balance(&self, program_id: &Address) -> crate::U256 {
+        if let Some(entry) = self.programs().get(program_id) {
+            return entry.balance()
+        }
+
+        return U256::from(0).into()
+    }
+
+    pub(crate) fn apply_transaction(
+        &mut self,
+        transaction: Transaction
+    ) -> AccountResult<Token> {
+        if let Some(mut token) = self.programs_mut().get_mut(&transaction.program_id()) {
+            let new_token: Token = (token.clone(), transaction).try_into()?;
+            *token = new_token;
+            return Ok(token.clone())
+        }
+        
+        if transaction.transaction_type().is_bridge_in() {
+            let token: Token = transaction.into();
+            self.insert_program(&token.program_id(), token.clone());
+            return Ok(token)
+        } 
+
+        if transaction.to() == self.owner_address() {
+            let token: Token = transaction.into();
+            self.insert_program(&token.program_id(), token.clone());
+            return Ok(token) 
+        }
+
+        return Err(
+            Box::new(
+                ToTokenError::Custom(
+                    "unable to convert transaction into token".to_string()
+                )
+            )
+        )
+    }
+
+    pub(crate) fn apply_transfer_instruction(&mut self, instruction: TransferInstruction) -> AccountResult<Token> {
+        let token = instruction.program_id();
+        match instruction.from() {
+            AddressOrNamespace::Address(addr) => {
+                let is_from_account = {
+                    if let AccountType::Program(program_addr) = self.account_type() {
+                        &program_addr == addr
+                    } else {
+                        &self.owner_address() == addr
+                    }
+                };
+                if is_from_account {
+                    match token {
+                        AddressOrNamespace::Address(token_addr) => {
+                            if let Some(mut entry) = self.programs_mut().get_mut(token_addr) {
+                                if let Some(amt) = instruction.amount() {
+                                    entry.debit(amt)?;
+                                    return Ok(entry.clone())
+                                } 
+
+                                if !instruction.token_ids().is_empty() {
+                                    entry.remove_token_ids(&instruction.token_ids())?;
+                                    return Ok(entry.clone())
+                                }
+
+                                return Ok(entry.clone())
+                            } else {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "from account in instruction does not own the token being transferred" 
+                                        )
+                                    ) as Box<dyn std::error::Error + Send>
+                                )
+                            }
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "Namespaces not yet supported for instruction application"
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Namespaces not yet supported for instruction application"
+                        )
+                    )
+                )
+            }
+        }
+        match instruction.to() {
+            AddressOrNamespace::Address(addr) => {
+                let is_to_account = {
+                    if let AccountType::Program(program_addr) = self.account_type() {
+                        addr == &program_addr
+                    } else {
+                        addr == &self.owner_address()
+                    }
+                };
+                if is_to_account {
+                    match token {
+                        AddressOrNamespace::Address(token_addr) => {
+                            if let Some(mut entry) = self.programs_mut().get_mut(token_addr) {
+                                if let Some(amt) = instruction.amount() {
+                                    entry.credit(amt)?;
+                                } 
+
+                                if !instruction.token_ids().is_empty() {
+                                    entry.add_token_ids(&instruction.token_ids())?;
+                                }
+
+                                return Ok(entry.clone())
+                            } else {
+                                let mut token = TokenBuilder::default()
+                                    .program_id(token_addr.clone())
+                                    .owner_id(self.owner_address.clone())
+                                    .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                                    .token_ids(instruction.token_ids().clone())
+                                    .metadata(Metadata::new())
+                                    .data(ArbitraryData::new())
+                                    .approvals(BTreeMap::new())
+                                    .allowance(BTreeMap::new())
+                                    .status(crate::Status::Free)
+                                    .build().map_err(|e| {
+                                        Box::new(e) as Box<dyn std::error::Error + Send>
+                                    })?;
+
+                                if let Some(amt) = instruction.amount() {
+                                    token.credit(amt)?;
+                                }
+
+                                if !instruction.token_ids().is_empty() {
+                                    token.add_token_ids(&instruction.token_ids())?;
+                                }
+                                self.programs_mut().insert(token.program_id(), token.clone());
+
+                                return Ok(token)
+                            }
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "Namespaces not yet supported for instruction application"
+                                    )
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Namespaces not yet supported for instruction application"
+                        )
+                    )
+                )
+            }
+        }
+
+        return Err(
+            Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "account is not party to this Transfer Instruction".to_string()
+                )
+            ) as Box<dyn std::error::Error + Send>
+        )
+    }
+
+    pub(crate) fn apply_burn_instruction(&mut self, instruction: BurnInstruction) -> AccountResult<Token> {
+        match instruction.from() {
+            AddressOrNamespace::Address(burn_addr) => {
+                let is_burn_account = {
+                    if let AccountType::Program(program_addr) = self.account_type() {
+                        &program_addr == burn_addr
+                    } else {
+                        &self.owner_address() == burn_addr
+                    }
+                };
+
+                if is_burn_account {
+                    match instruction.token_namespace() {
+                        AddressOrNamespace::Address(token_addr) => {
+                            if let Some(entry) = self.programs_mut().get_mut(token_addr) {
+                                if let Some(amt) = instruction.amount() {
+                                    entry.debit(amt)?;
+                                    return Ok(entry.clone())
+                                }
+
+                                if !instruction.token_ids().is_empty() {
+                                    entry.remove_token_ids(&instruction.token_ids())?;
+                                    return Ok(entry.clone())
+                                }
+                                
+                                return Ok(entry.clone())
+                            } else {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Burn account does not own the token being burned".to_string()
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        format!("Token Namespaces are not yet supported for Burn Instructions use address for token {:?} instead", namespace)
+                                    )
+                                ) as Box<dyn std::error::Error + Send> 
+                            )
+                        }
+                    }
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Namespaces are not supported for instruction application use address for {:?} instead", namespace)
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        }
+
+        return Err(
+            Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "account is not party to this instruction"
+                )
+            )
+        )
+    }
+
+    pub(crate) fn apply_token_distribution(&mut self, distribution: TokenDistribution) -> AccountResult<Token> {
+        let is_distribution_account = {
+            if let AccountType::Program(program_address) = self.account_type() {
+                &AddressOrNamespace::Address(program_address) == distribution.to()
+            } else {
+                &AddressOrNamespace::Address(self.owner_address()) == distribution.to()
+            }
+        };
+        if !is_distribution_account {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "This account is not party to the distribution"
+                    )
+                )
+            )
+        }
+        match distribution.program_id() {
+            AddressOrNamespace::Address(program_addr) => {
+                let token_address = {
+                    match distribution.program_id() {
+                        AddressOrNamespace::Address(addr) => {
+                            addr
+                        }
+                        AddressOrNamespace::Namespace(namespace) => {
+                            return Err(
+                                Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        format!("Token Namespaces are not enabled, use address for {:?} instead", namespace)
+                                    )
+                                )
+                            )
+                        }
+                    }
+                };
+                    
+                if let Some(mut token) = self.programs_mut().get_mut(token_address) {
+                    token.credit(distribution.amount())?;
+                    for update in distribution.update_fields() {
+                        token.apply_token_update_field_values(update.value())?;
+                    }
+                    return Ok(token.clone())
+                } else {
+                    let token_owner = {
+                        if let AccountType::Program(program_account_address) = self.account_type() {
+                            program_account_address
+                        } else {
+                            self.owner_address()
+                        }
+                    };
+                    let mut token = TokenBuilder::default()
+                        .program_id(program_addr.clone())
+                        .owner_id(token_owner)
+                        .balance(distribution.amount().clone())
+                        .token_ids(distribution.token_ids().clone())
+                        .metadata(Metadata::new())
+                        .data(ArbitraryData::new())
+                        .approvals(BTreeMap::new())
+                        .allowance(BTreeMap::new())
+                        .build()
+                        .map_err(|e| {
+                            Box::new(
+                                e
+                            ) as Box<dyn std::error::Error + Send>
+                        })?;
+
+                    for update in distribution.update_fields() {
+                        token.apply_token_update_field_values(update.value())?;
+                    }
+
+                    self.programs_mut().insert(token.program_id(), token.clone());
+                    Ok(token.clone())
+                }
+            }
+            AddressOrNamespace::Namespace(namespace) => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Namespaces are not enabled for token updates, use address for {:?} instead", namespace)
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        }
+    }
+
+    pub(crate) fn apply_token_update(&mut self, update: TokenUpdate) -> AccountResult<Token> {
+        let owner_address = {
+            if let AccountType::Program(program_account_address) = self.account_type() {
+                program_account_address
+            } else {
+                self.owner_address()
+            }
+        };
+
+        if &AddressOrNamespace::Address(owner_address) != update.account() {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("This account: {:?} is not party to the token update", &owner_address)
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        }
+
+        let token_address = {
+            if let AddressOrNamespace::Address(token_address) = update.token() {
+                token_address
+            } else {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Token namespaces are not enabled yet")
+                        )
+                    ) as Box<dyn std::error::Error + Send>
+                )
+            }
+        };
+
+        if let Some(mut token) = self.programs_mut().get_mut(&token_address) {
+            for update in update.updates() {
+                token.apply_token_update_field_values(update.value())?;
+            }
+            return Ok(token.clone())
+        } else {
+            let mut token = TokenBuilder::default()
+                .program_id(token_address.clone())
+                .owner_id(owner_address.clone())
+                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                .token_ids(vec![])
+                .approvals(BTreeMap::new())
+                .allowance(BTreeMap::new())
+                .data(ArbitraryData::new())
+                .metadata(Metadata::new())
+                .status(crate::Status::Free)
+                .build()
+                .map_err(|e| {
+                    Box::new(
+                        e
+                    ) as Box<dyn std::error::Error + Send>
+                })?;
+            
+            for update in update.updates() {
+                token.apply_token_update_field_values(update.value())?;
+            }
+
+            self.programs_mut().insert(token_address.clone(), token.clone());
+            Ok(token)
+        }
+    }
+
+    pub(crate) fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
+        let program_addr = if let AccountType::Program(program_addr) = self.account_type() {
+            program_addr
+        } else {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Account is not a program account and cannot accept a program update"
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        };
+
+        if &AddressOrNamespace::Address(program_addr) != update.account() {
+            return Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Account is not a party to the update"
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )
+        }
+
+        for update in update.updates() {
+            match update.value() {
+                ProgramFieldValue::LinkedPrograms(linked_programs_value) => {
+                    match linked_programs_value {
+                        LinkedProgramsValue::Insert(linked_program) => {
+                            self.program_account_linked_programs.insert(AddressOrNamespace::Address(linked_program.clone()));
+                        }
+                        LinkedProgramsValue::Extend(linked_programs) => {
+                            self.program_account_linked_programs.extend(linked_programs.into_iter().cloned().map(|lp| AddressOrNamespace::Address(lp.clone())));
+                        }
+                        LinkedProgramsValue::Remove(linked_program) => {
+                            self.program_account_linked_programs.remove(&AddressOrNamespace::Address(linked_program.clone()));
+                        }
+                    }
+                }
+                ProgramFieldValue::Metadata(metadata_value) => {
+                    match metadata_value {
+                        MetadataValue::Pop => {
+                            self.program_account_metadata.inner_mut().pop();
+                        }
+                        MetadataValue::Extend(metadata) => {
+                            self.program_account_metadata.inner_mut().extend(metadata.inner());
+                        }
+                        MetadataValue::Push(byte) => {
+                            self.program_account_metadata.inner_mut().push(*byte);
+                        }
+                        MetadataValue::ReplaceByte(index, byte) => {
+                            if self.program_account_metadata().inner().len() < index + 1 {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a single byte in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_metadata.inner_mut()[*index] = *byte;
+                        }
+                        MetadataValue::ReplaceSlice(start, end, bytes) => {
+                            if bytes.len() != (end - start) {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "bytes do not equal the length of the slice to replace in Metadata in a program account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            if bytes.len() < *start || bytes.len() < *end {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a slice of bytes in Metadata in a program account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_metadata.inner_mut().splice(start..end, bytes.into_iter().cloned());
+                        }
+                        MetadataValue::ReplaceAll(bytes) => {
+                            self.program_account_metadata = bytes.clone();
+                        }
+                    }
+                }
+                ProgramFieldValue::Data(data_value) => {
+                    match data_value {
+                        DataValue::Pop => {
+                            self.program_account_data.inner_mut().pop();
+                        }
+                        DataValue::Extend(data) => {
+                            self.program_account_data.inner_mut().extend(data.inner());
+                        }
+                        DataValue::Push(byte) => {
+                            self.program_account_data.inner_mut().push(*byte);
+                        }
+                        DataValue::ReplaceByte(index, byte) => {
+                            if self.program_account_data().inner().len() < index + 1 {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a single byte in Arbitrary data in a program_account"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_data.inner_mut()[*index] = *byte;
+                        }
+                        DataValue::ReplaceSlice(start, end, bytes) => {
+                            if bytes.inner().len() != (end - start) {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "bytes do not equal the length of the slice to replace in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            if bytes.inner().len() < *start || bytes.inner().len() < *end {
+                                return Err(
+                                    Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Index out of range trying to replace a slice of bytes in Arbitrary data in a token"
+                                        )
+                                    ) as Box<dyn std::error::Error + Send> 
+                                )
+                            }
+                            self.program_account_data.inner_mut().splice(start..end, bytes.inner().into_iter().cloned());
+                        }
+                        DataValue::ReplaceAll(bytes) => {
+                            self.program_account_data = bytes.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
+        self.programs.insert(program_id.clone(), token)
+    }
+
+    pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            return Ok(())
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            if token.balance() >= amount {
+                return Ok(())
+            }
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_token_ownership(&self, program_id: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            for nft in token_ids {
+                if !token.token_ids().contains(&nft) {
+                    return Err(Box::new(AccountCacheError))
+                }
+            }
+            return Ok(())
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            if let Some(entry) = token.allowance().get(spender) {
+                if entry > amount {
+                    return Ok(())
+                } else {
+                    return Err(Box::new(AccountCacheError))
+                }
+            } else if let Some(entry) = token.approvals().get(spender) {
+                if entry.is_empty() {
+                    return Ok(())
+                } else {
+                    return Err(Box::new(AccountCacheError))
+                }
+            }
+        } 
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_approved_token_transfer(&self, program_id: &Address, spender: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+        if let Some(token) = self.programs.get(program_id) {
+            if let Some(entry) = token.approvals().get(spender) {
+                if entry.is_empty() {
+                    return Err(Box::new(AccountCacheError))
+                } else {
+                    for nft in token_ids {
+                        if !entry.contains(nft) {
+                            return Err(Box::new(AccountCacheError))
+                        }
+
+                        return Ok(())
+                    }
+                }
+            }
+        }
+
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
+        log::info!("checking nonce: {nonce} > {}", self.nonce);
+        if nonce > self.nonce {
+            return Ok(())
+        }
+        return Err(Box::new(AccountCacheError))
+    }
+
+    pub(crate) fn increment_nonce(&mut self) {
+        let new_nonce = U256::from(self.nonce) + U256::from(1);
+        self.nonce = new_nonce.into();
+    }
+}
 
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -106,29 +1012,6 @@ impl From<ethereum_types::H160> for Address {
     }
 }
 
-impl Address {
-    fn new(bytes: [u8; 20]) -> Address {
-        Address(bytes)
-    }
-}
-
-/// Represents a 32-byte account hash.
-///
-/// This structure is used to store current state hash associated with an account
-// It supports standard traits for easy handling and
-/// comparison operations.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AccountHash([u8; 32]);
-
-impl AccountHash {
-    /// Creates a new `AccountHash` instance from a 32-byte array.
-    ///
-    /// This constructor is used to instantiate an `AccountHash` object with a given hash.
-    pub fn new(hash: [u8; 32]) -> Self {
-        Self(hash)
-    }
-}
-
 impl From<PublicKey> for Address {
     /// Converts a `PublicKey` into an `Address`.
     ///
@@ -151,116 +1034,18 @@ impl From<PublicKey> for Address {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-pub struct AccountNonce {
-    bridge_nonce: U256,
-    send_nonce: U256,
-}
+impl From<[u8; 32]> for Address {
+    fn from(value: [u8; 32]) -> Self {
+        let mut hasher = Keccak256::new();
 
-/// Represents an LASR account.
-///
-/// This structure contains details of an LASR account, including its address, associated
-/// programs, nonce, signatures, hashes, and certificates. It implements traits for
-/// serialization, hashing, and comparison.
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-pub struct Account {
-    address: Address,
-    programs: BTreeMap<Address, Token>,
-    nonce: U256,
-}
+        hasher.update(&value[0..]);
 
-impl Account {
-    /// Constructs a new `Account` with the given address and optional program data.
-    ///
-    /// This function initializes an account with the provided address and an optional
-    /// map of programs. It updates the account hash before returning.
-    pub fn new(
-        address: Address,
-        programs: Option<BTreeMap<Address, Token>>
-    ) -> Self {
-        let mut account = Self {
-            address,
-            programs: BTreeMap::new(),
-            nonce: U256::default(),
-        };
+        let result = hasher.finalize();
+        let address_bytes = &result[result.len() - 20..];
+        let mut address = [0u8; 20];
+        address.copy_from_slice(address_bytes);
 
-        account
-    }
-
-    pub fn address(&self) -> Address {
-        self.address.clone()
-    }
-
-    pub fn nonce(&self) -> U256 {
-        self.nonce
-    }
-
-    pub fn programs(&self) -> &BTreeMap<Address, Token> {
-        &self.programs
-    }
-
-    pub fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
-        &mut self.programs
-    }
-
-    pub fn balance(&self, program_id: &Address) -> U256 {
-        if let Some(entry) = self.programs().get(program_id) {
-            return entry.balance()
-        }
-
-        return 0.into()
-    }
-
-    pub(crate) fn apply_transaction(
-        &mut self,
-        transaction: Transaction
-    ) -> AccountResult<Token> {
-        if let Some(mut token) = self.programs_mut().get_mut(&transaction.program_id()) {
-            let new_token: Token = (token.clone(), transaction).try_into()?;
-            *token = new_token;
-            return Ok(token.clone())
-        }
-        
-        if transaction.transaction_type().is_bridge_in() {
-            let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token.clone());
-            return Ok(token)
-        } 
-
-        if transaction.to() == self.address() {
-            let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token.clone());
-            return Ok(token) 
-        }
-
-        return Err(
-            Box::new(
-                ToTokenError::Custom(
-                    "unable to convert transaction into token".to_string()
-                )
-            )
-        )
-    }
-
-    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
-        self.programs.insert(program_id.clone(), token)
-    }
-
-    pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
-        if let Some(token) = self.programs.get(program_id) {
-            return Ok(())
-        }
-
-        return Err(Box::new(AccountCacheError))
-    }
-
-    pub(crate) fn validate_balance(&self, program_id: &Address, amount: U256) -> AccountResult<()> {
-        if let Some(token) = self.programs.get(program_id) {
-            if token.balance() >= amount {
-                return Ok(())
-            }
-        }
-
-        return Err(Box::new(AccountCacheError))
+        Address(address)
     }
 }
+

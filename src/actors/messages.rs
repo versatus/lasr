@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use crate::{Account, ContractBlob, Certificate, Transaction};
+use crate::{Account, ContractBlob, Certificate, Transaction, AddressOrNamespace, Outputs};
 use crate::actors::types::RpcRequestMethod;
 use crate::{Token, Address};
 
@@ -30,27 +30,13 @@ impl Display for RpcResponseError {
 #[derive(Debug, Clone)]
 pub enum TransactionResponse {
     SendResponse(Token),
-    CallResponse(Vec<Token>),
+    CallResponse(Account),
     GetAccountResponse(Account),
-    DeployResponse
+    RegisterProgramResponse(Option<String>),
+    TransactionError(RpcResponseError)
 }
 
 /// A message type that the RpcServer Actor can `handle`
-///
-/// Variants
-///
-///    Request {
-///        method: RpcRequestMethod, 
-///        reply: RpcReplyPort<RpcMessage>
-///    },
-///    Response{
-///        response: Result<Token, RpcResponseError>,
-///        reply: Option<RpcReplyPort<RpcMessage>>,
-///    },
-///    DeploySuccess {
-///        reply: Option<RpcReplyPort<RpcMessage>> 
-///    },
-///
 #[derive(Debug, RactorMessage)]
 pub enum RpcMessage {
     Request {
@@ -61,60 +47,9 @@ pub enum RpcMessage {
         response: Result<TransactionResponse, RpcResponseError>,
         reply: Option<RpcReplyPort<RpcMessage>>,
     },
-    DeploySuccess {
-        response: Result<(), RpcResponseError>,
-        reply: Option<RpcReplyPort<RpcMessage>> 
-    },
 }
 
 /// Message types that the `Scheduler` actor can `handle`
-///
-///
-///    Call {
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        op: String,
-///        inputs: String,
-///        sig: RecoverableSignature,
-///        tx_hash: String,
-///        rpc_reply: RpcReplyPort<RpcMessage>
-///    },
-///    Send {
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        amount: U256,
-///        content: Option<[u8; 32]>,
-///        sig: RecoverableSignature,
-///        tx_hash: String,
-///        rpc_reply: RpcReplyPort<RpcMessage>
-///    },
-///    Deploy {
-///        program_id: Address,
-///        sig: RecoverableSignature,
-///        tx_hash: String,
-///        rpc_reply: RpcReplyPort<RpcMessage>
-///    },
-///    ValidatorComplete {
-///        task_hash: String,
-///        result: bool,
-///    },
-///    EngineComplete {
-///        task_hash: String,
-///    },
-///    BlobRetrieved { 
-///        address: Address,
-///        blob: String
-///    }, 
-///    BlobIndexAcquired {
-///        address: Address,
-///        blob_index: String,
-///        batch_header_hash: String,
-///    },
-///    EoEvent {
-///        event: EoEvent
-///    }
 #[derive(Debug, RactorMessage)]
 pub enum SchedulerMessage {
     Call {
@@ -125,7 +60,7 @@ pub enum SchedulerMessage {
         transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
-    Deploy {
+    RegisterProgram {
         transaction: Transaction,
         rpc_reply: RpcReplyPort<RpcMessage>
     },
@@ -155,85 +90,40 @@ pub enum SchedulerMessage {
     TransactionApplied {
         transaction_hash: String,
         token: Token
+    },
+    CallTransactionApplied {
+        transaction_hash: String,
+        account: Account, 
+    },
+    CallTransactionFailure {
+        transaction_hash: String,
+        outputs: String,
+        error: String,
+    },
+    RegistrationSuccess {
+        transaction_hash: String,
+    },
+    RegistrationFailure {
+        transaction_hash: String,
+        error_string: String,
     }
 }
 
 /// A message type that the `Validator` actor can handle
-///
-/// Variants
-///
-///
-///    Call { 
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        op: String,
-///        inputs: String,
-///        tx_hash: String,
-///        sig: RecoverableSignature,
-///    }, Send {
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        amount: U256,
-///        content: Option<[u8; 32]>,
-///        tx_hash: String,
-///        sig: RecoverableSignature,
-///    },
-///    Deploy {
-///        program_id: Address,
-///        sig: RecoverableSignature,
-///    },
-///    EoEvent {
-///        event: EoEvent
-///    },
-///    CommTest
-///}
 #[derive(Debug, Clone, RactorMessage)]
 pub enum ValidatorMessage {
     PendingTransaction { transaction: Transaction },
+    PendingCall { 
+        accounts_involved: Vec<AddressOrNamespace>,
+        outputs: Outputs,
+        transaction: Transaction,
+    },
+    PendingRegistration {
+        transaction: Transaction,
+    }
 }
 
 /// A message type that the Engine can `handle`
-///
-/// Variants
-///
-/// 
-///    Call {
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        op: String,
-///        inputs: String,
-///        sig: RecoverableSignature,
-///        tx_hash: String
-///    },
-///    Send {
-///        program_id: Address,
-///        from: Address,
-///        to: Vec<Address>,
-///        amount: U256,
-///        content: Option<[u8; 32]>,
-///        sig: RecoverableSignature,
-///    },
-///    EoEvent {
-///        event: EoEvent 
-///    },
-///    BlobIndexAcquired {
-///        address: Address,
-///        batch_header_hash: String,
-///        blob_index: String,
-///    },
-///    Cache {
-///        address: Address,
-///        account: Account,
-///    },
-///    CheckCache {
-///        address: Address,
-///        reply: OneshotSender<Option<Account>>
-///    },
-///    CommTest
-///
 #[derive(Debug, RactorMessage)]
 pub enum EngineMessage {
     Call {
@@ -242,7 +132,7 @@ pub enum EngineMessage {
     Send {
         transaction: Transaction,
     },
-    Deploy {
+    RegisterProgram {
         transaction: Transaction,
     },
     EoEvent {
@@ -261,6 +151,13 @@ pub enum EngineMessage {
         address: Address,
         reply: OneshotSender<Option<Account>>
     },
+    CallSuccess {
+        transaction_hash: String,
+        outputs: String,
+    },
+    RegistrationSuccess {
+        transaction_hash: String,
+    },
     CommTest
 }
 
@@ -271,8 +168,8 @@ pub enum EngineMessage {
 pub struct SettlementEvent {
     accounts: Vec<web3::ethabi::Token>,
     batch_header_hash: FixedBytes,
-    blob_index: U256,
-    settlement_event_id: U256,
+    blob_index: crate::U256,
+    settlement_event_id: crate::U256,
 }
 
 /// An event type that the Executable Oracle contract listener
@@ -281,10 +178,10 @@ pub struct SettlementEvent {
 pub struct BridgeEvent {
     user: EthereumAddress,
     program_id: EthereumAddress,
-    amount: ethereum_types::U256,
-    token_id: ethereum_types::U256,
+    amount: crate::U256,
+    token_id: crate::U256,
     token_type: String,
-    bridge_event_id: U256,
+    bridge_event_id: crate::U256,
 }
 
 impl BridgeEvent {
@@ -299,12 +196,12 @@ impl BridgeEvent {
     }
 
     /// A getter for the `amount` field in a bridge event
-    pub fn amount(&self) -> U256 {
+    pub fn amount(&self) -> crate::U256 {
         self.amount
     }
 
     /// A getter for the `token_id` field in a bridge event
-    pub fn token_id(&self) -> U256 {
+    pub fn token_id(&self) -> crate::U256 {
         self.token_id
     }
 
@@ -313,17 +210,12 @@ impl BridgeEvent {
         self.token_type.clone()
     }
     
-    pub fn bridge_event_id(&self) -> U256 {
+    pub fn bridge_event_id(&self) -> crate::U256 {
         self.bridge_event_id
     }
 }
 
 /// An Enum representing the two types of Executable Oracle events
-/// 
-/// Variants
-///
-///    Bridge(Vec<BridgeEvent>),
-///    Settlement(Vec<SettlementEvent>),
 ///    
 /// Both take a `Vec` of the inner event, because this is how the `Log` 
 /// gets returned
@@ -352,50 +244,6 @@ pub enum HashOrError {
 }
 
 /// A message type that the `EoServer` can `handle
-///
-/// Variants
-///
-///    Log {
-///        log: Vec<web3::ethabi::Log>,
-///        log_type: EventType
-///    },
-///    Bridge {
-///        program_id: Address,
-///        address: Address,
-///        amount: U256,
-///        content: Option<[u8; 32]> 
-///    },
-///    Settle {
-///        address: Address,
-///        batch_header_hash: String,
-///        blob_index: String
-///    },
-///    GetAccountBlobIndex {
-///        address: Address,
-///        sender: OneshotSender<EoMessage>
-///    },
-///    GetContractBlobIndex {
-///        program_id: Address,
-///        sender: OneshotSender<EoMessage>
-///    },
-///    AccountBlobIndexAcquired {
-///        address: Address,
-///        batch_header_hash: String,
-///        blob_index: String
-///    },
-///    ContractBlobIndexAcquired {
-///        program_id: Address,
-///        batch_header_hash: String,
-///        blob_index: String
-///    },
-///    AccountBlobIndexNotFound { 
-///        address: Address 
-///    },
-///    ContractBlobIndexNotFound { 
-///        program_id: Address 
-///    },
-///    CommTest
-///
 #[derive(Debug, RactorMessage)]
 pub enum EoMessage {
     Log {
@@ -405,7 +253,7 @@ pub enum EoMessage {
     Bridge {
         program_id: Address,
         address: Address,
-        amount: U256,
+        amount: crate::U256,
         content: Option<[u8; 32]> 
     },
     Settle {
@@ -440,12 +288,12 @@ pub enum EoMessage {
     AccountBalanceAcquired {
         program_id: Address,
         address: Address,
-        balance: Option<U256>,
+        balance: Option<crate::U256>,
     },
     NftHoldingsAcquired {
         program_id: Address,
         address: Address,
-        holdings: Option<Vec<U256>>
+        holdings: Option<Vec<crate::U256>>
     },
     AccountBlobIndexNotFound { 
         address: Address 
@@ -481,24 +329,6 @@ pub enum EoMessage {
 }
 
 /// Message types that the `DaClient` can `handle
-///
-/// Variants
-///
-///    StoreBlob {
-///        blob: String
-///    },
-///    ValidateBlob {
-///        request_id: String,
-///    },
-///    RetrieveBlob {
-///        batch_header_hash: String,
-///        blob_index: String
-///    },
-///    EoEvent {
-///        event: EoEvent
-///    },
-///    CommTest
-///
 #[derive(Debug, RactorMessage)]
 pub enum DaClientMessage {
     StoreBatch {
@@ -571,6 +401,15 @@ pub enum PendingTransactionMessage {
         batch_header_hash: BatchHeaderHash,
         blob_index: u128
     },
+    GetPendingTransaction {
+        transaction_hash: String,
+        sender: OneshotSender<Option<Transaction>>
+    },
+    ValidCall {
+        outputs: Outputs,
+        transaction: Transaction,
+        cert: Option<Certificate>
+    }
 }
 
 #[derive(Debug, RactorMessage)]
@@ -583,10 +422,26 @@ pub enum BatcherMessage {
 #[derive(Debug, RactorMessage)]
 pub enum ExecutorMessage {
     Retrieve(String /*ContentId*/),
-    Create(String /*ContentId*/, String, Option<Vec<String>>),
+    Create {
+        transaction_hash: String,
+        program_id: Address,
+        entrypoint: String, 
+        program_args: Option<Vec<String>>,
+        constructor_op: Option<String>,
+        constructor_inputs: Option<String>,
+    },
     Start(String /*ContentId*/),
-    Exec(String /*ContentId*/, Option<String>/*Op*/, Option<Vec<String>>/*Inputs*/, [u8; 32] /*TransactionId*/),
+    Exec {
+        program_id: Address,
+        op: String, 
+        inputs: String, 
+        transaction_hash: String,
+    },
     Kill(String /*ContentId*/),
     Delete(String /*ContentId*/),
-    Results(String /*ContentId*/, String, /*Outputs*/),
+    Results {
+        content_id: String, 
+        transaction_hash: Option<String>,
+    },
+    PollJobStatus { job_id: uuid::Uuid },
 }

@@ -129,7 +129,7 @@ impl EoServer {
                         bridge_event.amount(
                             param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
-                            )?
+                            )?.into()
                         );
                     
                     },
@@ -137,7 +137,7 @@ impl EoServer {
                         bridge_event.token_id(
                             param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
-                            )?
+                            )?.into()
                         );
                     },
                     "tokenType" => {
@@ -151,7 +151,7 @@ impl EoServer {
                         bridge_event.bridge_event_id(
                             param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
-                            )?
+                            )?.into()
                         );
                     }
                     _ => {/* return error */}
@@ -187,14 +187,14 @@ impl EoServer {
                         settlement_event.blob_index(
                             param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
-                            )?
+                            )?.into()
                         );
                     },
                     "blobEventId" => {
                         settlement_event.settlement_event_id(
                             param.value.clone().into_uint().ok_or(
                                 self.boxed_custom_eo_error(&param)
-                            )?
+                            )?.into()
                         );
                     }
                     _ => { /* return error */}
