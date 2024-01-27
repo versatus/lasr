@@ -86,6 +86,7 @@ pub struct ReadParams {
 pub enum AddressOrNamespace {
     Address(Address),
     Namespace(Namespace),
+    This,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -142,7 +143,7 @@ impl CreateInstruction {
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
-    amount: crate::U256,
+    amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>,
     update_fields: Vec<TokenUpdateField>
 }
@@ -155,7 +156,7 @@ impl TokenDistribution {
         &self.to
     }
 
-    pub fn amount(&self) -> &crate::U256 {
+    pub fn amount(&self) -> &Option<crate::U256> {
         &self.amount
     }
 
@@ -266,13 +267,12 @@ impl TokenUpdate {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
-    token: AddressOrNamespace,
     updates: Vec<ProgramUpdateField>
 }
 
 impl ProgramUpdate {
-    pub fn new(account: AddressOrNamespace, token: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
-        Self { account, token, updates }
+    pub fn new(account: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
+        Self { account, updates }
     }
 
     pub fn account(&self) -> &AddressOrNamespace {
@@ -282,20 +282,15 @@ impl ProgramUpdate {
     pub fn updates(&self) -> &Vec<ProgramUpdateField> {
         &self.updates
     }
-
-    pub fn token(&self) -> &AddressOrNamespace {
-        &self.token
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct TransferInstruction {
-    program_id: AddressOrNamespace,
-    token_namespace: AddressOrNamespace,
+    token: Address,
     from: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>
+    ids: Vec<crate::U256>
 }
 
 impl TransferInstruction {
@@ -303,12 +298,8 @@ impl TransferInstruction {
         vec![self.from.clone(), self.to.clone()]
     }
 
-    pub fn program_id(&self) -> &AddressOrNamespace {
-        &self.program_id
-    }
-    
-    pub fn token_namespace(&self) -> &AddressOrNamespace {
-        &self.token_namespace
+    pub fn token(&self) -> &Address {
+        &self.token
     }
 
     pub fn from(&self) -> &AddressOrNamespace {
@@ -323,28 +314,48 @@ impl TransferInstruction {
         &self.amount
     }
 
-    pub fn token_ids(&self) -> &Vec<crate::U256> {
-        &self.token_ids
+    pub fn ids(&self) -> &Vec<crate::U256> {
+        &self.ids
+    }
+
+    pub fn replace_this_with_to(&mut self, transaction: &Transaction, this: &AddressOrNamespace, field: &str) -> Result<(), std::io::Error> {
+        match field {
+            "from" => {
+                self.from = AddressOrNamespace::Address(transaction.to());
+            }
+            "to" => {
+                self.to = AddressOrNamespace::Address(transaction.to());
+            }
+            _ => {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "received an invalid string when calling `replace_this_with_to`"
+                    )
+                )
+            }
+        }
+        Ok(())
     }
 }
 
 impl TransferInstruction {
     pub fn new(
-        program_id: AddressOrNamespace,
-        token_namespace: AddressOrNamespace,
+        token: Address,
         from: AddressOrNamespace,
         to: AddressOrNamespace,
         amount: Option<crate::U256>,
-        token_ids: Vec<crate::U256>
+        ids: Vec<crate::U256>
     ) -> Self {
-        Self { program_id, token_namespace, from, to, amount, token_ids }
+        Self { token, from, to, amount, ids }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct BurnInstruction {
+    caller: Address,
     program_id: AddressOrNamespace,
-    token_namespace: AddressOrNamespace,
+    token: Address,
     from: AddressOrNamespace,
     amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>
@@ -355,12 +366,16 @@ impl BurnInstruction {
         vec![self.from.clone()]
     }
 
+    pub fn caller(&self) -> &Address {
+        &self.caller
+    }
+
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
     
-    pub fn token_namespace(&self) -> &AddressOrNamespace {
-        &self.token_namespace
+    pub fn token(&self) -> &Address {
+        &self.token
     }
 
     pub fn from(&self) -> &AddressOrNamespace {

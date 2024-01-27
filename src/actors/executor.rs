@@ -23,8 +23,7 @@ impl PendingJob {
         sender: Sender<()>, 
         transaction_hash: String
     ) -> Self {
-        Self { handle, sender, transaction_hash }
-    }
+        Self { handle, sender, transaction_hash } }
 
     pub async fn join_handle(self) {
         let _ = self.handle.await;
@@ -296,7 +295,7 @@ impl Actor for ExecutorActor {
                                                 state.handles.insert(
                                                     (program_id.to_full_string(), transaction_hash), 
                                                     handle
-                                                );
+                                               );
                                             },
                                             Err(e) => {
                                                 log::error!(
@@ -335,6 +334,7 @@ impl Actor for ExecutorActor {
                             Some(handle) => {
                                 match handle.await {
                                     Ok(Ok(output)) => {
+                                        dbg!(&output);
                                         match self.execution_success(&hash, &output) {
                                             Ok(_) => {
                                                 log::info!(

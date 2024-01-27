@@ -21,6 +21,10 @@ path = "src/bin/compute.rs"
 name = "json_schema"
 path = "src/bin/json_schema.rs"
 
+[[bin]]
+name = "output_parser"
+path = "src/bin/output_parser.rs"
+
 [[example]]
 name = "fungible_token"
 path = "examples/contract/fungible_token/fungible_token.rs"

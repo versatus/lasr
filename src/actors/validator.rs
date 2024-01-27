@@ -110,33 +110,17 @@ impl ValidatorCore {
                         let transfer_from = transfer.from(); 
                         // Get the program id of the program that was executed to 
                         // return this transfer instruction
-                        let program_id = match transfer.program_id() {
-                            AddressOrNamespace::Address(addr) => addr.clone(),
-                            _ => return Err(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "program namespaces not yet implemented".to_string()
-                                    )
-                                ) as Box<dyn std::error::Error + Send>)
-                        };
+                        let program_id = tx.to(); 
 
                         // get the program address of the token being transfered
-                        let token_address = match transfer.token_namespace() {
-                            AddressOrNamespace::Address(addr) => addr.clone(),
-                            _ => return Err(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "token namespaces not yet implemented".to_string()
-                                    )
-                                ) as Box<dyn std::error::Error + Send>)
-                        };
+                        let token_address = transfer.token(); 
 
                         // Check if the transferrer is the caller
                         if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
                                 caller.validate_balance(&program_id, amt.clone())?;
                             } else {
-                                caller.validate_token_ownership(&program_id, transfer.token_ids())?;
+                                caller.validate_token_ownership(&program_id, transfer.ids())?;
                             }
                         } else {
                             // If not attempt to get the account for the transferrer
@@ -188,28 +172,29 @@ impl ValidatorCore {
                                 // If non-fungible token check ids
                                 transfer_from_account.validate_token_ownership(
                                     &token_address,
-                                    transfer.token_ids()
+                                    transfer.ids()
                                 )?;
 
                                 // Check that the caller or the program being called 
                                 // is approved to transfer these tokens
                                 if transfer_from_account.validate_approved_token_transfer(
-                                    &token_address, &caller.owner_address().clone(), &transfer.token_ids()
+                                    &token_address, &caller.owner_address().clone(), &transfer.ids()
                                 ).is_err() {
                                     transfer_from_account.validate_approved_token_transfer(
-                                        &token_address, &program_id, &transfer.token_ids()
+                                        &token_address, &program_id, &transfer.ids()
                                     )?;
                                 }
                             }
                         }
                     }
                     Instruction::Burn(burn) => {
-                        // Get the address we are transferring from
+                        // Get the address we are burning from
                         let burn_from = burn.from(); 
                         // Get the program id of the program that was executed to 
                         // return this transfer instruction
                         let program_id = match burn.program_id() {
                             AddressOrNamespace::Address(addr) => addr.clone(),
+                            AddressOrNamespace::This => tx.to(),
                             _ => return Err(
                                 Box::new(
                                     ValidatorError::Custom(
@@ -218,16 +203,8 @@ impl ValidatorCore {
                                 ) as Box<dyn std::error::Error + Send>)
                         };
 
-                        // get the program address of the token being transfered
-                        let token_address = match burn.token_namespace() {
-                            AddressOrNamespace::Address(addr) => addr.clone(),
-                            _ => return Err(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "token namespaces not yet implemented".to_string()
-                                    )
-                                ) as Box<dyn std::error::Error + Send>)
-                        };
+                        // get the program address of the token being burned 
+                        let token_address = burn.token(); 
 
                         // Check if the transferrer is the caller
                         if burn_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
@@ -251,7 +228,6 @@ impl ValidatorCore {
                                     )                 
                                 ) as Box<dyn std::error::Error + Send>
                             )?;
-
 
                             // check that the account being debited indeed has the token 
                             // we are debiting
@@ -446,7 +422,7 @@ impl ValidatorCore {
     }
 
     fn validate_register_program(&self) -> impl FnOnce(Transaction) -> Result<bool, Box<dyn std::error::Error>> {
-        |_tx| Ok(false)
+        |_tx| Ok(true)
         // Validate signature
         // Validate schema
         // validate account nonce in transaction
@@ -583,6 +559,18 @@ impl Actor for Validator {
                 for address in &accounts_involved {
                     //TODO(asmith): Replace this block with a parallel iterator to optimize
                     match &address {
+                        AddressOrNamespace::This => {
+                            let addr = transaction.to();
+                            if let Some(account) = check_account_cache(addr.clone()).await {
+                                log::info!("Found `this` account in cache");
+                                validator_accounts.insert(address.clone(), Some(account));
+                            } else if let Some(account) = check_da_for_account(addr.clone()).await {
+                                log::info!("found `this` account in da");
+                                validator_accounts.insert(address.clone(), Some(account));
+                            } else {
+                                validator_accounts.insert(address.clone(), None);
+                            }
+                        }
                         AddressOrNamespace::Address(addr) => {
                             if let Some(account) = check_account_cache(addr.clone()).await {
                                 log::info!("found account in cache");
@@ -595,15 +583,6 @@ impl Actor for Validator {
                             };
                         },
                         AddressOrNamespace::Namespace(_namespace) => {
-                            //if let Some(account) = check_account_cache(&address).await {
-                            //    log::info!("found account in cache");
-                            //    validator_accounts.push(Some(account));
-                            //} else if let Some(account) = check_da_for_account(&address).await {
-                            //    log::info!("found account in da");
-                            //    validator_accounts.push(Some(account));
-                            //} else {
-                            //    validator_accounts.push(None);
-                            //};
                             //TODO(asmith): implement check_account_cache and check_da_for_account for
                             //Namespaces
                             validator_accounts.insert(address.clone(), None);
