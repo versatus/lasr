@@ -66,9 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .quorum_threshold(60)
         .build()?;
 
-    let http: web3::transports::Http = web3::transports::Http::new("http://127.0.0.1:8545").map_err(|err| {
-        EoServerError::Other(err.to_string())
-    })?;
+    let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
+    println!("Ethereum RPC URL: {}", eth_rpc_url);
+    let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
 
@@ -190,7 +190,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await.map_err(|e| Box::new(e))?;
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
-    let server = RpcServerBuilder::default().build("127.0.0.1:9292").await.map_err(|e| {
+    let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
+    let server = RpcServerBuilder::default().build(format!("127.0.0.1:{}", port)).await.map_err(|e| {
         Box::new(e)
     })?;
     let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| {

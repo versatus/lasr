@@ -1,0 +1,38 @@
+# fly.toml app configuration file generated for versatus-lasr-anvil on 2024-01-24T14:16:57-06:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = "versatus-lasr-anvil"
+primary_region = "ord"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[experimental]
+  auto_rollback = true
+
+[build]
+
+[http_service]
+  internal_port = 8545
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8545
+
+  [[services.ports]]
+    port = 8545
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 0
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

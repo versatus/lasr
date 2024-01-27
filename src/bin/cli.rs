@@ -505,12 +505,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 }
                 Some(("register-program", children)) => {
+                    dbg!("Getting wallet");
                     let mut wallet = get_wallet(children).await?;
+                    // dbg!("Wallet obtained: {:?}", wallet);
                     let address = wallet.address();
+                    println!("Wallet address: {:?}", address);
+                    dbg!("Getting account");
                     wallet.get_account(&address).await;
+                    dbg!("Account obtained");
+                    dbg!("Getting inputs");
                     let inputs = children.get_one::<String>("inputs").expect("required");
+                    dbg!("Inputs obtained: {:?}", inputs);
+                    dbg!("Registering program");
                     let _ = wallet.register_program(inputs).await;
+                    dbg!("Program registered");
+                    dbg!("Getting account again");
                     wallet.get_account(&address).await;
+                    dbg!("Account obtained again");
 
                 }
                 Some(("get-account", children)) => {
@@ -580,7 +591,8 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         };
 
         let address: Address = public_key.into();
-        let client = HttpClientBuilder::default().build("http://127.0.0.1:9292")?;
+        let lasr_rpc_url = std::env::var("LASR_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9292".to_string());
+        let client = HttpClientBuilder::default().build(lasr_rpc_url)?;
         let res = &client.get_account(format!("{:x}", address)).await;
         let account = if let Ok(account_bytes) = res {
             let account: Account = bincode::deserialize(account_bytes)?;

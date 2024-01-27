@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  ipfs:
+    build:
+      context: ./infra/ipfs
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_staging:/export
+      - ipfs_data:/data/ipfs
+    restart: unless-stopped
+    networks:
+      - lasr
+
+  anvil:
+    platform: linux/amd64
+    build:
+      context: ./infra/foundry
+    ports:
+      - "8545:8545"
+    restart: unless-stopped
+    networks:
+      - lasr
+    logging:
+      driver: none
+
+  executable_oracle:
+    container_name: executable_oracle
+    platform: linux/amd64
+    image: ghcr.io/foundry-rs/foundry:latest
+    depends_on:
+      - anvil
+    volumes:
+      - ./executable-oracle-eth:/executable-oracle-eth
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        cd /executable-oracle-eth
+
+        echo "Deploying executable oracle contract..."
+        echo "🚀 Deploying executable oracle contract..."
+        echo "✨ This may take a few moments, please be patient."
+        forge script /executable-oracle-eth/script/Deploy.s.sol --broadcast --fork-url http://anvil:8545;
+        echo "✅ Done!"
+
+        echo "💸 Sending some ETH through the bridge contract..."
+        cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked 0x5FbDB2315678afecb367f032d93F642f64180aa3 --value 1000000 --rpc-url http://anvil:8545;
+        echo "✅ Done!"
+    networks:
+      - lasr
+
+  main:
+    build:
+      context: .
+    ports:
+      - "9292:9292"
+    depends_on:
+      - executable_oracle
+      - ipfs
+    environment:
+      - SECRET_KEY=ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - BLOCKS_PROCESSED_PATH=/data/blocks_processed.dat
+      - ETH_RPC_URL=http://anvil:8545
+      - PORT=9292
+    volumes:
+      - ./data:/data
+    networks:
+      - lasr
+
+networks:
+  lasr:
+
+volumes:
+  ipfs_staging:
+  ipfs_data:
+  lasr_data:
