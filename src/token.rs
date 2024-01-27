@@ -231,7 +231,7 @@ impl ArbitraryData {
     }
 
     pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
-        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|e| {
+        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|_| {
             FromHexError::InvalidStringLength
         }))?
     }
@@ -268,7 +268,7 @@ impl Metadata {
     }
 
     pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
-        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|e| {
+        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|_| {
             FromHexError::InvalidStringLength
         }))?
     }
@@ -339,12 +339,18 @@ impl Token {
         Ok(())
     }
 
-    pub(crate) fn add_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub(crate) fn add_token_ids(
+        &mut self, 
+        token_ids: &Vec<U256>
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.token_ids.extend(token_ids);
         Ok(())
     }
 
-    pub(crate) fn apply_token_update_field_values(&mut self, token_update_value: &TokenFieldValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub(crate) fn apply_token_update_field_values(
+        &mut self,
+        token_update_value: &TokenFieldValue
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         match token_update_value { 
             TokenFieldValue::Data(data_update) => {
                 self.apply_data_update(data_update)?;
