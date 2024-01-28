@@ -38,6 +38,7 @@ async fn main() -> Result<(), std::io::Error> {
         let inputs = Inputs {
             version: 1,
             account_info: None,
+            transaction: lasr::Transaction::default(),
             op: "getName".to_string(),
             inputs: json!({ "first_name": "Andrew", "last_name": "Smith"}).to_string()
         };
@@ -66,6 +67,7 @@ async fn main() -> Result<(), std::io::Error> {
         let inputs = Inputs {
             version: 1,
             account_info: None,
+            transaction: lasr::Transaction::default(),
             op: "".to_string(),
             inputs: json!({}).to_string()
         };

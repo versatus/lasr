@@ -333,7 +333,7 @@ impl Engine {
                 outputs
             },
             Err(e) => {
-                log::error!("{}", e);
+                log::error!("Error: engine.rs: 336: Deserialization of outputs failed: {}", e);
                 return Err(e);
             }
         };

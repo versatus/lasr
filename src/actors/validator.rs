@@ -43,6 +43,7 @@ impl ValidatorCore {
                     ) as Box<dyn std::error::Error + Send>
                 )
             }
+
             let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
                 ActorType::Batcher.to_string()
             ).ok_or(
@@ -52,7 +53,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
-            let message = BatcherMessage::AppendTransaction(tx.clone()); 
+            let message = BatcherMessage::AppendTransaction { transaction: tx.clone(), outputs: None }; 
             batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
         }
@@ -65,8 +66,8 @@ impl ValidatorCore {
             account.validate_nonce(tx.nonce())?;
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-            let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
-                ActorType::PendingTransactions.to_string()
+            let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
+                ActorType::Batcher.to_string()
             ).ok_or(
                 Box::new(
                     ValidatorError::Custom(
@@ -74,9 +75,8 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
-            log::info!("transaction {} is valid, responding", tx.hash_string());
-            let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
-            actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            let message = BatcherMessage::AppendTransaction { transaction: tx.clone(), outputs: None }; 
+            batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
         }
     }
@@ -84,8 +84,11 @@ impl ValidatorCore {
     #[allow(unused)]
     fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<(), Box<dyn std::error::Error + Send>> {
         |account_map, outputs, tx| {
+            log::info!("attempting to validate call: {}", tx.hash_string());
             tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            log::info!("signature is valid");
 
+            log::info!("acquiring caller from account map");
             let caller = account_map.get(&AddressOrNamespace::Address(tx.from())).ok_or(
                 Box::new(
                     ValidatorError::Custom(
@@ -100,9 +103,11 @@ impl ValidatorCore {
                 ) as Box<dyn std::error::Error + Send>
             )?;
 
-            caller.clone().validate_balance(&tx.program_id(), tx.value())?;
+            log::info!("validating caller balance");
+            log::info!("validating caller nonce");
             caller.clone().validate_nonce(tx.nonce())?;
             let instructions = outputs.instructions();
+            log::info!("call returned {} instruction", instructions.len());
             for instruction in instructions {
                 match instruction {
                     Instruction::Transfer(transfer) => {
@@ -282,6 +287,7 @@ impl ValidatorCore {
                         }
                     }
                     Instruction::Update(updates) => {
+                        log::info!("call {} returned update instruction", tx.hash_string());
                         for update in updates.updates() {
                             match update {
                                 TokenOrProgramUpdate::TokenUpdate(token_update) => {
@@ -339,7 +345,45 @@ impl ValidatorCore {
                                                 }
 
                                             },
-                                            _ => {}
+                                            _ => {
+                                                let token_address = {
+                                                    match token_update.token() {
+                                                        AddressOrNamespace::This => tx.to(),
+                                                        AddressOrNamespace::Address(addr) => addr.clone(),
+                                                        AddressOrNamespace::Namespace(namespace) => {
+                                                            return Err(
+                                                                Box::new(
+                                                                    ValidatorError::Custom(
+                                                                        "Namespaces not yet implemented for token updates".to_string()
+                                                                    )
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                };
+                                                if let Some(Some(account)) = account_map.get(token_update.account()) {
+                                                    if account.owner_address() != caller.owner_address() {
+                                                        if let Some(program) = account.programs().get(&token_address) {
+                                                            let approvals = program.approvals();
+                                                            let program_approved = approvals.get(&tx.to()); 
+                                                            let caller_approved = approvals.get(&tx.from());
+                                                            match (program_approved, caller_approved) {
+                                                                (None, None) => {
+                                                                    return Err(
+                                                                        Box::new(
+                                                                            ValidatorError::Custom(
+                                                                                "the caller does not own this account, and the account owner has not approved either the caller of the called program".to_string()
+                                                                            )
+                                                                        ) as Box<dyn std::error::Error + Send>
+                                                                    )
+
+                                                                }
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 },
@@ -392,18 +436,20 @@ impl ValidatorCore {
                     }
                 }
             }
-            let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
-                ActorType::PendingTransactions.to_string()
+            
+            log::info!("Completed the validation of all instruction");
+            let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
+                ActorType::Batcher.to_string()
             ).ok_or(
                 Box::new(
                     ValidatorError::Custom(
-                        "unable to acquire pending transaction actor".to_string()
+                        "unable to acquire batcher actor".to_string()
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
             log::info!("transaction {} is valid, responding", tx.hash_string());
-            let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
-            actor.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            let message = BatcherMessage::AppendTransaction { transaction: tx, outputs: Some(outputs) };
+            batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
         }
         // Validate transaction structure and caller signature, including nonce
@@ -554,6 +600,7 @@ impl Actor for Validator {
                 }
             }
             ValidatorMessage::PendingCall { outputs, transaction } => {
+                log::info!("pending call received by validator for: {}", &transaction.hash_string());
                 // Acquire all relevant accounts.
                 if let Some(outputs) = outputs {
 
@@ -578,6 +625,7 @@ impl Actor for Validator {
                                 }
                             }
                             AddressOrNamespace::Address(addr) => {
+                                log::info!("looking for account {:?} in cache", addr);
                                 if let Some(account) = check_account_cache(addr.clone()).await {
                                     log::info!("found account in cache");
                                     validator_accounts.insert(address.clone(), Some(account));

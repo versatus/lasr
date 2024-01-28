@@ -13,6 +13,7 @@ use std::str::FromStr;
 pub struct Inputs {
     pub version: i32,
     pub account_info: Option<ProgramAccount>,
+    pub transaction: Transaction,
     pub op: String,
     pub inputs: String,
 }

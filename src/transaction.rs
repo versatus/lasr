@@ -171,6 +171,24 @@ pub struct Transaction {
     s: [u8; 32],
 }
 
+impl Default for Transaction {
+    fn default() -> Self {
+        Self {
+            transaction_type: TransactionType::Send(crate::U256::from(ethereum_types::U256::from(0))),
+            from: [0u8; 20],
+            to: [0u8; 20],
+            program_id: [0u8; 20],
+            op: String::from(""),
+            inputs: String::from(""),
+            value: crate::U256::from(ethereum_types::U256::from(0)),
+            nonce: crate::U256::from(ethereum_types::U256::from(0)),
+            v: 0,
+            r: [0u8; 32],
+            s: [0u8; 32]
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all(deserialize="lowercase"))]
 pub enum TransactionFields {
@@ -285,24 +303,6 @@ impl LowerHex for Transaction {
             write!(f, "{:02x}", byte)?;
         }
         Ok(())
-    }
-}
-
-impl Default for Transaction {
-    fn default() -> Self {
-        Transaction {
-            transaction_type: TransactionType::BridgeIn(ethereum_types::U256::from(0).into()),
-            from: [0; 20],
-            to: [0; 20],
-            program_id: [0; 20],
-            op: String::new(),
-            inputs: String::new(),
-            value: ethereum_types::U256::from(0).into(),
-            nonce: ethereum_types::U256::from(0).into(),
-            v: 0,
-            r: [0; 32],
-            s: [0; 32]
-        }
     }
 }
 

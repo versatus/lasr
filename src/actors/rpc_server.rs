@@ -128,7 +128,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<u8>, RpcError> {
+    ) -> Result<String, RpcError> {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
@@ -150,10 +150,10 @@ impl LasrRpcServer for LasrRpcServerImpl {
             Ok(resp) => {
                 match resp {
                     TransactionResponse::CallResponse(account) => {
-                        let account_bytes = bincode::serialize(&account).map_err(|e| {
-                            RpcError::Custom(e.to_string())
+                        let account_str = serde_json::to_string(&account).map_err(|e| {
+                                RpcError::Custom(e.to_string())
                         })?;
-                        return Ok(account_bytes)
+                        return Ok(account_str)
                     }
                     _ => Err(jsonrpsee::core::Error::Custom("invalid response to `call` method".to_string())) 
                 }
@@ -249,7 +249,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn get_account(
         &self,
         address: String
-    ) -> Result<Vec<u8>, jsonrpsee::core::Error> {
+    ) -> Result<String, jsonrpsee::core::Error> {
         log::info!("Received RPC getAccount method");
 
         let (tx, rx) = oneshot();
@@ -271,7 +271,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
                 match resp {
                     TransactionResponse::GetAccountResponse(account) => {
                         log::info!("received account response");
-                        return Ok(bincode::serialize(&account).map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))?)
+                        return Ok(serde_json::to_string(&account).map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))?)
                     },
                     _ => return Err(jsonrpsee::core::Error::Custom("invalid response to `getAccount` methond".to_string()))
                 }

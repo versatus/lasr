@@ -120,8 +120,8 @@ impl ExecutionEngine {
         self.manager.get_program_schema(content_id)
     }
 
-    pub(super) fn parse_inputs(&self, _schema: &ProgramSchema, op: String, inputs: String) -> std::io::Result<Inputs> {
-        return Ok(Inputs { version: 1, account_info: None, op, inputs } )
+    pub(super) fn parse_inputs(&self, _schema: &ProgramSchema, transaction: &Transaction, op: String, inputs: String) -> std::io::Result<Inputs> {
+        return Ok(Inputs { version: 1, account_info: None, transaction: transaction.clone(), op, inputs } )
     }
 
     pub(super) fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
@@ -291,7 +291,7 @@ impl Actor for ExecutorActor {
                         match schema.get_prerequisites(&op) {
                             Ok(pre_requisites) => {
                                 let _ = state.handle_prerequisites(&pre_requisites);
-                                match state.parse_inputs(&schema, op, inputs) {
+                                match state.parse_inputs(&schema, &transaction, op, inputs) {
                                     Ok(inputs) => {
                                         match state.execute(
                                             program_id.to_full_string(),
@@ -343,7 +343,7 @@ impl Actor for ExecutorActor {
                             Some(handle) => {
                                 match handle.await {
                                     Ok(Ok(output)) => {
-                                        dbg!(&output);
+                                        log::info!("Outputs: {:#?}", &output);
                                         match transaction {
                                             Some(tx) => { 
                                                 match self.execution_success(

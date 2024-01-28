@@ -415,7 +415,10 @@ pub enum PendingTransactionMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum BatcherMessage {
-    AppendTransaction(Transaction),
+    AppendTransaction { 
+        transaction: Transaction, 
+        outputs: Option<Outputs>
+    },
     GetNextBatch,
     BlobVerificationProof { request_id: String, proof: BlobVerificationProof }
 }

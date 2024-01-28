@@ -233,7 +233,7 @@ impl PendingGraph {
             Box::new(PendingTransactionError)
         )?.into();
 
-        let message = BatcherMessage::AppendTransaction(transaction);
+        let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
 
         batcher.cast(message)?;
 
