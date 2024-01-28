@@ -1,69 +1,225 @@
-use std::collections::{HashMap, VecDeque};
-use crate::{Address, PendingTransactionMessage, Transaction, ActorType, ValidatorMessage, BatcherMessage};
+use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
+use crate::{
+    Address,
+    PendingTransactionMessage,
+    Transaction,
+    ActorType,
+    ValidatorMessage,
+    BatcherMessage,
+    Outputs,
+    AddressOrNamespace
+};
 use async_trait::async_trait;
 use ractor::{Actor, ActorRef, ActorProcessingErr};
+use schemars::JsonSchema;
+use serde::{Serialize, Deserialize};
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Debug)]
-pub struct DependencyGraph {
-    parent: Transaction,
-    children: VecDeque<Transaction>,
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct Vertex {
+    transaction: Transaction,
+    outputs: Option<Outputs>,
+    accounts_touched: HashSet<Address>,
+    dependent_transactions: HashSet<String>
 }
 
-impl DependencyGraph {
+impl Vertex {
     pub fn new(
-        parent: Transaction, 
-    ) -> Self {
-        Self { parent, children: VecDeque::new() }
+        transaction: Transaction,
+        outputs: Option<Outputs>,
+    ) -> Vertex {
+        let accounts_touched = Vertex::extract_accounts_touched(
+            &transaction,
+            &outputs
+        );
+        Vertex { 
+            transaction,
+            outputs, 
+            accounts_touched, 
+            dependent_transactions: HashSet::new(),
+        }
     }
 
-    pub(crate) async fn insert(
-        &mut self,
-        transaction: Transaction 
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.parent.hash() == transaction.hash() {
-            log::warn!("transaction already in dependency graph, ignoring");
-            return Ok(())
+    pub fn accounts_touched(&self) -> &HashSet<Address> {
+        &self.accounts_touched
+    }
+
+    fn extract_accounts_touched(
+        transaction: &Transaction,
+        outputs: &Option<Outputs>
+    ) -> HashSet<Address> {
+        let mut accounts_involved = HashSet::new();
+        accounts_involved.extend(transaction.get_accounts_involved());
+        if let Some(o) = outputs {
+            let involved: Vec<Address> = o.instructions().iter().map(|inst| {
+                let nested: Vec<Address> = inst.get_accounts_involved()
+                    .iter()
+                    .filter_map(|addr| {
+                        match addr {
+                            AddressOrNamespace::This => Some(transaction.to()),
+                            AddressOrNamespace::Address(address) => Some(address.clone()),
+                            AddressOrNamespace::Namespace(_namespace) => None
+                        }
+                    }).collect();
+                nested
+            }).flatten().collect();
+            accounts_involved.extend(involved);
+        } 
+
+        return accounts_involved
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingGraph {
+    vertices: HashMap<String, Arc<RwLock<Vertex>>>,
+    account_index: HashMap<Address, HashSet<String>>
+}
+
+impl PendingGraph {
+    pub fn new() -> PendingGraph {
+        PendingGraph { 
+            vertices: HashMap::new(),
+            account_index: HashMap::new() 
+        }
+    }
+
+    pub fn add_transaction(
+        &mut self, 
+        transaction: Transaction,
+        outputs: Option<Outputs>,
+    ) {
+        log::info!("adding transaction: {} to dependency graph", &transaction.hash_string());
+        let transaction_id = transaction.hash_string(); 
+
+        let vertex = Arc::new(
+            RwLock::new(
+                Vertex::new(
+                    transaction.clone(), 
+                    outputs.clone()
+                )
+            )
+        );
+
+        let mut has_dependencies = false;
+
+        if let Ok(guard) = vertex.read() {
+            let vertex_accounts = guard.accounts_touched.clone(); 
+
+            self.vertices.insert(
+                transaction_id.clone(), 
+                vertex.clone()
+            );
+
+            for account in vertex_accounts {
+                let dependencies = self.account_index.entry(
+                    account.clone()
+                ).or_insert_with(HashSet::new);
+
+                for dependency_id in dependencies.iter() {
+                    if let Some(dep_vertex) = self.vertices.get(dependency_id) {
+                        log::info!("found dependencies: {} for transaction: {}", &dependency_id, &transaction_id);
+                        if let Ok(mut guard) = dep_vertex.write() {
+                            guard.dependent_transactions.insert(transaction_id.clone());
+                            has_dependencies = true;
+                        }
+                    }
+                }
+                dependencies.insert(transaction_id.clone());
+            }
+        };
+
+        if !has_dependencies {
+            log::info!("no dependencies found, scheduling with validator");
+            self.schedule_with_validator(transaction, outputs);
+        }
+    }
+
+    fn handle_valid(&mut self, validated_transaction_hash: &str) -> Vec<String> {
+        log::info!("handling validated transaction");
+        let mut transactions_ready_for_validation = Vec::new();
+        if let Some(validated_vertex) = self.vertices.remove(validated_transaction_hash) {
+            for (id, vertex) in self.vertices.iter() {
+                log::info!("checking for dependent transactions");
+                if let Ok(mut guard) = vertex.write() {
+                    if guard.dependent_transactions.remove(
+                        validated_transaction_hash
+                    ) && guard.dependent_transactions.is_empty() {
+                        log::info!("marking dependent transaction: {} ready for validation", &id);
+                        transactions_ready_for_validation.push(id.clone());
+                    }
+                }
+            }
+
+            if let Ok(guard) = validated_vertex.read() {
+                for account in guard.accounts_touched.iter() {
+                    if let Some(transactions) = self.account_index.get_mut(account) {
+                        log::info!(
+                            "removing validated transaction {:?} from dependency graph for account: {}", 
+                            &validated_transaction_hash, &account
+                        );
+                        transactions.remove(validated_transaction_hash);
+                    }
+                }
+            }
         }
 
-        if self.children.contains(&transaction) {
-            log::warn!("transaction already in dependency graph, ignoring");
-            return Ok(())
-        }
-        self.children.push_back(transaction);
+        transactions_ready_for_validation
+    }
+
+    fn get_transactions(
+        &self,
+        transaction_ids: Vec<String>
+    ) -> Vec<(Transaction, Option<Outputs>)> {
+        log::info!("acquiring transactions from the dependency graph");
+        transaction_ids.into_iter().filter_map(|id| {
+            if let Some(vertex) = self.vertices.get(&id) {
+                if let Ok(guard) = vertex.read() {
+                    Some((guard.transaction.clone(), guard.outputs.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    fn schedule_with_validator(
+        &mut self,
+        transaction: Transaction,
+        outputs: Option<Outputs>
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
+            ActorType::Validator.to_string()
+        ).ok_or(
+            PendingTransactionError
+        ).map_err(|e| Box::new(e))?.into();
+        log::info!("casting message to validator to validate transaction: {}", &transaction.hash_string());
+        let message = ValidatorMessage::PendingTransaction { transaction };
+        validator.cast(message)?;
+
         Ok(())
     }
 
-    pub(crate) async fn next(
-        &mut self,
-    ) -> Option<Transaction> {
-        let new_parent = self.children.pop_front();
-        if let Some(parent) = new_parent {
-            self.parent = parent.clone();
-            return Some(parent)
-        }
+    fn send_to_batcher(
+        &self, 
+        transaction: Transaction
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
+            ActorType::Batcher.to_string()
+        ).ok_or(
+            Box::new(PendingTransactionError)
+        )?.into();
 
-        None
+        let message = BatcherMessage::AppendTransaction(transaction);
+
+        batcher.cast(message)?;
+
+        Ok(())
     }
 
-    pub fn get(
-        &self,
-    ) -> &Transaction {
-        &self.parent
-    }
-
-    pub fn get_mut(
-        &mut self
-    ) -> &mut Transaction {
-        &mut self.parent
-    }
-}
-
-#[derive(Debug)]
-pub struct PendingTransactions {
-    // User address -> ProgramId -> DependencyGraph 
-    pending: HashMap<Address, HashMap<Address, DependencyGraph>>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,118 +234,10 @@ impl Display for PendingTransactionError {
     }
 }
 
-impl PendingTransactions {
-    pub fn new() -> Self {
-        let pending = HashMap::new();
-        PendingTransactions { 
-            pending
-        }
-    }
-
-    async fn schedule_with_validator(&mut self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
-            ActorType::Validator.to_string()
-        ).ok_or(
-            PendingTransactionError
-        ).map_err(|e| Box::new(e))?.into();
-        let message = ValidatorMessage::PendingTransaction { transaction };
-        validator.cast(message)?;
-
-        Ok(())
-    }
-
-    async fn handle_new_pending(
-        &mut self,
-        transaction: Transaction,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("received new transaction: {}", transaction.hash_string());
-        log::info!("transaction type: {:?}", transaction.transaction_type());
-        if let Some(entry) = self.pending.get_mut(&transaction.from()) {
-            log::info!("account exists in pending transactions");
-            if let Some(graph) = entry.get_mut(&transaction.program_id()) {
-                log::info!("program id exists in pending transactions");
-                let _ = graph.insert(transaction).await?;
-                return Ok(())
-            } 
-
-            let _ = entry.insert(
-                transaction.program_id(),
-                DependencyGraph::new(transaction.clone())
-            );
-            self.schedule_with_validator(transaction).await?;
-            return Ok(())
-        }
-
-        log::info!("account doesn't exist in pending transactions yet, entering it");
-        let mut graph = HashMap::new();
-        graph.insert(transaction.program_id(), DependencyGraph::new(transaction.clone()));
-        self.pending.insert(transaction.from(), graph);
-        self.schedule_with_validator(transaction).await?;
-        Ok(())
-    }
-
-    async fn handle_valid(
-        &mut self,
-        transaction: Transaction
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("handling confirmed transaction");
-        let mut remove_graph: bool = false;
-        let mut remove_user: bool = false;
-        let mut new_parent: Option<Transaction> = None;
-        if let Some(programs) = self.pending.get_mut(&transaction.from()) {
-            log::info!("found program");
-            if let Some(entry) = programs.get_mut(&transaction.program_id()) {
-                log::info!("found transaction");
-                if let Some(next) = entry.next().await {
-                    log::info!("discovered child transaction, setting to parent");
-                    new_parent = Some(next);
-                } else {
-                    remove_graph = true;
-                }
-            }
-
-            if remove_graph {
-                log::info!("no more transactions for user/program removing graph");
-                programs.remove(&transaction.program_id());
-            }
-
-            if programs.len() == 0 {
-                remove_user = true;
-            }
-        }
-
-        if let Some(transaction) = new_parent {
-            log::info!("found new parent transaction, sending to validator");
-            let _ = self.schedule_with_validator(transaction).await?;
-        }
-
-        if remove_user {
-            log::info!("no more transactions for user removing address");
-            self.pending.remove(&transaction.from());
-        }
-
-        self.send_to_batcher(transaction).await?;
-
-        Ok(())
-    }
-
-    async fn send_to_batcher(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
-            Box::new(PendingTransactionError)
-        )?.into();
-
-        let message = BatcherMessage::AppendTransaction(transaction);
-
-        batcher.cast(message)?;
-
-        Ok(())
-    }
-}
-
 #[async_trait]
 impl Actor for PendingTransactionActor {
     type Msg = PendingTransactionMessage;
-    type State = PendingTransactions; 
+    type State = PendingGraph; 
     type Arguments = ();
     
     async fn pre_start(
@@ -197,7 +245,7 @@ impl Actor for PendingTransactionActor {
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(PendingTransactions::new()) 
+        Ok(PendingGraph::new()) 
     }
 
     async fn handle(
@@ -207,33 +255,34 @@ impl Actor for PendingTransactionActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            PendingTransactionMessage::New { transaction }  => {
-                let res = state.handle_new_pending(transaction).await;
-                if let Err(e) = res {
-                    log::error!("Encountered error adding transaction to pending pool {}", e);
-                }
+            PendingTransactionMessage::New { transaction, outputs }  => {
+                state.add_transaction(transaction.clone(), outputs);
+                log::info!("added transaction: {} to dependency graph", transaction.hash_string());
             }
             PendingTransactionMessage::Valid { transaction, .. } => {
                 log::info!("received notice transaction is valid: {}", transaction.hash_string());
-                let _ = state.handle_valid(transaction.clone()).await;
-                // Send to batcher
-                // batcher certifies transaction
-                // batcher consolidates transactions from account
-                // and applies updated account to cache until settlement
-                // when account, transaction batch exceeds a certain size it is committed to DA
+                let get_transactions = state.handle_valid(&transaction.hash_string());
+                let transactions_ready_for_validation = state.get_transactions(
+                    get_transactions
+                );
+
+                for (transaction, outputs) in transactions_ready_for_validation {
+                    let _ = state.schedule_with_validator(transaction, outputs);
+                }
             }
             PendingTransactionMessage::Invalid { transaction } => {
                 log::error!("transaction: {} is invalid", transaction.hash_string());
             }
-            PendingTransactionMessage::Confirmed { map, .. }=> {
-                for (_, tx) in map.into_iter() {
-                    let _ = state.handle_valid(tx).await;
-                }
-            }
-            PendingTransactionMessage::GetPendingTransaction { .. } => {
-                log::info!("Requesting a pending transaction")
+            PendingTransactionMessage::GetPendingTransaction { 
+                transaction_hash, 
+                sender 
+            } => {
+                log::info!("Pending transaction requested");
             }
             PendingTransactionMessage::ValidCall { .. } => {
+                todo!()
+            }
+            PendingTransactionMessage::Confirmed { .. }=> {
                 todo!()
             }
         }

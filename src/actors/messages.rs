@@ -388,6 +388,7 @@ pub enum BlobCacheMessage {
 pub enum PendingTransactionMessage {
     New {
         transaction: Transaction,
+        outputs: Option<Outputs>,
     },
     Valid {
         transaction: Transaction,

@@ -10,7 +10,7 @@ use crate::{
     check_account_cache, 
     check_da_for_account, 
     ActorType, 
-    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate, TokenFieldValue
+    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate, TokenFieldValue, BatcherMessage
 };
 
 use super::messages::ValidatorMessage;
@@ -43,8 +43,8 @@ impl ValidatorCore {
                     ) as Box<dyn std::error::Error + Send>
                 )
             }
-            let pending_tx: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
-                ActorType::PendingTransactions.to_string()
+            let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
+                ActorType::Batcher.to_string()
             ).ok_or(
                 Box::new(
                     ValidatorError::Custom(
@@ -52,8 +52,8 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
-            let message = PendingTransactionMessage::Valid { transaction: tx, cert: None };
-            pending_tx.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            let message = BatcherMessage::AppendTransaction(tx.clone()); 
+            batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
         }
     }

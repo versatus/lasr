@@ -120,8 +120,7 @@ impl OciManager {
 
         let inner_inputs = inputs.clone();
         Ok(tokio::spawn(async move {
-            let mut child = Command::new("sudo")
-                .arg("runsc")
+            let mut child = Command::new("runsc")
                 .arg("--rootless")
                 .arg("--network=none")
                 .arg("run")

@@ -156,13 +156,20 @@ impl Engine {
         )
     }
 
-    async fn set_pending_transaction(&self, transaction: Transaction) -> Result<(), EngineError> {
+    async fn set_pending_transaction(
+        &self,
+        transaction: Transaction,
+        outputs: Option<Outputs>
+    ) -> Result<(), EngineError> {
         let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
             ActorType::PendingTransactions.to_string()
         ).ok_or(
             EngineError::Custom("unable to acquire pending transactions actor".to_string())
         )?.into();
-        let message = PendingTransactionMessage::New { transaction: transaction.clone() };
+        let message = PendingTransactionMessage::New { 
+            transaction, 
+            outputs 
+        };
         actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
 
         Ok(())
@@ -184,7 +191,7 @@ impl Engine {
                 .r([0; 32])
                 .s([0; 32])
                 .build().map_err(|e| EngineError::Custom(e.to_string()))?;
-            self.set_pending_transaction(transaction.clone()).await?;
+            self.set_pending_transaction(transaction.clone(), None).await?;
         }
 
         Ok(())
@@ -213,7 +220,7 @@ impl Engine {
     }
 
     async fn handle_send(&self, transaction: Transaction) -> Result<(), EngineError> {
-        self.set_pending_transaction(transaction).await?;
+        self.set_pending_transaction(transaction, None).await?;
         Ok(())
     }
 

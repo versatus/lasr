@@ -13,9 +13,9 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage};
 
-const BATCH_INTERVAL: u64 = 180;
+const BATCH_INTERVAL: u64 = 20;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
 
 #[derive(Clone, Debug, Error)]
@@ -369,20 +369,6 @@ impl Batcher {
             from_account.owner_address()
         );
 
-        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
-            ActorType::Scheduler.to_string()
-        ).ok_or(
-            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
-        )?.into();
-            
-
-        let message = SchedulerMessage::TransactionApplied { 
-            transaction_hash: transaction.clone().hash_string(),
-            token: token.clone()
-        };
-
-        scheduler.cast(message)?;
-
         log::info!("adding account to batch");
         self.add_account_to_batch(from_account).await?;
 
@@ -413,7 +399,31 @@ impl Batcher {
         }
 
         log::info!("adding transaction to batch");
-        self.add_transaction_to_batch(transaction).await?;
+        self.add_transaction_to_batch(transaction.clone()).await?;
+
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
+            ActorType::Scheduler.to_string()
+        ).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
+        )?.into();
+            
+
+        let message = SchedulerMessage::TransactionApplied { 
+            transaction_hash: transaction.clone().hash_string(),
+            token: token.clone()
+        };
+
+        scheduler.cast(message)?;
+
+        let pending_tx: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
+        )?.into();
+            
+        let message = PendingTransactionMessage::Valid { transaction, cert: None };
+
+        pending_tx.cast(message)?;
 
         Ok(())
     }
