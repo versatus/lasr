@@ -191,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
-    let server = RpcServerBuilder::default().build(format!("127.0.0.1:{}", port)).await.map_err(|e| {
+    let server = RpcServerBuilder::default().build(format!("0.0.0.0:{}", port)).await.map_err(|e| {
         Box::new(e)
     })?;
     let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| {
