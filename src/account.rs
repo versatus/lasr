@@ -2,7 +2,8 @@ use std::{collections::{BTreeMap, BTreeSet}, hash::Hash, fmt::{Debug, LowerHex, 
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize, Deserializer, Serializer};
+use serde::{ Serialize, Deserialize, Deserializer, Serializer};
+use serde::de::{self, Visitor};
 use secp256k1::PublicKey;
 use sha3::{Digest, Keccak256};
 use crate::{
@@ -18,33 +19,61 @@ impl Serialize for Address {
     where
         S: Serializer
     {
-        let hex = self.inner().iter().map(|b| format!("{:02x}", b)).collect::<String>();
-        let hex_repr = format!("0x{}", hex);
-        serializer.serialize_str(&hex_repr)
+        let hex_string = hex::encode(self.inner());
+        serializer.serialize_str(&format!("0x{}", hex_string))
+    }
+}
+
+struct AddressVisitor;
+
+impl<'de> Visitor<'de> for AddressVisitor {
+    type Value = Address;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("an address in either hex string or byte array format")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if value.starts_with("0x") {
+            let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
+            if bytes.len() == 20 {
+                let mut arr = [0u8; 20];
+                arr.copy_from_slice(&bytes);
+                Ok(Address(arr))
+            } else {
+                Err(E::custom("Hex string does not represent a valid Address"))
+            }
+        } else if value.starts_with("[") && value.ends_with("]") {
+            let bytes_str = &value[1..value.len() - 1];
+            let bytes: Vec<u8> = bytes_str.split(',')
+                .map(str::trim)
+                .map(|s| s.parse::<u8>().map_err(E::custom))
+                .collect::<Result<Vec<u8>, E>>()?;
+
+            if bytes.len() == 20 {
+                let mut arr = [0u8; 20];
+                arr.copy_from_slice(&bytes);
+                Ok(Address(arr))
+            } else {
+                Err(E::custom("invalid length for address"))
+            }
+        } else {
+            Err(E::custom("Invalid address format"))
+        }
     }
 }
 
 impl<'de> Deserialize<'de> for Address {
-    fn deserialize<D>(deserializer: D) -> Result<Address, D::Error> 
-    where 
-        D: Deserializer<'de>
+    fn deserialize<D>(deserializer: D) -> Result<Address, D::Error>
+    where
+        D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        if s.len() != 42 {
-            return Err(serde::de::Error::custom("Invalid length"))
-        }
-
-        if !s.starts_with("0x") {
-            return Err(serde::de::Error::custom("'0x' prefix missing"))
-        }
-
-        let bytes = hex::decode(&s[2..]).map_err(serde::de::Error::custom)?;
-        let mut arr = [0u8; 20];
-        arr.copy_from_slice(&bytes[0..20]);
-        Ok(Address::from(arr))
+        deserializer.deserialize_any(AddressVisitor)
     }
 }
-
 
 /// Represents a 20-byte Ethereum Compatible address.
 /// 
@@ -720,6 +749,10 @@ impl Account {
 
     pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
         log::info!("checking nonce: {nonce} > {}", self.nonce);
+        if self.nonce == crate::U256::from(ethereum_types::U256::from(0)) && 
+            nonce == crate::U256::from(ethereum_types::U256::from(0)) {
+            return Ok(())
+        }
         if nonce > self.nonce {
             return Ok(())
         }

@@ -211,11 +211,11 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         dbg!("submitting transaction to RPC");
-        let account_bytes = self.client.call(
+        let account_str = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        let account = bincode::deserialize(&account_bytes).map_err(|e| {
+        let account = serde_json::from_str(&account_str).map_err(|e| {
             Box::new(e) as Box<dyn std::error::Error + Send>
         })?;
 
@@ -262,7 +262,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
     pub async fn get_account(&mut self, address: &Address) -> WalletResult<()> {
         log::info!("calling get_account for {:x}", address);
-        let account: Account = bincode::deserialize(
+        let account: Account = serde_json::from_str(
             &self.client.get_account(format!("{:x}", address)).await.map_err(|e| {
                 Box::new(e) as Box<dyn std::error::Error + Send>
             })?

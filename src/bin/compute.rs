@@ -38,6 +38,7 @@ async fn main() -> Result<(), std::io::Error> {
         let inputs = Inputs {
             version: 1,
             account_info: None,
+            transaction: lasr::Transaction::default(),
             op: "getName".to_string(),
             inputs: json!({ "first_name": "Andrew", "last_name": "Smith"}).to_string()
         };
@@ -45,6 +46,7 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_1.run_container(
             "testContainerPy",
+            None,
             inputs,
             None,
         ).await?.await??;
@@ -65,6 +67,7 @@ async fn main() -> Result<(), std::io::Error> {
         let inputs = Inputs {
             version: 1,
             account_info: None,
+            transaction: lasr::Transaction::default(),
             op: "".to_string(),
             inputs: json!({}).to_string()
         };
@@ -72,6 +75,7 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_2.run_container(
             "testContainerRs",
+            None,
             inputs,
             None
         ).await?.await??;

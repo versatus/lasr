@@ -114,8 +114,7 @@ pub enum SchedulerMessage {
 pub enum ValidatorMessage {
     PendingTransaction { transaction: Transaction },
     PendingCall { 
-        accounts_involved: Vec<AddressOrNamespace>,
-        outputs: Outputs,
+        outputs: Option<Outputs>,
         transaction: Transaction,
     },
     PendingRegistration {
@@ -152,6 +151,7 @@ pub enum EngineMessage {
         reply: OneshotSender<Option<Account>>
     },
     CallSuccess {
+        transaction: Transaction,
         transaction_hash: String,
         outputs: String,
     },
@@ -388,6 +388,7 @@ pub enum BlobCacheMessage {
 pub enum PendingTransactionMessage {
     New {
         transaction: Transaction,
+        outputs: Option<Outputs>,
     },
     Valid {
         transaction: Transaction,
@@ -414,7 +415,10 @@ pub enum PendingTransactionMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum BatcherMessage {
-    AppendTransaction(Transaction),
+    AppendTransaction { 
+        transaction: Transaction, 
+        outputs: Option<Outputs>
+    },
     GetNextBatch,
     BlobVerificationProof { request_id: String, proof: BlobVerificationProof }
 }
@@ -432,14 +436,12 @@ pub enum ExecutorMessage {
     },
     Start(String /*ContentId*/),
     Exec {
-        program_id: Address,
-        op: String, 
-        inputs: String, 
-        transaction_hash: String,
+        transaction: Transaction,
     },
     Kill(String /*ContentId*/),
     Delete(String /*ContentId*/),
     Results {
+        transaction: Option<Transaction>,
         content_id: String, 
         transaction_hash: Option<String>,
     },

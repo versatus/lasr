@@ -10,7 +10,7 @@ pub trait LasrRpc {
     async fn call(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<String, Error>;
     
     #[method(name = "send")]
     async fn send(
@@ -28,5 +28,5 @@ pub trait LasrRpc {
     async fn get_account(
         &self,
         address: String
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<String, Error>;
 }

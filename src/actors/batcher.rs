@@ -13,7 +13,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -369,20 +369,6 @@ impl Batcher {
             from_account.owner_address()
         );
 
-        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
-            ActorType::Scheduler.to_string()
-        ).ok_or(
-            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
-        )?.into();
-            
-
-        let message = SchedulerMessage::TransactionApplied { 
-            transaction_hash: transaction.clone().hash_string(),
-            token: token.clone()
-        };
-
-        scheduler.cast(message)?;
-
         log::info!("adding account to batch");
         self.add_account_to_batch(from_account).await?;
 
@@ -413,7 +399,30 @@ impl Batcher {
         }
 
         log::info!("adding transaction to batch");
-        self.add_transaction_to_batch(transaction).await?;
+        self.add_transaction_to_batch(transaction.clone()).await?;
+
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
+            ActorType::Scheduler.to_string()
+        ).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
+        )?.into();
+            
+        let message = SchedulerMessage::TransactionApplied { 
+            transaction_hash: transaction.clone().hash_string(),
+            token: token.clone()
+        };
+
+        scheduler.cast(message)?;
+
+        let pending_tx: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            Box::new(BatcherError::Custom("unable to acquire scheduler".to_string()))
+        )?.into();
+            
+        let message = PendingTransactionMessage::Valid { transaction, cert: None };
+
+        pending_tx.cast(message)?;
 
         Ok(())
     }
@@ -902,11 +911,11 @@ impl Batcher {
 
     async fn apply_instructions_to_accounts(
         &mut self,
-        transaction: Transaction, 
-        instructions: Vec<Instruction>
+        transaction: &Transaction, 
+        outputs: &Outputs,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
-        for instruction in instructions {
+        for instruction in outputs.instructions().into_iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
                     let (from_account, to_account) = self.apply_transfer_instruction(&transaction, &transfer, &mut batch_buffer).await?;
@@ -950,9 +959,29 @@ impl Batcher {
             })?;
         }
 
-        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
-            BatcherError::Custom("Error: batcher.rs: 816: unable to acquire scheduler actor".to_string())
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
+            ActorType::Scheduler.to_string()
+        ).ok_or(
+            BatcherError::Custom(
+                "Error: batcher.rs: 816: unable to acquire scheduler actor".to_string()
+            )
         )?.into();
+
+        let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            BatcherError::Custom(
+                "Error: batcher.rs: 966: unable to acquire pending transactions actor".to_string()
+            )
+        )?.into();
+
+        let message = PendingTransactionMessage::ValidCall { 
+            outputs: outputs.clone(), 
+            transaction: transaction.clone(), 
+            cert: None 
+        };
+
+        pending_transactions.cast(message);
 
         let account = get_account(transaction.from()).await.ok_or(
             BatcherError::Custom("Error: batcher.rs: 821: unable to acquire caller account".to_string())
@@ -962,6 +991,8 @@ impl Batcher {
             transaction_hash: transaction.hash_string(), 
             account 
         };
+
+        scheduler.cast(message);
 
         Ok(())
 
@@ -1102,11 +1133,27 @@ impl Actor for BatcherActor {
                     log::error!("{e}");
                 }
             }
-            BatcherMessage::AppendTransaction(transaction) => {
+            BatcherMessage::AppendTransaction { transaction, outputs } => {
                 log::info!("appending transaction to batch");
-                let res = state.add_transaction_to_account(transaction).await;
-                if let Err(e) = res {
-                    log::error!("{e}");
+                match transaction.transaction_type() {
+                    TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                        let res = state.add_transaction_to_account(transaction).await;
+                        if let Err(e) = res {
+                            log::error!("{e}");
+                        }
+                    }
+                    TransactionType::Call(_) => {
+                        if let Some(o) = outputs {
+                            let res = state.apply_instructions_to_accounts(&transaction, &o).await;
+                            if let Err(e) = res {
+                                log::error!("{e}");
+                            }
+                        } else {
+                            log::error!("Call transaction result did not contain outputs")
+                        }
+                    }
+                    TransactionType::RegisterProgram(_) => {}
+                    TransactionType::BridgeOut(_) => {}
                 }
             }
             BatcherMessage::BlobVerificationProof { request_id, proof } => {
