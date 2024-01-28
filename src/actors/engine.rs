@@ -199,16 +199,13 @@ impl Engine {
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
         let message = ExecutorMessage::Exec {
-            program_id: transaction.to(), 
-            op: transaction.op(), 
-            inputs: transaction.inputs(),
-            transaction_hash: transaction.hash_string(), 
+            transaction
         };
-        self.inform_executor(transaction, message).await?;
+        self.inform_executor(message).await?;
         Ok(())
     }
 
-    async fn inform_executor(&self, transaction: Transaction, message: ExecutorMessage) -> Result<(), EngineError> {
+    async fn inform_executor(&self, message: ExecutorMessage) -> Result<(), EngineError> {
         let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
             ActorType::Executor.to_string()
         ).ok_or(
@@ -319,11 +316,11 @@ impl Engine {
             constructor_op,
             constructor_inputs,
         };
-        self.inform_executor(transaction, message).await?;
+        self.inform_executor(message).await?;
         Ok(())
     }
 
-    async fn handle_call_success(&self, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
+    async fn handle_call_success(&self, transaction: Transaction, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
         let outputs = serde_json::from_str(outputs).map_err(|e| {
@@ -347,37 +344,11 @@ impl Engine {
                 EngineError::Custom("unable to acquire PendingTransactions Actor: engine.rs: 291".to_string())
             )?.into()
         };
-        let (tx, rx) = oneshot::<Option<Transaction>>(); 
 
-        let message = PendingTransactionMessage::GetPendingTransaction { transaction_hash, sender: tx };
-        pending_transactions.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
-        match rx.await {
-            Ok(Some(ref transaction)) => {
-                let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
-                    ActorType::Validator.to_string()
-                ).ok_or(
-                    EngineError::Custom("Unable to acquire validator actor".to_string())
-                )?.into();
-                let mut accounts_involved = Vec::new();
-                let caller_address = transaction.from();
-                for instruction in outputs.instructions() {
-                    accounts_involved.extend(instruction.get_accounts_involved())
-                }
-
-                let message = ValidatorMessage::PendingCall { 
-                    accounts_involved,
-                    outputs,
-                    transaction: transaction.clone() 
-                };
-                validator.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
-            },
-            Ok(None) => {
-                return Err(EngineError::Custom("unable to acquire transaction from pending transactions".to_string()));
-            },
-            Err(e) => {
-                return Err(EngineError::Custom(format!("unable to acquire transaction from pending transactions: {e}")));
-            }
-        }
+        let message = PendingTransactionMessage::New { transaction, outputs: Some(outputs) };
+        pending_transactions.cast(message).map_err(|e| {
+            EngineError::Custom(e.to_string())
+        })?;
 
         Ok(())
     }
@@ -448,8 +419,8 @@ impl Actor for Engine {
             EngineMessage::RegisterProgram { transaction } => {
                 self.handle_register_program(transaction).await;
             },
-            EngineMessage::CallSuccess { transaction_hash, outputs } => {
-                match self.handle_call_success(transaction_hash.clone(), &outputs).await {
+            EngineMessage::CallSuccess { transaction, transaction_hash, outputs } => {
+                match self.handle_call_success(transaction, transaction_hash.clone(), &outputs).await {
                     Err(e) => {
                         //TODO Handle error cases
                         let _ = self.respond_with_error(transaction_hash, outputs.clone(), e.to_string());

@@ -89,15 +89,21 @@ impl TaskScheduler {
         Ok(())
     }
 
-    fn handle_call(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    fn handle_call(
+        &self,
+        transaction: Transaction
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
             ActorType::Engine.to_string()
         ).ok_or(
-            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
+            Box::new(
+                SchedulerError::Custom(
+                    "unable to acquire engine actor".to_string()
+                )
+            )
         )?.into();
 
         let message = EngineMessage::Call { transaction };
-
         engine_actor.cast(message)?;
 
         Ok(())
@@ -142,7 +148,7 @@ impl Actor for TaskScheduler {
         println!("Scheduler Received RPC Call");
         match message {
             SchedulerMessage::Call { transaction, rpc_reply } => {
-                log::info!("Scheduler received RPC `call` method. Prepping to send to Validator & Engine");
+                log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
                 self.handle_call(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
                 // Send to executor, when executor returns send to validator for validation 

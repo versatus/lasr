@@ -45,6 +45,7 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_1.run_container(
             "testContainerPy",
+            None,
             inputs,
             None,
         ).await?.await??;
@@ -72,6 +73,7 @@ async fn main() -> Result<(), std::io::Error> {
         let start = std::time::Instant::now();
         let _ = task_manager_2.run_container(
             "testContainerRs",
+            None,
             inputs,
             None
         ).await?.await??;

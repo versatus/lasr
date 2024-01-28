@@ -7,7 +7,7 @@ use crate::{
     ValidatorMessage,
     BatcherMessage,
     Outputs,
-    AddressOrNamespace
+    AddressOrNamespace, TransactionType
 };
 use async_trait::async_trait;
 use ractor::{Actor, ActorRef, ActorProcessingErr};
@@ -197,7 +197,27 @@ impl PendingGraph {
             PendingTransactionError
         ).map_err(|e| Box::new(e))?.into();
         log::info!("casting message to validator to validate transaction: {}", &transaction.hash_string());
-        let message = ValidatorMessage::PendingTransaction { transaction };
+        let message = match transaction.transaction_type() {
+            TransactionType::Send(_) => { 
+                ValidatorMessage::PendingTransaction { transaction }
+            },
+            TransactionType::Call(_) => {
+                ValidatorMessage::PendingCall { outputs, transaction }
+            },
+            TransactionType::BridgeIn(_) => {
+                ValidatorMessage::PendingTransaction { transaction }
+            }
+            _ => {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "have not implemented validation for this transaction type"
+                        )
+                    ) as Box<dyn std::error::Error>
+                )
+            }
+        };
         validator.cast(message)?;
 
         Ok(())

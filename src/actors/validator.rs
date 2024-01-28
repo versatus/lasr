@@ -553,48 +553,58 @@ impl Actor for Validator {
                     }
                 }
             }
-            ValidatorMessage::PendingCall { accounts_involved, outputs, transaction } => {
+            ValidatorMessage::PendingCall { outputs, transaction } => {
                 // Acquire all relevant accounts.
-                let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> = HashMap::new();
-                for address in &accounts_involved {
-                    //TODO(asmith): Replace this block with a parallel iterator to optimize
-                    match &address {
-                        AddressOrNamespace::This => {
-                            let addr = transaction.to();
-                            if let Some(account) = check_account_cache(addr.clone()).await {
-                                log::info!("Found `this` account in cache");
-                                validator_accounts.insert(address.clone(), Some(account));
-                            } else if let Some(account) = check_da_for_account(addr.clone()).await {
-                                log::info!("found `this` account in da");
-                                validator_accounts.insert(address.clone(), Some(account));
-                            } else {
+                if let Some(outputs) = outputs {
+
+                    let accounts_involved: Vec<AddressOrNamespace> = outputs.instructions().iter().map(|inst| {
+                        inst.get_accounts_involved()
+                    }).flatten().collect();
+
+                    let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> = HashMap::new();
+                    for address in &accounts_involved {
+                        //TODO(asmith): Replace this block with a parallel iterator to optimize
+                        match &address {
+                            AddressOrNamespace::This => {
+                                let addr = transaction.to();
+                                if let Some(account) = check_account_cache(addr.clone()).await {
+                                    log::info!("Found `this` account in cache");
+                                    validator_accounts.insert(address.clone(), Some(account));
+                                } else if let Some(account) = check_da_for_account(addr.clone()).await {
+                                    log::info!("found `this` account in da");
+                                    validator_accounts.insert(address.clone(), Some(account));
+                                } else {
+                                    validator_accounts.insert(address.clone(), None);
+                                }
+                            }
+                            AddressOrNamespace::Address(addr) => {
+                                if let Some(account) = check_account_cache(addr.clone()).await {
+                                    log::info!("found account in cache");
+                                    validator_accounts.insert(address.clone(), Some(account));
+                                } else if let Some(account) = check_da_for_account(addr.clone()).await {
+                                    log::info!("found account in da");
+                                    validator_accounts.insert(address.clone(), Some(account));
+                                } else {
+                                    validator_accounts.insert(address.clone(), None);
+                                };
+                            },
+                            AddressOrNamespace::Namespace(_namespace) => {
+                                //TODO(asmith): implement check_account_cache and check_da_for_account for
+                                //Namespaces
                                 validator_accounts.insert(address.clone(), None);
                             }
                         }
-                        AddressOrNamespace::Address(addr) => {
-                            if let Some(account) = check_account_cache(addr.clone()).await {
-                                log::info!("found account in cache");
-                                validator_accounts.insert(address.clone(), Some(account));
-                            } else if let Some(account) = check_da_for_account(addr.clone()).await {
-                                log::info!("found account in da");
-                                validator_accounts.insert(address.clone(), Some(account));
-                            } else {
-                                validator_accounts.insert(address.clone(), None);
-                            };
-                        },
-                        AddressOrNamespace::Namespace(_namespace) => {
-                            //TODO(asmith): implement check_account_cache and check_da_for_account for
-                            //Namespaces
-                            validator_accounts.insert(address.clone(), None);
-                        }
                     }
-                }
 
-                let op = state.validate_call();
-                state.pool.spawn_fifo(move || {
-                    let _ = op(validator_accounts, outputs, transaction);
-                });
-                
+                    let op = state.validate_call();
+                    state.pool.spawn_fifo(move || {
+                        let _ = op(validator_accounts, outputs, transaction);
+                    });
+                } else {
+                    log::error!("Call transactions must have an output associated with them");
+                    //TODO(asmith): CallFailed message back to pending transactions and up the
+                    //stack to the RPC client
+                }
             },
             ValidatorMessage::PendingRegistration { transaction } => {
                 let op = state.validate_register_program();

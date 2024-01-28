@@ -6,7 +6,7 @@ use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use std::process::Stdio;
 use std::io::Read;
-use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType};
+use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -106,6 +106,7 @@ impl OciManager {
     pub async fn run_container(
         &self,
         content_id: impl AsRef<Path> + Send + 'static, 
+        transaction: Option<Transaction>,
         inputs: Inputs,
         transaction_hash: Option<String>,
     ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
@@ -154,7 +155,9 @@ impl OciManager {
             //})?;
             log::info!("result from container: {container_id} = {:#?}", res);
 
-            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
+                ActorType::Executor.to_string()
+            ).ok_or(
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "unable to acquire Executor actor from inside container execution thread"
@@ -162,7 +165,9 @@ impl OciManager {
             )?.into();
 
             let message = ExecutorMessage::Results {
-                content_id: content_id.as_ref().to_string_lossy().into_owned(), transaction_hash 
+                content_id: content_id.as_ref().to_string_lossy().into_owned(), 
+                transaction_hash,
+                transaction,
             };
 
             actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;

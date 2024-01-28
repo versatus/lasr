@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, time::Duration, str::FromStr};
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage};
+use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
 
@@ -105,10 +105,11 @@ impl ExecutionEngine {
     pub(super) async fn execute(
         &self,
         content_id: impl AsRef<Path> + Send + 'static,
+        transaction: Transaction,
         inputs: Inputs,
         transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self.manager.run_container(content_id, inputs, Some(transaction_hash.clone())).await?;
+        let handle = self.manager.run_container(content_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
         Ok(handle)
     }
 
@@ -177,6 +178,7 @@ impl ExecutorActor {
 
     fn execution_success(
         &self,
+        transaction: &Transaction,
         transaction_hash: &String,
         outputs: &String
     ) -> std::io::Result<()> {
@@ -185,6 +187,7 @@ impl ExecutorActor {
         )?.into();
 
         let message = EngineMessage::CallSuccess { 
+            transaction: transaction.clone(),
             transaction_hash: transaction_hash.clone(), 
             outputs: outputs.clone() 
         };
@@ -273,11 +276,16 @@ impl Actor for ExecutorActor {
 
             },
             ExecutorMessage::Exec {
-                program_id, op, inputs, transaction_hash 
+                transaction
             } => {
                 // Run container
                 // parse inputs
+                // program_id, op, inputs, transaction_hash 
                 // get config
+                let program_id = transaction.program_id();
+                let op = transaction.op();
+                let inputs = transaction.inputs();
+                let transaction_hash = transaction.hash_string();
                 match state.get_program_schema(program_id.to_full_string()) {
                     Ok(schema) => {
                         match schema.get_prerequisites(&op) {
@@ -287,6 +295,7 @@ impl Actor for ExecutorActor {
                                     Ok(inputs) => {
                                         match state.execute(
                                             program_id.to_full_string(),
+                                            transaction,
                                             inputs,
                                             &transaction_hash
                                         ).await {
@@ -323,7 +332,7 @@ impl Actor for ExecutorActor {
                     }
                 }
             },
-            ExecutorMessage::Results { content_id, transaction_hash } => {
+            ExecutorMessage::Results { content_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
                 log::info!("Received results for execution of container:"); 
                 log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
@@ -335,15 +344,28 @@ impl Actor for ExecutorActor {
                                 match handle.await {
                                     Ok(Ok(output)) => {
                                         dbg!(&output);
-                                        match self.execution_success(&hash, &output) {
-                                            Ok(_) => {
-                                                log::info!(
-                                                    "Forwarded output and transaction hash to Engine"
-                                                );
+                                        match transaction {
+                                            Some(tx) => { 
+                                                match self.execution_success(
+                                                    &tx, 
+                                                    &hash, 
+                                                    &output
+                                                ) {
+                                                    Ok(_) => {
+                                                        log::info!(
+                                                            "Forwarded output and transaction hash to Engine"
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        log::error!(
+                                                            "Error calling self.execution_success: executor.rs: 326: {}", e
+                                                        );
+                                                    }
+                                                }
                                             }
-                                            Err(e) => {
+                                            None => {
                                                 log::error!(
-                                                    "Error calling self.execution_success: executor.rs: 326: {}", e
+                                                    "transaction not provided to the executor"
                                                 );
                                             }
                                         }
@@ -432,8 +454,13 @@ impl Actor for RemoteExecutorActor {
                     }
                 }
             },
-            ExecutorMessage::Exec { program_id, op, inputs, transaction_hash } => {
+            ExecutorMessage::Exec { transaction } => {
                 // Fire off RPC call to compute runtime
+                // program_id, op, inputs, transaction_hash
+                let program_id = transaction.program_id();
+                let op = transaction.op();
+                let inputs = transaction.inputs();
+                let transaction_hash = transaction.hash_string();
                 match state.client.request::<String, (String, String, String)>(
                     "queue_job", (
                         program_id.to_full_string(),
