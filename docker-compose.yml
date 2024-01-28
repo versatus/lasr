@@ -48,7 +48,7 @@ services:
         echo "✅ Done!"
 
         echo "💸 Sending some ETH through the bridge contract..."
-        cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked 0x5FbDB2315678afecb367f032d93F642f64180aa3 --value 1000000 --rpc-url http://anvil:8545;
+        cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked 0x5FbDB2315678afecb367f032d93F642f64180aa3 --value 1000000000 --rpc-url http://anvil:8545;
         echo "✅ Done!"
     networks:
       - lasr
