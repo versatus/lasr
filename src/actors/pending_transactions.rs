@@ -299,8 +299,15 @@ impl Actor for PendingTransactionActor {
             } => {
                 log::info!("Pending transaction requested");
             }
-            PendingTransactionMessage::ValidCall { .. } => {
-                todo!()
+            PendingTransactionMessage::ValidCall { transaction, .. } => {
+                let get_transactions = state.handle_valid(&transaction.hash_string());
+                let transactions_ready_for_validation = state.get_transactions(
+                    get_transactions
+                );
+
+                for (transaction, outputs) in transactions_ready_for_validation {
+                    let _ = state.schedule_with_validator(transaction, outputs);
+                }
             }
             PendingTransactionMessage::Confirmed { .. }=> {
                 todo!()
