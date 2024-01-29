@@ -336,7 +336,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             std::io::Error::new(std::io::ErrorKind::Other, "unable to find schema".to_string())
         )?;
         let mut str: String = String::new();
-        let mut file = std::fs::OpenOptions::new()
+        let _file = std::fs::OpenOptions::new()
             .read(true)
             .write(false)
             .append(false)

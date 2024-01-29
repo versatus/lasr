@@ -1,4 +1,4 @@
-use ethereum_types::U256;
+
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};

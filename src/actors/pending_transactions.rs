@@ -5,7 +5,6 @@ use crate::{
     Transaction,
     ActorType,
     ValidatorMessage,
-    BatcherMessage,
     Outputs,
     AddressOrNamespace, TransactionType
 };
@@ -132,7 +131,7 @@ impl PendingGraph {
 
         if !has_dependencies {
             log::info!("no dependencies found, scheduling with validator");
-            self.schedule_with_validator(transaction, outputs);
+            let _ = self.schedule_with_validator(transaction, outputs);
         }
     }
 
@@ -222,24 +221,6 @@ impl PendingGraph {
 
         Ok(())
     }
-
-    fn send_to_batcher(
-        &self, 
-        transaction: Transaction
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
-            ActorType::Batcher.to_string()
-        ).ok_or(
-            Box::new(PendingTransactionError)
-        )?.into();
-
-        let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
-
-        batcher.cast(message)?;
-
-        Ok(())
-    }
-
 }
 
 #[derive(Debug, Clone)]
@@ -294,8 +275,8 @@ impl Actor for PendingTransactionActor {
                 log::error!("transaction: {} is invalid", transaction.hash_string());
             }
             PendingTransactionMessage::GetPendingTransaction { 
-                transaction_hash, 
-                sender 
+                transaction_hash: _, 
+                sender: _ 
             } => {
                 log::info!("Pending transaction requested");
             }

@@ -1,4 +1,4 @@
-use ethereum_types::U256;
+
 use serde::{Serialize, Deserialize};
 use std::collections::BTreeMap;
 use crate::account::Address;
