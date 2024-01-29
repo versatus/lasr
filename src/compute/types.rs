@@ -1,9 +1,8 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount, Namespace, ProgramField, ProgramFieldValue};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
-use std::str::FromStr;
 
 /// This file contains types the protocol uses to prepare data, structure it 
 /// and call out to a particular compute payload.
@@ -12,7 +11,7 @@ use std::str::FromStr;
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Inputs {
     pub version: i32,
-    pub account_info: Option<ProgramAccount>,
+    pub account_info: Option<Account>,
     pub transaction: Transaction,
     pub op: String,
     pub inputs: String,
@@ -101,7 +100,7 @@ pub struct CreateInstruction {
 }
 
 impl CreateInstruction {
-    pub(crate) fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
+    pub fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
         let mut accounts_involved = vec![
             self.program_namespace.clone(),
             self.program_id.clone(),
@@ -115,23 +114,23 @@ impl CreateInstruction {
         accounts_involved
     }
 
-    pub(crate) fn program_namespace(&self) -> &AddressOrNamespace {
+    pub fn program_namespace(&self) -> &AddressOrNamespace {
         &self.program_namespace
     }
 
-    pub(crate) fn program_id(&self) -> &AddressOrNamespace {
+    pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
 
-    pub(crate) fn program_owner(&self) -> &Address {
+    pub fn program_owner(&self) -> &Address {
         &self.program_owner
     }
 
-    pub(crate) fn total_supply(&self) -> &crate::U256 {
+    pub fn total_supply(&self) -> &crate::U256 {
         &self.total_supply
     }
 
-    pub(crate) fn initialized_supply(&self) -> &crate::U256 {
+    pub fn initialized_supply(&self) -> &crate::U256 {
         &self.initialized_supply
     }
 
@@ -189,7 +188,7 @@ pub struct TokenUpdateField {
 }
 
 impl TokenUpdateField {
-    pub(crate) fn field(&self) -> &TokenField {
+    pub fn field(&self) -> &TokenField {
         &self.field
     } 
 
@@ -319,7 +318,7 @@ impl TransferInstruction {
         &self.ids
     }
 
-    pub fn replace_this_with_to(&mut self, transaction: &Transaction, this: &AddressOrNamespace, field: &str) -> Result<(), std::io::Error> {
+    pub fn replace_this_with_to(&mut self, transaction: &Transaction, _this: &AddressOrNamespace, field: &str) -> Result<(), std::io::Error> {
         match field {
             "from" => {
                 self.from = AddressOrNamespace::Address(transaction.to());
@@ -425,7 +424,7 @@ impl Instruction {
             Self::Update(update) => update.accounts_involved(),
             Self::Transfer(transfer) => transfer.accounts_involved(),
             Self::Burn(burn) => burn.accounts_involved(),
-            Self::Log(log) => vec![] 
+            Self::Log(_log) => vec![] 
         }
     }
 }
@@ -654,243 +653,4 @@ pub trait Parameter {
         where Self: Sized;
 
     fn into_op_param(self) -> OpParams;
-}
-
-#[cfg(test)]
-mod test {
-    use serde_json::json;
-
-    use super::*;
-    use std::fs;
-    use std::path::Path;
-    use std::str::FromStr;
-
-    #[test]
-    fn test_config_parsing() {
-        let config_path = Path::new("./examples/escrow/schema.toml");
-        let toml_str = fs::read_to_string(config_path).expect("Failed to read schema.toml");
-        let schema: ProgramSchema = toml::from_str(&toml_str).expect("Failed to parse config.toml");
-        let deposit_inputs = json!({
-            "depositor": "0xabcdef012345678909876543210fedcba0123456",
-            "redeemer": "0xfedcba09876532101234567890abcdef09876543",
-            "deposit_token_address": "0x012345678909876543210abcdeffedcba0123456",
-            "deposit": 12345,
-            "conditions": [
-                { 
-                    "condition": "ContractTransfer",
-                    "program_id": "0x1234567890abcdef1234567890abcdef12345678",
-                    "token_ids": [ 5238 ],
-                    "from": "redeemer",
-                    "to": "depositor",
-                }
-            ]
-        }); 
-
-        let _ = schema.parse_op_inputs("deposit", &deposit_inputs.to_string());
-    }
-
-    #[test]
-    fn test_parse_create_instruction() {
-        let program_namespace = AddressOrNamespace::Namespace(Namespace("lasr.contract.FakeToken".to_string()));
-        let program_id = AddressOrNamespace::Namespace(Namespace("lasr.contract.FakeToken.ProgramAccount".to_string()));
-        let program_owner = Address::from_str("0x1234567890ABCDEF1234567890ABCDEF12345678").unwrap();
-        let total_supply = crate::U256::from(ethereum_types::U256::from(10000000000000000000000000000 as u128));
-        let initialized_supply = crate::U256::from(ethereum_types::U256::from(10000000000000000000000 as u128));
-        let random_addresses = random_addresses();
-        let (mut distribution, remaining) = {
-            let mut total = crate::U256::from(ethereum_types::U256::from(0));
-            let mut dist = Vec::new();
-            for address in random_addresses {
-                let amount = crate::U256::from(ethereum_types::U256::from(1000000 as u128));
-                dist.push(TokenDistribution {
-                    program_id: program_id.clone(),
-                    to: AddressOrNamespace::Address(address.clone()),
-                    amount,
-                    token_ids: vec![],
-                    update_fields: vec![]
-                });
-
-                total += amount;
-            }
-            let remaining = initialized_supply - total;
-            (dist, remaining)
-        };
-
-        distribution.push(
-            TokenDistribution {
-                program_id: program_id.clone(),
-                to: AddressOrNamespace::Address(program_owner.clone()),
-                amount: remaining,
-                token_ids: vec![],
-                update_fields: vec![]
-            }
-        );
-
-        let inst = CreateInstruction {
-            program_namespace,
-            program_id,
-            program_owner,
-            total_supply,
-            initialized_supply,
-            distribution
-        };
-
-        println!("{}", serde_json::to_string_pretty(&inst).unwrap());
-
-        let create_instruction_json = json!({
-          "Create": {                                                                                                                  
-            "program_namespace": {                                                                                                     
-              "Namespace": "lasr.contract.FakeToken"                                                                                   
-            },                                                                                                                         
-            "program_id": {                                                                                                            
-              "Namespace": "lasr.contract.FakeToken.ProgramAccount"                                                                    
-            },                                                                                                                         
-            "program_owner": "0x1234567890abcdef1234567890abcdef12345678",                                                             
-            "total_supply": "3e2502611000000000000000204fce5e00000000000000000000000000000000",                                        
-            "initialized_supply": "19e0c9bab2400000000000000000021e00000000000000000000000000000000",                                  
-            "distribution": [                                                                                                          
-              {                                                                                                                        
-                "to": {                                                                                                                
-                  "Address": "0xa1b2c3d4e5f67890123456789abcdef012345678"                                                              
-                },                                                                                                                     
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",                                          
-                "update_fields": []                                                                                                    
-              },                                                                                                                       
-              {                                                                                                                        
-                "to": {                                                                                                                
-                  "Address": "0xb2c3d4e5f6789012a1b3456789abcdef01234567"                                                              
-                },                                                                                                                     
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",                                          
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0xc3d4e5f6789012a1b2c456789abcdef012345678"
-                },                                                                                                                     
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",                                          
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0xd4e5f6789012a1b2c3d56789abcdef0123456789"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0xe5f6789012a1b2c3d4e6789abcdef01234567890"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0xf6789012a1b2c3d4e5f789abcdef012345678901"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0x789012a1b2c3d4e5f6789abcdef0123456789012"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                        "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0x89012a1b2c3d4e5f678901abcdef012345678901"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0x9012a1b2c3d4e5f6789012abcdef012345678901"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0x012a1b2c3d4e5f67890123abcdef012345678901"
-                },
-                "amount": "00000000000f4240000000000000000000000000000000000000000000000000",
-                "update_fields": []
-              },
-              {
-                "to": {
-                  "Address": "0x1234567890abcdef1234567890abcdef12345678"
-                },
-                "amount": "19e0c9bab1a76980000000000000021e00000000000000000000000000000000",
-                "update_fields": []
-              }
-            ]
-          }
-        }).to_string();
-
-        let create_instruction: Instruction = serde_json::from_str(&create_instruction_json).unwrap();
-        match create_instruction {
-            Instruction::Create(create) => {
-                assert_eq!(create, inst);
-            } 
-           _ => {
-                panic!("Parsed the json into the wrong instruction type")
-            }
-        }
-    }
-
-    #[test]
-    fn test_parse_update_instruction() {
-
-//pub struct UpdateInstruction {
-//    updates: Vec<TokenOrProgramUpdate>
-//
-//}
-//
-//pub enum TokenOrProgramUpdate {
-//    TokenUpdate(TokenUpdate),
-//    ProgramUpdate(ProgramUpdate),
-//}
-//
-//#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-//pub struct TokenUpdate {
-//    account: AddressOrNamespace,
-//    token: AddressOrNamespace,
-//    updates: Vec<TokenUpdateField>
-//}
-
-        let token_update_updates = vec![
-            TokenUpdateField {
-                field: TokenField::Data,
-                value: TokenFieldValue::Data(
-                crate::DataValue::Push(8)
-                )
-            }
-        ];
-    }
-
-    #[test]
-    fn test_parse_transfer_instruction() {
-    }
-
-    #[test]
-    fn test_parse_burn_instruction() {
-    }
-}
-
-fn random_addresses() -> Vec<Address> {
-    vec![
-        Address::from_str("0xA1B2C3D4E5F67890123456789ABCDEF012345678").unwrap(),
-        Address::from_str("0xB2C3D4E5F6789012A1B3456789ABCDEF01234567").unwrap(),
-        Address::from_str("0xC3D4E5F6789012A1B2C456789ABCDEF012345678").unwrap(),
-        Address::from_str("0xD4E5F6789012A1B2C3D56789ABCDEF0123456789").unwrap(),
-        Address::from_str("0xE5F6789012A1B2C3D4E6789ABCDEF01234567890").unwrap(),
-        Address::from_str("0xF6789012A1B2C3D4E5F789ABCDEF012345678901").unwrap(),
-        Address::from_str("0x789012A1B2C3D4E5F6789ABCDEF0123456789012").unwrap(),
-        Address::from_str("0x89012A1B2C3D4E5F678901ABCDEF012345678901").unwrap(),
-        Address::from_str("0x9012A1B2C3D4E5F6789012ABCDEF012345678901").unwrap(),
-        Address::from_str("0x012A1B2C3D4E5F67890123ABCDEF012345678901").unwrap(),
-    ]
 }

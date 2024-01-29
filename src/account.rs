@@ -3,7 +3,7 @@ use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use schemars::JsonSchema;
 use serde::{ Serialize, Deserialize, Deserializer, Serializer};
-use serde::de::{self, Visitor};
+use serde::de::{Visitor};
 use secp256k1::PublicKey;
 use sha3::{Digest, Keccak256};
 use crate::{
@@ -252,9 +252,9 @@ impl Account {
         account_type: AccountType,
         program_namespace: Option<AddressOrNamespace>,
         owner_address: Address,
-        programs: Option<BTreeMap<Address, Token>>
+        _programs: Option<BTreeMap<Address, Token>>
     ) -> Self {
-        let mut account = Self {
+        let account = Self {
             account_type,
             program_namespace,
             owner_address,
@@ -328,7 +328,7 @@ impl Account {
         &mut self,
         transaction: Transaction
     ) -> AccountResult<Token> {
-        if let Some(mut token) = self.programs_mut().get_mut(&transaction.program_id()) {
+        if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
             let new_token: Token = (token.clone(), transaction).try_into()?;
             *token = new_token;
             return Ok(token.clone())
@@ -361,7 +361,7 @@ impl Account {
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>
     ) -> AccountResult<Token> {
-        if let Some(mut entry) = self.programs_mut().get_mut(token_address) {
+        if let Some(entry) = self.programs_mut().get_mut(token_address) {
             if let Some(amt) = amount {
                 entry.credit(amt)?;
             } 
@@ -404,7 +404,7 @@ impl Account {
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>
     ) -> AccountResult<Token> {
-        if let Some(mut entry) = self.programs_mut().get_mut(token_address) {
+        if let Some(entry) = self.programs_mut().get_mut(token_address) {
             if let Some(amt) = amount {
                 entry.debit(amt)?;
             } 
@@ -461,7 +461,7 @@ impl Account {
         token_ids: &Vec<crate::U256>,
         token_updates: &Vec<TokenUpdateField>
     ) -> AccountResult<Token> {
-        if let Some(mut token) = self.programs_mut().get_mut(program_id) {
+        if let Some(token) = self.programs_mut().get_mut(program_id) {
 
             if let Some(amt) = amount {
                 token.credit(amt)?;
@@ -534,7 +534,7 @@ impl Account {
             }
         };
 
-        if let Some(mut token) = self.programs_mut().get_mut(&program_id) {
+        if let Some(token) = self.programs_mut().get_mut(&program_id) {
             for update in updates {
                 token.apply_token_update_field_values(update.value())?;
             }
@@ -644,7 +644,7 @@ impl Account {
     }
 
     pub(crate) fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
-        let program_addr = if let AccountType::Program(program_addr) = self.account_type() {
+        let _program_addr = if let AccountType::Program(program_addr) = self.account_type() {
             program_addr
         } else {
             return Err(
@@ -669,7 +669,7 @@ impl Account {
     }
 
     pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
-        if let Some(token) = self.programs.get(program_id) {
+        if let Some(_token) = self.programs.get(program_id) {
             return Ok(())
         }
 

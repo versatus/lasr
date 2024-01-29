@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use ractor::{Actor, ActorRef, ActorProcessingErr, RpcReplyPort, concurrency::oneshot};
 use crate::{
-    rpc::LasrRpcServer, Token, actors::handle_actor_response, create_handler, Transaction, Address
+    rpc::LasrRpcServer, actors::handle_actor_response, create_handler, Transaction, Address
 };
 use jsonrpsee::core::Error as RpcError;
 use super::{messages::{RpcMessage, SchedulerMessage, TransactionResponse}, types::{RpcRequestMethod, ActorType}};
@@ -104,22 +104,6 @@ impl LasrRpcServerActor {
         }
 
         Err(RpcError::Custom("unable to acquire scheduler".to_string()))
-    }
-
-    async fn handle_register_program_response_data(
-        &self,
-        msg: RpcMessage, 
-        reply: RpcReplyPort<RpcMessage>
-    ) -> Result<(), RpcError> {
-        match msg {
-            RpcMessage::Response { .. }=> { 
-                reply.send(msg).map_err(|e| RpcError::Custom(format!("{:?}", e)))?;
-                Ok(())
-            }
-            _ => {
-                Err(RpcError::Custom("Received an Invalid Response Message to the RPC Actor".to_string()))
-            }
-        }
     }
 }
 

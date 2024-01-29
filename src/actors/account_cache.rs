@@ -90,7 +90,7 @@ impl AccountCache {
                 }
             }
             crate::AccountType::Program(program_address) => {
-                if let Some(entry) = self.cache.get_mut(&program_address) {
+                if let Some(_entry) = self.cache.get_mut(&program_address) {
                     log::info!("Found program_account: 0x{:x} in cache, updating...", &program_address);
                 } else {
                     log::info!("Did not find account: 0x{:x} in cache, inserting...", &program_address);
