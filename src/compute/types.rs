@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, ProgramAccount, Namespace, ProgramField, ProgramFieldValue};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
@@ -12,7 +12,7 @@ use std::str::FromStr;
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Inputs {
     pub version: i32,
-    pub account_info: Option<ProgramAccount>,
+    pub account_info: Option<Account>,
     pub transaction: Transaction,
     pub op: String,
     pub inputs: String,
@@ -705,7 +705,7 @@ mod test {
                 dist.push(TokenDistribution {
                     program_id: program_id.clone(),
                     to: AddressOrNamespace::Address(address.clone()),
-                    amount,
+                    amount: Some(amount),
                     token_ids: vec![],
                     update_fields: vec![]
                 });
@@ -720,7 +720,7 @@ mod test {
             TokenDistribution {
                 program_id: program_id.clone(),
                 to: AddressOrNamespace::Address(program_owner.clone()),
-                amount: remaining,
+                amount: Some(remaining),
                 token_ids: vec![],
                 update_fields: vec![]
             }
