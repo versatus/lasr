@@ -11,6 +11,7 @@ use crate::{Address, RecoverableSignature, Transaction};
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
 #[derive(Copy, Clone, Default, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct U256(pub [u64; 4]);
 
 impl Serialize for U256 {
@@ -188,6 +189,7 @@ impl From<&EthU256> for U256 {
 /// It provides a default, cloneable, serializable, and debuggable interface. It is
 /// typically used for storing data that doesn't have a fixed format or structure.
 #[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct ArbitraryData(BTreeMap<String, String>);
 
 impl Display for ArbitraryData {
@@ -243,6 +245,7 @@ impl ArbitraryData {
 /// It supports cloning, serialization, and debugging. The metadata can be of any
 /// form that fits into a byte array, making it a flexible container.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Metadata(BTreeMap<String, String>);
 
 impl Metadata {
@@ -275,6 +278,7 @@ impl Metadata {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub enum TokenType {
     Fungible,
     NonFungible,
@@ -282,6 +286,7 @@ pub enum TokenType {
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Token {
     program_id: Address,
     owner_id: Address,
@@ -503,6 +508,7 @@ impl Token {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum TokenField {
     ProgramId,
     OwnerId,
@@ -516,6 +522,7 @@ pub enum TokenField {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum TokenFieldValue {
     Balance(BalanceValue),
     Metadata(MetadataValue),
@@ -527,12 +534,14 @@ pub enum TokenFieldValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum BalanceValue {
     Credit(U256),
     Debit(U256),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum MetadataValue {
     Insert(String, String),
     Extend(BTreeMap<String, String>),
@@ -540,6 +549,7 @@ pub enum MetadataValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum TokenIdValue {
     Push(U256),
     Extend(Vec<U256>),
@@ -549,6 +559,7 @@ pub enum TokenIdValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum AllowanceValue {
     Insert(Address, U256),
     Extend(Vec<(Address, U256)>),
@@ -557,6 +568,7 @@ pub enum AllowanceValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum ApprovalsValue {
     Insert(Address, Vec<U256>),
     Extend(Vec<(Address, Vec<U256>)>),
@@ -565,6 +577,7 @@ pub enum ApprovalsValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum DataValue {
     Insert(String, String),
     Extend(BTreeMap<String, String>),
@@ -572,6 +585,7 @@ pub enum DataValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum StatusValue {
     Reverse,
     Lock,
@@ -631,6 +645,7 @@ impl Token {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub enum Status {
     Locked,
     Free,
@@ -651,6 +666,7 @@ impl SubAssign for Token {
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenWitness {
     user: Address,
     token: Address,
@@ -662,11 +678,13 @@ pub struct TokenWitness {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct TransactionGraph {
     transactions: BTreeMap<[u8; 32], GraphEntry>
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct GraphEntry {
     transaction: Transaction,
     dependencies: Vec<[u8; 32]> 

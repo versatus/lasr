@@ -6,13 +6,14 @@
   "required": [
     "inputs",
     "op",
+    "transaction",
     "version"
   ],
   "properties": {
     "account_info": {
       "anyOf": [
         {
-          "$ref": "#/definitions/ProgramAccount"
+          "$ref": "#/definitions/Account"
         },
         {
           "type": "null"
@@ -25,12 +26,90 @@
     "op": {
       "type": "string"
     },
+    "transaction": {
+      "$ref": "#/definitions/Transaction"
+    },
     "version": {
       "type": "integer",
       "format": "int32"
     }
   },
   "definitions": {
+    "Account": {
+      "description": "Represents an LASR account.\n\nThis structure contains details of an LASR account, including its address, associated programs, nonce, signatures, hashes, and certificates. It implements traits for serialization, hashing, and comparison.",
+      "type": "object",
+      "required": [
+        "account_type",
+        "nonce",
+        "owner_address",
+        "program_account_data",
+        "program_account_linked_programs",
+        "program_account_metadata",
+        "programs"
+      ],
+      "properties": {
+        "account_type": {
+          "$ref": "#/definitions/AccountType"
+        },
+        "nonce": {
+          "$ref": "#/definitions/U256"
+        },
+        "owner_address": {
+          "$ref": "#/definitions/Address"
+        },
+        "program_account_data": {
+          "$ref": "#/definitions/ArbitraryData"
+        },
+        "program_account_linked_programs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AddressOrNamespace"
+          },
+          "uniqueItems": true
+        },
+        "program_account_metadata": {
+          "$ref": "#/definitions/Metadata"
+        },
+        "program_namespace": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AddressOrNamespace"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "programs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Token"
+          }
+        }
+      }
+    },
+    "AccountType": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "User"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Program"
+          ],
+          "properties": {
+            "Program": {
+              "$ref": "#/definitions/Address"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "Address": {
       "description": "Represents a 20-byte Ethereum Compatible address.\n\nThis structure is used to store Ethereum Compatible addresses, which are derived from the public key. It implements traits like Clone, Copy, Debug, Serialize, Deserialize, etc., for ease of use across various contexts.",
       "type": "array",
@@ -42,52 +121,56 @@
       "maxItems": 20,
       "minItems": 20
     },
+    "AddressOrNamespace": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "This"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Address"
+          ],
+          "properties": {
+            "Address": {
+              "$ref": "#/definitions/Address"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Namespace"
+          ],
+          "properties": {
+            "Namespace": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "ArbitraryData": {
       "description": "Represents a generic data container.\n\nThis structure is used to store arbitrary data as a vector of bytes (`Vec<u8>`). It provides a default, cloneable, serializable, and debuggable interface. It is typically used for storing data that doesn't have a fixed format or structure.",
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "format": "uint8",
-        "minimum": 0.0
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
       }
     },
     "Metadata": {
       "description": "Represents metadata as a byte vector.\n\nThis structure is designed to encapsulate metadata, stored as a vector of bytes. It supports cloning, serialization, and debugging. The metadata can be of any form that fits into a byte array, making it a flexible container.",
-      "type": "array",
-      "items": {
-        "type": "integer",
-        "format": "uint8",
-        "minimum": 0.0
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
       }
     },
     "Namespace": {
       "type": "string"
-    },
-    "ProgramAccount": {
-      "type": "object",
-      "required": [
-        "data",
-        "linked_programs",
-        "metadata",
-        "namespace"
-      ],
-      "properties": {
-        "data": {
-          "$ref": "#/definitions/ArbitraryData"
-        },
-        "linked_programs": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/Token"
-          }
-        },
-        "metadata": {
-          "$ref": "#/definitions/Metadata"
-        },
-        "namespace": {
-          "$ref": "#/definitions/Namespace"
-        }
-      }
     },
     "Status": {
       "type": "string",
@@ -119,7 +202,10 @@
         "approvals": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/U256"
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/U256"
+            }
           }
         },
         "balance": {
@@ -147,6 +233,157 @@
           }
         }
       }
+    },
+    "Transaction": {
+      "type": "object",
+      "required": [
+        "from",
+        "inputs",
+        "nonce",
+        "op",
+        "program_id",
+        "r",
+        "s",
+        "to",
+        "transaction_type",
+        "v",
+        "value"
+      ],
+      "properties": {
+        "from": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          },
+          "maxItems": 20,
+          "minItems": 20
+        },
+        "inputs": {
+          "type": "string"
+        },
+        "nonce": {
+          "$ref": "#/definitions/U256"
+        },
+        "op": {
+          "type": "string"
+        },
+        "program_id": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          },
+          "maxItems": 20,
+          "minItems": 20
+        },
+        "r": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          },
+          "maxItems": 32,
+          "minItems": 32
+        },
+        "s": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          },
+          "maxItems": 32,
+          "minItems": 32
+        },
+        "to": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0.0
+          },
+          "maxItems": 20,
+          "minItems": 20
+        },
+        "transaction_type": {
+          "$ref": "#/definitions/TransactionType"
+        },
+        "v": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "value": {
+          "$ref": "#/definitions/U256"
+        }
+      }
+    },
+    "TransactionType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "BridgeIn"
+          ],
+          "properties": {
+            "BridgeIn": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Send"
+          ],
+          "properties": {
+            "Send": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Call"
+          ],
+          "properties": {
+            "Call": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "BridgeOut"
+          ],
+          "properties": {
+            "BridgeOut": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "RegisterProgram"
+          ],
+          "properties": {
+            "RegisterProgram": {
+              "$ref": "#/definitions/U256"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "U256": {
       "type": "array",

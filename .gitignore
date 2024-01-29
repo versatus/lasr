@@ -5,6 +5,7 @@
 /containers
 /payload
 /json_repr
+/json_schema
 /src/bin/json_repr.rs
 /.lasr
 *.gz

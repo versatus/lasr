@@ -81,6 +81,7 @@ impl<'de> Deserialize<'de> for Address {
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
 #[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Address([u8; 20]);
 
 impl Address {
@@ -107,6 +108,7 @@ impl Address {
 // It supports standard traits for easy handling and
 /// comparison operations.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct AccountHash([u8; 32]);
 
 impl AccountHash {
@@ -120,15 +122,18 @@ impl AccountHash {
 
 /// This is currently not used
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct AccountNonce {
     bridge_nonce: crate::U256,
     send_nonce: crate::U256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgramNamespace(Namespace, Address);
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct Namespace(pub String);
 
 impl FromStr for Namespace {
@@ -146,6 +151,7 @@ impl From<String> for Namespace {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum ProgramField {
     LinkedPrograms,
     Metadata,
@@ -153,6 +159,7 @@ pub enum ProgramField {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum ProgramFieldValue {
     LinkedPrograms(LinkedProgramsValue),
     Metadata(MetadataValue),
@@ -160,6 +167,7 @@ pub enum ProgramFieldValue {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum LinkedProgramsValue {
     Insert(Address),
     Extend(Vec<Address>),
@@ -167,6 +175,7 @@ pub enum LinkedProgramsValue {
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgramAccount {
     namespace: Namespace,
     linked_programs: BTreeMap<Address, Token>,
@@ -221,6 +230,7 @@ impl ProgramAccount {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub enum AccountType {
     User,
     Program(Address),
@@ -232,6 +242,7 @@ pub enum AccountType {
 /// programs, nonce, signatures, hashes, and certificates. It implements traits for
 /// serialization, hashing, and comparison.
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Account {
     account_type: AccountType,
     program_namespace: Option<AddressOrNamespace>,
@@ -889,4 +900,3 @@ impl From<[u8; 32]> for Address {
         Address(address)
     }
 }
-
