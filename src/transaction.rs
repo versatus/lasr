@@ -21,6 +21,7 @@ impl Display for ToTokenError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub enum TransactionType {
     BridgeIn(crate::U256),
     Send(crate::U256),
@@ -79,9 +80,9 @@ impl ToString for TransactionType {
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Payload {
     transaction_type: TransactionType,
-//    token_type: TokenType,
     from: [u8; 20],
     to: [u8; 20],
     program_id: [u8; 20],
@@ -157,6 +158,7 @@ impl Payload {
 }
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
     from: [u8; 20],

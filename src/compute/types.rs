@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 
 /// The inputs type for a contract call
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Inputs {
     pub version: i32,
     pub account_info: Option<Account>,
@@ -26,6 +27,7 @@ pub struct ParamPreRequisite {
 
 /// The structure returned by a program/call transaction.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Outputs {
     inputs: Inputs,
     instructions: Vec<Instruction>,
@@ -83,6 +85,7 @@ pub struct ReadParams {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum AddressOrNamespace {
     Address(Address),
     Namespace(Namespace),
@@ -90,6 +93,7 @@ pub enum AddressOrNamespace {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
     program_id: AddressOrNamespace,
@@ -140,6 +144,7 @@ impl CreateInstruction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
@@ -170,18 +175,21 @@ impl TokenDistribution {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub enum TokenOrProgramUpdateField {
     TokenUpdateField(TokenUpdateField),
     ProgramUpdateField(ProgramUpdateField)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum TokenOrProgramUpdate {
     TokenUpdate(TokenUpdate),
     ProgramUpdate(ProgramUpdate),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenUpdateField {
     field: TokenField,
     value: TokenFieldValue
@@ -198,6 +206,7 @@ impl TokenUpdateField {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgramUpdateField {
     field: ProgramField,
     value: ProgramFieldValue 
@@ -218,6 +227,7 @@ impl ProgramUpdateField {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateInstruction {
     updates: Vec<TokenOrProgramUpdate>
 }
@@ -244,6 +254,7 @@ impl UpdateInstruction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenUpdate {
     account: AddressOrNamespace,
     token: AddressOrNamespace,
@@ -265,6 +276,7 @@ impl TokenUpdate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
     updates: Vec<ProgramUpdateField>
@@ -285,6 +297,7 @@ impl ProgramUpdate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferInstruction {
     token: Address,
     from: AddressOrNamespace,
@@ -294,6 +307,16 @@ pub struct TransferInstruction {
 }
 
 impl TransferInstruction {
+    pub fn new(
+        token: Address,
+        from: AddressOrNamespace,
+        to: AddressOrNamespace,
+        amount: Option<crate::U256>,
+        ids: Vec<crate::U256>
+    ) -> Self {
+        Self { token, from, to, amount, ids }
+    }
+
     pub(crate) fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
         vec![self.from.clone(), self.to.clone()]
     }
@@ -339,19 +362,8 @@ impl TransferInstruction {
     }
 }
 
-impl TransferInstruction {
-    pub fn new(
-        token: Address,
-        from: AddressOrNamespace,
-        to: AddressOrNamespace,
-        amount: Option<crate::U256>,
-        ids: Vec<crate::U256>
-    ) -> Self {
-        Self { token, from, to, amount, ids }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct BurnInstruction {
     caller: Address,
     program_id: AddressOrNamespace,
@@ -392,6 +404,7 @@ impl BurnInstruction {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct LogInstruction(pub ContractLogType);
 
 /// An enum representing the instructions that a program can return 
@@ -399,6 +412,7 @@ pub struct LogInstruction(pub ContractLogType);
 /// the pre-requisites of a given function call are.
 /// All enabled languages have equivalent types
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum Instruction {
     /// The return type created by the construction method of a contract 
     Create(CreateInstruction),
