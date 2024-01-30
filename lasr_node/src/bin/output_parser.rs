@@ -1,7 +1,7 @@
-use std::process::{Command, Stdio};
-use std::io::Write;
-use serde_json::Result;
 use lasr::Outputs;
+use serde_json::Result;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 fn main() -> Result<()> {
     let python_script_path = "./payload/testContainerPy/src/hello-world.py";
@@ -17,12 +17,12 @@ fn main() -> Result<()> {
 
     {
         let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-        stdin.write_all(input_data.as_bytes()).expect("Failed to write to stdin");
+        stdin
+            .write_all(input_data.as_bytes())
+            .expect("Failed to write to stdin");
     }
 
-    let output = child
-        .wait_with_output()
-        .expect("Failed to read stdout");
+    let output = child.wait_with_output().expect("Failed to read stdout");
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -39,4 +39,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-

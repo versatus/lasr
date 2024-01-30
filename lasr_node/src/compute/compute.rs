@@ -1,12 +1,12 @@
-use std::{ffi::OsStr, fmt::Display};
-use std::path::Path;
+use crate::{ActorType, ExecutorMessage, Inputs, ProgramSchema, Transaction};
+use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use ractor::ActorRef;
+use std::io::Read;
+use std::path::Path;
+use std::process::Stdio;
+use std::{ffi::OsStr, fmt::Display};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
-use std::process::Stdio;
-use std::io::Read;
-use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
@@ -16,7 +16,7 @@ pub enum BaseImage {
     Bin,
     Python,
     Node,
-    Java
+    Java,
 }
 
 impl Display for BaseImage {
@@ -26,7 +26,7 @@ impl Display for BaseImage {
             BaseImage::Wasm => write!(f, "{}", "wasm"),
             BaseImage::Python => write!(f, "{}", "python"),
             BaseImage::Node => write!(f, "{}", "node"),
-            BaseImage::Java => write!(f, "{}", "java")
+            BaseImage::Java => write!(f, "{}", "java"),
         }
     }
 }
@@ -34,14 +34,14 @@ impl Display for BaseImage {
 impl BaseImage {
     pub fn path(&self) -> String {
         match self {
-            _ => format!("./base_image/{}", self.to_string())
+            _ => format!("./base_image/{}", self.to_string()),
         }
     }
 }
 
 #[allow(unused)]
 pub struct IpfsManager {
-    client: IpfsClient
+    client: IpfsClient,
 }
 
 #[derive(Debug, Clone)]
@@ -56,34 +56,23 @@ impl Display for OciManager {
 }
 
 impl OciManager {
-    pub fn new(
-        bundler: OciBundler<String, String>,
-    ) -> Self {
-        Self {
-            bundler,
-        }
+    pub fn new(bundler: OciBundler<String, String>) -> Self {
+        Self { bundler }
     }
 
     pub async fn bundle(
         &self,
         content_id: impl AsRef<Path>,
-        base_image: BaseImage
+        base_image: BaseImage,
     ) -> Result<(), std::io::Error> {
         self.bundler.bundle(content_id, base_image).await
     }
 
-
-    pub async fn add_payload(
-        &self,
-        content_id: impl AsRef<Path>
-    ) -> Result<(), std::io::Error> {
+    pub async fn add_payload(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
         self.bundler.add_payload(content_id).await
     }
 
-    pub async fn base_spec(
-        &self,
-        content_id: impl AsRef<Path>
-    ) -> Result<(), std::io::Error> {
+    pub async fn base_spec(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
         self.bundler.base_spec(content_id).await
     }
 
@@ -91,33 +80,34 @@ impl OciManager {
         &self,
         content_id: impl AsRef<Path>,
         entrypoint: &str,
-        program_args: Option<Vec<String>>
+        program_args: Option<Vec<String>>,
     ) -> Result<(), std::io::Error> {
-        self.bundler.customize_spec(content_id, entrypoint, program_args)
+        self.bundler
+            .customize_spec(content_id, entrypoint, program_args)
     }
 
     pub fn get_program_schema(
         &self,
-        content_id: impl AsRef<Path>
+        content_id: impl AsRef<Path>,
     ) -> std::io::Result<ProgramSchema> {
         self.bundler.get_program_schema(content_id)
     }
 
     pub async fn run_container(
         &self,
-        content_id: impl AsRef<Path> + Send + 'static, 
+        content_id: impl AsRef<Path> + Send + 'static,
         transaction: Option<Transaction>,
         inputs: Inputs,
         transaction_hash: Option<String>,
     ) -> Result<tokio::task::JoinHandle<Result<String, std::io::Error>>, std::io::Error> {
-        let container_path = self.bundler.get_container_path(&content_id)
+        let container_path = self
+            .bundler
+            .get_container_path(&content_id)
             .as_ref()
             .to_string_lossy()
             .into_owned();
 
-        let container_id = content_id.as_ref()
-            .to_string_lossy()
-            .into_owned();
+        let container_id = content_id.as_ref().to_string_lossy().into_owned();
 
         let inner_inputs = inputs.clone();
         Ok(tokio::spawn(async move {
@@ -131,22 +121,21 @@ impl OciManager {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .spawn()?;
-            
-            let mut stdin = child.stdin.take().ok_or( {
+
+            let mut stdin = child.stdin.take().ok_or({
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("unable to acquire child stdin, compute.rs: 120")
+                    format!("unable to acquire child stdin, compute.rs: 120"),
                 )
             })?;
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
             log::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
             let _ = tokio::task::spawn(async move {
-                stdin.write_all(
-                    stdio_inputs.clone().as_bytes()
-                ).await?;
+                stdin.write_all(stdio_inputs.clone().as_bytes()).await?;
 
                 Ok::<_, std::io::Error>(())
-            }).await?;
+            })
+            .await?;
             let output = child.wait_with_output().await?;
             let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
 
@@ -155,22 +144,23 @@ impl OciManager {
             //})?;
             log::info!("result from container: {container_id} = {:#?}", res);
 
-            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
-                ActorType::Executor.to_string()
-            ).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "unable to acquire Executor actor from inside container execution thread"
-                )
-            )?.into();
+            let actor: ActorRef<ExecutorMessage> =
+                ractor::registry::where_is(ActorType::Executor.to_string())
+                    .ok_or(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "unable to acquire Executor actor from inside container execution thread",
+                    ))?
+                    .into();
 
             let message = ExecutorMessage::Results {
-                content_id: content_id.as_ref().to_string_lossy().into_owned(), 
+                content_id: content_id.as_ref().to_string_lossy().into_owned(),
                 transaction_hash,
                 transaction,
             };
 
-            actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            actor
+                .cast(message)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
             Ok::<_, std::io::Error>(res)
         }))
@@ -183,7 +173,7 @@ pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
     #[allow(unused)]
     base_images: P,
     runtime: R,
-    payload_path: P
+    payload_path: P,
 }
 
 impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
@@ -195,14 +185,14 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             containers,
             base_images,
             runtime,
-            payload_path
+            payload_path,
         }
     }
 
     pub async fn bundle(
         &self,
         content_id: impl AsRef<Path>,
-        base_image: BaseImage
+        base_image: BaseImage,
     ) -> Result<(), std::io::Error> {
         let base_path = self.get_base_path(base_image);
         let container_path = self.get_container_path(&content_id);
@@ -211,20 +201,25 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
-            link_dir(&base_path.as_ref().join(Self::CONTAINER_ROOT), &container_root_path.as_ref()).await?;
+            link_dir(
+                &base_path.as_ref().join(Self::CONTAINER_ROOT),
+                &container_root_path.as_ref(),
+            )
+            .await?;
         }
 
         Ok(())
     }
 
-    pub async fn add_payload(
-        &self,
-        content_id: impl AsRef<Path>
-    ) -> Result<(), std::io::Error> {
+    pub async fn add_payload(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
         let container_path = self.get_container_path(&content_id);
         let container_root = self.container_root_path(&container_path);
         let payload_path = self.get_payload_path(&content_id);
-        log::info!("Attempting to copy {:?} to {:?}", &payload_path.as_ref().canonicalize(), &container_root.as_ref().canonicalize());
+        log::info!(
+            "Attempting to copy {:?} to {:?}",
+            &payload_path.as_ref().canonicalize(),
+            &container_root.as_ref().canonicalize()
+        );
         if let Err(e) = copy_dir(payload_path, container_root).await {
             log::error!("Error adding payload: {e}");
         };
@@ -232,15 +227,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         Ok(())
     }
 
-    pub async fn base_spec(
-        &self,
-        content_id: impl AsRef<Path>
-    ) -> Result<(), std::io::Error> {
+    pub async fn base_spec(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
         let container_path = self.get_container_path(&content_id);
         Command::new(&self.runtime)
             .arg("spec")
             .current_dir(container_path)
-            .output().await?;
+            .output()
+            .await?;
 
         Ok(())
     }
@@ -249,27 +242,22 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         &self,
         content_id: impl AsRef<Path>,
         entrypoint: &str,
-        program_args: Option<Vec<String>>
+        program_args: Option<Vec<String>>,
     ) -> Result<(), std::io::Error> {
         let container_path = self.get_container_path(&content_id);
         let config_path = container_path.as_ref().join("config.json");
 
-        let mut spec: Spec = Spec::load(&config_path).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })?;
+        let mut spec: Spec = Spec::load(&config_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         let mut proc = if let Some(gen_proc) = spec.process() {
             gen_proc.to_owned()
         } else {
             ProcessBuilder::default()
                 .build()
-                .map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other, e
-                    )
-                })?
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
         };
-        
+
         let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint)];
         if let Some(pargs) = program_args {
             args.extend(pargs);
@@ -285,14 +273,10 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         } else {
             RootBuilder::default()
                 .build()
-                .map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, e)
-                })?
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
         };
 
-        rootfs.set_path(
-            std::path::PathBuf::from(Self::CONTAINER_ROOT)
-        );
+        rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
 
         rootfs.set_readonly(Some(false));
         spec.set_root(Some(rootfs));
@@ -301,10 +285,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         Ok(())
     }
 
-    pub fn get_container_path(
-        &self,
-        content_id: impl AsRef<Path>
-    ) -> impl AsRef<Path> {
+    pub fn get_container_path(&self, content_id: impl AsRef<Path>) -> impl AsRef<Path> {
         let container_path = self.containers.as_ref().join(content_id);
         container_path
     }
@@ -329,12 +310,18 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         container_bin_path
     }
 
-    pub fn get_program_schema(&self, content_id: impl AsRef<Path>) -> std::io::Result<ProgramSchema> {
+    pub fn get_program_schema(
+        &self,
+        content_id: impl AsRef<Path>,
+    ) -> std::io::Result<ProgramSchema> {
         log::info!("ContentId: {:?}", content_id.as_ref().to_string_lossy());
         let payload_path = self.get_payload_path(&content_id);
-        let schema_path = self.get_schema_path(payload_path).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to find schema".to_string())
-        )?;
+        let schema_path = self
+            .get_schema_path(payload_path)
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find schema".to_string(),
+            ))?;
         let mut str: String = String::new();
         let _file = std::fs::OpenOptions::new()
             .read(true)
@@ -342,22 +329,34 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .append(false)
             .truncate(false)
             .create(false)
-            .open(schema_path)?.read_to_string(&mut str)?;
-        
+            .open(schema_path)?
+            .read_to_string(&mut str)?;
+
         let schema = toml::from_str(&str).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Error: compute.rs: 328: unable to parse schema file {e}"))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error: compute.rs: 328: unable to parse schema file {e}"),
+            )
         })?;
 
         Ok(schema)
     }
 
     fn get_schema_path(&self, payload_path: impl AsRef<Path>) -> Option<String> {
-        log::info!("search for entries in {:?}", payload_path.as_ref().canonicalize());
+        log::info!(
+            "search for entries in {:?}",
+            payload_path.as_ref().canonicalize()
+        );
         if let Ok(entries) = std::fs::read_dir(payload_path.as_ref()) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if path.is_file() {
-                    if path.file_name().unwrap_or_default().to_string_lossy().starts_with("schema") {
+                    if path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .starts_with("schema")
+                    {
                         return Some(path.to_string_lossy().into_owned());
                     }
                 }
@@ -368,26 +367,16 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
     }
 }
 
-async fn copy_dir(
-    src: impl AsRef<Path>,
-    dst: impl AsRef<Path> 
-) -> std::io::Result<()> {
+async fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
     let options = fs_extra::dir::CopyOptions::default();
-        
-    fs_extra::dir::copy(&src, &dst, &options).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+
+    fs_extra::dir::copy(&src, &dst, &options)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
     Ok(())
 }
 
-async fn link_dir(
-    src: impl AsRef<Path>,
-    dst: impl AsRef<Path>,
-) -> std::io::Result<()> {
+async fn link_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
     let link_path = src.as_ref().canonicalize()?;
     std::os::unix::fs::symlink(link_path, dst)?;
 

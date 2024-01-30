@@ -1,22 +1,21 @@
-
-use serde::{Serialize, Deserialize};
-use std::collections::BTreeMap;
 use crate::account::Address;
 use crate::certificate::{Certificate, RecoverableSignature};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Abi;
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ContractHash([u8; 32]);
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StaticTopicHash([u8; 32]);
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ConstantTopicHash([u8; 32]);
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum StaticValue {
     String(String),
     U8(u8),
@@ -31,11 +30,10 @@ pub enum StaticValue {
     I64(i64),
     I128(i128),
     Bool(bool),
-    Custom(Vec<u8>)
+    Custom(Vec<u8>),
 }
 
-
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum ConstantValue {
     String(String),
     U8(u8),
@@ -50,10 +48,10 @@ pub enum ConstantValue {
     I64(i64),
     I128(i128),
     Bool(bool),
-    Custom(Vec<u8>)
+    Custom(Vec<u8>),
 }
 
-#[derive(Clone,Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)] 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ContractBlob {
     owner_sig: RecoverableSignature,
     hash: ContractHash,
@@ -61,5 +59,5 @@ pub struct ContractBlob {
     address: Address,
     registeration_certificate: Certificate,
     statics: BTreeMap<StaticTopicHash, StaticValue>,
-    constants: BTreeMap<ConstantTopicHash, ConstantValue>
+    constants: BTreeMap<ConstantTopicHash, ConstantValue>,
 }

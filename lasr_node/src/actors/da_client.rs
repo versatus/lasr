@@ -1,22 +1,27 @@
 use std::{fmt::Display, time::Duration};
 
-use async_trait::async_trait;
-use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::BlobVerificationProof, status::{BlobStatus, BlobResult}, blob::EncodedBlob};
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender, SupervisionEvent};
-use thiserror::Error;
-use tokio::task::JoinHandle;
 use crate::Batch;
 use crate::DaClientMessage;
-
+use async_trait::async_trait;
+use lasr_da::{
+    blob::EncodedBlob,
+    client::EigenDaGrpcClient,
+    proof::BlobVerificationProof,
+    response::BlobResponse,
+    status::{BlobResult, BlobStatus},
+};
+use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use thiserror::Error;
+use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug)]
 pub struct DaClient {
-    client: EigenDaGrpcClient
+    client: EigenDaGrpcClient,
 }
 
 #[derive(Clone, Debug, Error)]
 pub enum DaClientError {
-    Custom(String)
+    Custom(String),
 }
 
 impl Display for DaClientError {
@@ -27,35 +32,27 @@ impl Display for DaClientError {
 
 impl Default for DaClientError {
     fn default() -> Self {
-        DaClientError::Custom(
-            "DA Client unable to acquire actor".to_string()
-        )
+        DaClientError::Custom("DA Client unable to acquire actor".to_string())
     }
 }
 
 impl DaClient {
-    pub fn new(
-        client: EigenDaGrpcClient,
-    ) -> Self {
-        Self { 
-            client, 
-        }
+    pub fn new(client: EigenDaGrpcClient) -> Self {
+        Self { client }
     }
 
     async fn disperse_blobs(&self, batch: String) -> Result<BlobResponse, std::io::Error> {
         let response = self.client.disperse_blob(batch, &0)?;
         Ok(response)
     }
-
 }
-
 
 #[async_trait]
 impl Actor for DaClient {
     type Msg = DaClientMessage;
-    type State = (); 
+    type State = ();
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -77,25 +74,33 @@ impl Actor for DaClient {
                 log::info!("DA Client asked to store blob");
                 let blob_response = self.disperse_blobs(batch).await;
                 let _ = tx.send(blob_response);
-            },
+            }
             DaClientMessage::ValidateBlob { request_id, tx } => {
                 log::info!("DA Client asked to validate blob");
                 let _ = validate_blob(self.client.clone(), request_id, tx).await;
                 // Spawn a tokio task to poll EigenDa for the validated blob
-            },
+            }
             // Optimistically and naively retreive account blobs
-            DaClientMessage::RetrieveAccount { address, batch_header_hash, blob_index, tx } => {
+            DaClientMessage::RetrieveAccount {
+                address,
+                batch_header_hash,
+                blob_index,
+                tx,
+            } => {
                 log::warn!("Received a RetrieveAccount message");
                 let batch_header_hash = base64::encode(&batch_header_hash.0);
-                let res = self.client.retrieve_blob(&batch_header_hash.into(), blob_index);
+                let res = self
+                    .client
+                    .retrieve_blob(&batch_header_hash.into(), blob_index);
                 if let Ok(blob) = res {
                     let encoded_blob = EncodedBlob::from_str(&blob);
                     if let Ok(blob) = encoded_blob {
                         let res = Batch::decode_batch(&blob.data());
                         if let Ok(batch) = &res {
                             let account = batch.get_user_account(address);
-                            let _ = tx.send(account.clone()).map_err(|e| Box::new(
-                                    DaClientError::Custom(format!("{:?}", e))))?;
+                            let _ = tx
+                                .send(account.clone())
+                                .map_err(|e| Box::new(DaClientError::Custom(format!("{:?}", e))))?;
                             log::info!("successfully decoded account blob: {:?}", account);
                         } else {
                             log::error!("{:?}", res);
@@ -104,42 +109,41 @@ impl Actor for DaClient {
                 } else {
                     log::error!("{:?}", res);
                 }
-            },
-            DaClientMessage::RetrieveTransaction { .. } => {},
-            DaClientMessage::RetrieveContract { .. } => {},
+            }
+            DaClientMessage::RetrieveTransaction { .. } => {}
+            DaClientMessage::RetrieveContract { .. } => {}
             _ => {}
-        } 
-        return Ok(())
+        }
+        return Ok(());
     }
 }
 
-
 async fn get_blob_status(
-    client: &EigenDaGrpcClient, 
-    request_id: &String
-) -> Result<BlobStatus, std::io::Error> { 
+    client: &EigenDaGrpcClient,
+    request_id: &String,
+) -> Result<BlobStatus, std::io::Error> {
     log::info!("acquired blob status");
     client.clone().get_blob_status(&request_id.clone()[..])
 }
 
 #[async_recursion::async_recursion]
 async fn poll_blob_status(
-    client: EigenDaGrpcClient, 
-    request_id: String, 
-    tx: OneshotSender<(String, BlobVerificationProof)>
+    client: EigenDaGrpcClient,
+    request_id: String,
+    tx: OneshotSender<(String, BlobVerificationProof)>,
 ) -> Result<(), Box<dyn std::error::Error + Send>> {
-    let res = get_blob_status(&client, &request_id).await; 
+    let res = get_blob_status(&client, &request_id).await;
     if let Ok(status) = res {
         if status.status().clone() != BlobResult::Confirmed {
             tokio::time::sleep(Duration::from_secs(30)).await;
-            return poll_blob_status(client.clone(), request_id.clone(), tx).await
+            return poll_blob_status(client.clone(), request_id.clone(), tx).await;
         } else if let Some(proof) = status.blob_verification_proof() {
             log::info!("acquired verification proof, sending back to batcher");
             let _ = tx.send((request_id, proof.clone()));
-        } 
+        }
     } else {
         log::error!("{:?}", res);
-        return Ok(())
+        return Ok(());
     }
 
     Ok(())
@@ -148,14 +152,10 @@ async fn poll_blob_status(
 async fn validate_blob(
     client: EigenDaGrpcClient,
     request_id: String,
-    tx: OneshotSender<(String, BlobVerificationProof)>
+    tx: OneshotSender<(String, BlobVerificationProof)>,
 ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send>>> {
     log::info!("spawning blob validation task");
-    tokio::task::spawn(async move { 
-        poll_blob_status(
-            client.clone(), request_id, tx
-        ).await
-    })
+    tokio::task::spawn(async move { poll_blob_status(client.clone(), request_id, tx).await })
 }
 
 pub struct DaSupervisor;
@@ -163,9 +163,9 @@ pub struct DaSupervisor;
 #[async_trait]
 impl Actor for DaSupervisor {
     type Msg = DaClientMessage;
-    type State = (); 
+    type State = ();
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -179,22 +179,26 @@ impl Actor for DaSupervisor {
         &self,
         _myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
-        _state: &mut Self::State
+        _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         log::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());
-            },
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
-            },
+            }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
-            },
+            }
             SupervisionEvent::PidLifecycleEvent(event) => {
                 log::info!("pid lifecycle event: {:?}", event);
-            },
+            }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 log::warn!("process group changed: {:?}", m.get_group());
             }

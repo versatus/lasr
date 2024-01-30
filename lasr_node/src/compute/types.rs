@@ -1,10 +1,16 @@
-use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account};
+use crate::{
+    Account, Address, Certificate, Namespace, ProgramField, ProgramFieldValue, TokenField,
+    TokenFieldValue, TokenWitness, Transaction, TransactionFields,
+};
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::{
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
+    hash::{Hash, Hasher},
+};
 
-/// This file contains types the protocol uses to prepare data, structure it 
+/// This file contains types the protocol uses to prepare data, structure it
 /// and call out to a particular compute payload.
 
 /// The inputs type for a contract call
@@ -18,8 +24,8 @@ pub struct Inputs {
     pub inputs: String,
 }
 
-/// The pre-requisite instructions for a contract call 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)] 
+/// The pre-requisite instructions for a contract call
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ParamPreRequisite {
     pre_requisites: PreRequisite,
     outputs: Vec<(usize, OpParams)>,
@@ -35,16 +41,19 @@ pub struct Outputs {
 
 impl Outputs {
     pub fn new(inputs: Inputs, instructions: Vec<Instruction>) -> Self {
-        Self { inputs, instructions }
+        Self {
+            inputs,
+            instructions,
+        }
     }
-    
+
     pub fn instructions(&self) -> &Vec<Instruction> {
         &self.instructions
     }
 }
 
 /// This type is constructed from the combination of the original transaction,
-/// the constructed inputs, all outputs from contract call, and any 
+/// the constructed inputs, all outputs from contract call, and any
 /// pre-requisite contract call, witnesses, and an optional certificate
 /// if the transaction results have been certified.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -53,14 +62,14 @@ pub struct CallTransactionResult {
     inputs: Inputs,
     outputs: Vec<Outputs>,
     certificate: Option<Certificate>,
-    witnesses: Vec<TokenWitness>
+    witnesses: Vec<TokenWitness>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum PreRequisite {
     Call(CallParams),
     Unlock(AddressPair),
-    Read(ReadParams), 
+    Read(ReadParams),
     Lock(AddressPair),
 }
 
@@ -84,7 +93,9 @@ pub struct ReadParams {
     pub contract_blobs: Vec<Address>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum AddressOrNamespace {
     Address(Address),
@@ -92,7 +103,9 @@ pub enum AddressOrNamespace {
     This,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
@@ -100,7 +113,7 @@ pub struct CreateInstruction {
     program_owner: Address,
     total_supply: crate::U256,
     initialized_supply: crate::U256,
-    distribution: Vec<TokenDistribution>
+    distribution: Vec<TokenDistribution>,
 }
 
 impl CreateInstruction {
@@ -143,16 +156,18 @@ impl CreateInstruction {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>,
-    update_fields: Vec<TokenUpdateField>
+    update_fields: Vec<TokenUpdateField>,
 }
-impl TokenDistribution { 
+impl TokenDistribution {
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
@@ -174,11 +189,13 @@ impl TokenDistribution {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenOrProgramUpdateField {
     TokenUpdateField(TokenUpdateField),
-    ProgramUpdateField(ProgramUpdateField)
+    ProgramUpdateField(ProgramUpdateField),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -188,35 +205,39 @@ pub enum TokenOrProgramUpdate {
     ProgramUpdate(ProgramUpdate),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUpdateField {
     field: TokenField,
-    value: TokenFieldValue
+    value: TokenFieldValue,
 }
 
 impl TokenUpdateField {
     pub fn field(&self) -> &TokenField {
         &self.field
-    } 
+    }
 
     pub(crate) fn value(&self) -> &TokenFieldValue {
         &self.value
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramUpdateField {
     field: ProgramField,
-    value: ProgramFieldValue 
+    value: ProgramFieldValue,
 }
 
 impl ProgramUpdateField {
     pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
         Self { field, value }
     }
-    
+
     pub fn field(&self) -> &ProgramField {
         &self.field
     }
@@ -229,7 +250,7 @@ impl ProgramUpdateField {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstruction {
-    updates: Vec<TokenOrProgramUpdate>
+    updates: Vec<TokenOrProgramUpdate>,
 }
 
 impl UpdateInstruction {
@@ -241,8 +262,12 @@ impl UpdateInstruction {
         let mut accounts_involved = Vec::new();
         for update in &self.updates {
             match update {
-                TokenOrProgramUpdate::TokenUpdate(token_update) => accounts_involved.push(token_update.account.clone()),
-                TokenOrProgramUpdate::ProgramUpdate(program_update) => accounts_involved.push(program_update.account.clone()),
+                TokenOrProgramUpdate::TokenUpdate(token_update) => {
+                    accounts_involved.push(token_update.account.clone())
+                }
+                TokenOrProgramUpdate::ProgramUpdate(program_update) => {
+                    accounts_involved.push(program_update.account.clone())
+                }
             }
         }
         accounts_involved
@@ -258,7 +283,7 @@ impl UpdateInstruction {
 pub struct TokenUpdate {
     account: AddressOrNamespace,
     token: AddressOrNamespace,
-    updates: Vec<TokenUpdateField>
+    updates: Vec<TokenUpdateField>,
 }
 
 impl TokenUpdate {
@@ -279,7 +304,7 @@ impl TokenUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
-    updates: Vec<ProgramUpdateField>
+    updates: Vec<ProgramUpdateField>,
 }
 
 impl ProgramUpdate {
@@ -303,7 +328,7 @@ pub struct TransferInstruction {
     from: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: Option<crate::U256>,
-    ids: Vec<crate::U256>
+    ids: Vec<crate::U256>,
 }
 
 impl TransferInstruction {
@@ -312,9 +337,15 @@ impl TransferInstruction {
         from: AddressOrNamespace,
         to: AddressOrNamespace,
         amount: Option<crate::U256>,
-        ids: Vec<crate::U256>
+        ids: Vec<crate::U256>,
     ) -> Self {
-        Self { token, from, to, amount, ids }
+        Self {
+            token,
+            from,
+            to,
+            amount,
+            ids,
+        }
     }
 
     pub(crate) fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
@@ -341,7 +372,12 @@ impl TransferInstruction {
         &self.ids
     }
 
-    pub fn replace_this_with_to(&mut self, transaction: &Transaction, _this: &AddressOrNamespace, field: &str) -> Result<(), std::io::Error> {
+    pub fn replace_this_with_to(
+        &mut self,
+        transaction: &Transaction,
+        _this: &AddressOrNamespace,
+        field: &str,
+    ) -> Result<(), std::io::Error> {
         match field {
             "from" => {
                 self.from = AddressOrNamespace::Address(transaction.to());
@@ -350,12 +386,10 @@ impl TransferInstruction {
                 self.to = AddressOrNamespace::Address(transaction.to());
             }
             _ => {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "received an invalid string when calling `replace_this_with_to`"
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "received an invalid string when calling `replace_this_with_to`",
+                ))
             }
         }
         Ok(())
@@ -370,7 +404,7 @@ pub struct BurnInstruction {
     token: Address,
     from: AddressOrNamespace,
     amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>
+    token_ids: Vec<crate::U256>,
 }
 
 impl BurnInstruction {
@@ -385,7 +419,7 @@ impl BurnInstruction {
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
-    
+
     pub fn token(&self) -> &Address {
         &self.token
     }
@@ -407,28 +441,28 @@ impl BurnInstruction {
 #[serde(rename_all = "camelCase")]
 pub struct LogInstruction(pub ContractLogType);
 
-/// An enum representing the instructions that a program can return 
+/// An enum representing the instructions that a program can return
 /// to the protocol. Also represent types that tell the protocol what  
 /// the pre-requisites of a given function call are.
 /// All enabled languages have equivalent types
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Instruction {
-    /// The return type created by the construction method of a contract 
+    /// The return type created by the construction method of a contract
     Create(CreateInstruction),
     /// Tells the protocol to update a field, should almost never be used  
     /// to add balance to a token or add a token id (for Non-fungible or Data tokens)
     /// should prrimarily be used to update approvals, allowances, metadata, arbitrary data
-    /// etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used 
+    /// etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used
     /// to lock value
     Update(UpdateInstruction),
     /// Tells the protocol to subtract balance of one address/token pair and add to different
-    /// address 
-    Transfer(TransferInstruction), 
+    /// address
+    Transfer(TransferInstruction),
     /// Tells the protocol to burn a token (amount or id for NFT/Data tokens)
     Burn(BurnInstruction),
     /// Tells the protocol to log something
-    Log(LogInstruction) 
+    Log(LogInstruction),
 }
 
 impl Instruction {
@@ -438,7 +472,7 @@ impl Instruction {
             Self::Update(update) => update.accounts_involved(),
             Self::Transfer(transfer) => transfer.accounts_involved(),
             Self::Burn(burn) => burn.accounts_involved(),
-            Self::Log(_log) => vec![] 
+            Self::Log(_log) => vec![],
         }
     }
 }
@@ -448,7 +482,7 @@ pub enum ContractLogType {
     Info(String),
     Error(String),
     Warn(String),
-    Debug(String)
+    Debug(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -485,7 +519,7 @@ pub enum OpParams {
     BigInt([i64; 4]),
     GiantUint([u64; 8]),
     GiantInt([i64; 8]),
-    Mapping(HashMap<String, OpParams>)
+    Mapping(HashMap<String, OpParams>),
 }
 
 impl Ord for OpParams {
@@ -512,15 +546,15 @@ impl Hash for OpParams {
             OpParams::Address(addr) => addr.hash(state),
             OpParams::String(str) => str.hash(state),
             OpParams::Tuple(tup) => tup.hash(state),
-            OpParams::FixedArray(arr, size) => { 
+            OpParams::FixedArray(arr, size) => {
                 arr.hash(state);
                 size.hash(state);
-            },
+            }
             OpParams::Array(arr) => arr.hash(state),
             OpParams::FixedBytes(arr, size) => {
                 arr.hash(state);
                 size.hash(state);
-            },
+            }
             OpParams::Bool(b) => b.hash(state),
             OpParams::Byte(b) => b.hash(state),
             OpParams::Uint(n) => n.hash(state),
@@ -539,7 +573,7 @@ impl Hash for OpParams {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramSchema {
-    pub contract: Contract
+    pub contract: Contract,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -547,7 +581,7 @@ pub struct Contract {
     pub name: String,
     pub version: String,
     pub language: String,
-    pub ops: HashMap<String, Ops>
+    pub ops: HashMap<String, Ops>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -555,7 +589,7 @@ pub struct Ops {
     pub description: String,
     pub help: Option<String>,
     pub signature: OpSignature,
-    pub required: Option<Vec<Required>> 
+    pub required: Option<Vec<Required>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -570,7 +604,7 @@ pub struct ParamSource {
     pub source: String,
     pub field: Option<String>,
     pub key: Option<String>,
-    pub position: usize
+    pub position: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -586,21 +620,21 @@ pub enum Required {
 pub struct CallMap {
     calling_program: TransactionFields,
     original_caller: TransactionFields,
-    program_id: String, 
+    program_id: String,
     op: String,
-    inputs: String, 
+    inputs: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadMap {
-    items: Vec<(String, String, String)>, 
-    contract_blobs: Option<Vec<String>> 
+    items: Vec<(String, String, String)>,
+    contract_blobs: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LockPair {
     account: String,
-    token: String
+    token: String,
 }
 
 impl ProgramSchema {
@@ -629,12 +663,17 @@ impl ProgramSchema {
     }
 
     pub(crate) fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
-        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
-        )?;
-        
+        let (_key, value) = self
+            .contract
+            .ops
+            .get_key_value(op)
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Invalid `op`: Not defined in schema",
+            ))?;
+
         if let Some(reqs) = &value.required {
-            return Ok(reqs.clone())
+            return Ok(reqs.clone());
         }
 
         Ok(Vec::new())
@@ -642,10 +681,15 @@ impl ProgramSchema {
 
     #[allow(unused)]
     pub(crate) fn parse_op_inputs(&self, op: &str, json_inputs: &str) -> std::io::Result<()> {
-        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
-        )?;
-        
+        let (_key, value) = self
+            .contract
+            .ops
+            .get_key_value(op)
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Invalid `op`: Not defined in schema",
+            ))?;
+
         let mut json: Map<String, Value> = serde_json::from_str(json_inputs)?;
 
         for (k, v) in &value.signature.params_mapping {
@@ -664,7 +708,8 @@ pub trait Parameter {
     type Err;
 
     fn from_op_param(op_param: OpParams) -> Result<Self, Self::Err>
-        where Self: Sized;
+    where
+        Self: Sized;
 
     fn into_op_param(self) -> OpParams;
 }

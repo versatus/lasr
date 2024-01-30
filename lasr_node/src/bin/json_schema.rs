@@ -2,17 +2,15 @@
 use std::io::Write;
 
 use lasr::{
-    Inputs, Outputs, Status, Instruction, CreateInstruction, UpdateInstruction, 
-    TransferInstruction, BurnInstruction, LogInstruction,
-    TokenDistribution, TokenOrProgramUpdate, TokenOrProgramUpdateField,
-    TokenUpdate, ProgramUpdate, TokenUpdateField, ProgramUpdateField,
-    TokenField, TokenFieldValue, ProgramField, ProgramFieldValue, BalanceValue,
-    MetadataValue, AllowanceValue, ApprovalsValue, DataValue, StatusValue,
-    LinkedProgramsValue, ContractLogType, Address, Namespace, AddressOrNamespace,
-    U256
+    Address, AddressOrNamespace, AllowanceValue, ApprovalsValue, BalanceValue, BurnInstruction,
+    ContractLogType, CreateInstruction, DataValue, Inputs, Instruction, LinkedProgramsValue,
+    LogInstruction, MetadataValue, Namespace, Outputs, ProgramField, ProgramFieldValue,
+    ProgramUpdate, ProgramUpdateField, Status, StatusValue, TokenDistribution, TokenField,
+    TokenFieldValue, TokenOrProgramUpdate, TokenOrProgramUpdateField, TokenUpdate,
+    TokenUpdateField, TransferInstruction, UpdateInstruction, U256,
 };
 use schemars::schema_for;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 fn main() -> std::io::Result<()> {
     let outputs_schema = schema_for!(Outputs);
@@ -52,7 +50,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(instruction_schema_string.as_bytes());
 
     let create_instruction_schema = schema_for!(CreateInstruction);
-    let create_instruction_schema_string = serde_json::to_string_pretty(&create_instruction_schema).unwrap();
+    let create_instruction_schema_string =
+        serde_json::to_string_pretty(&create_instruction_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -63,10 +62,9 @@ fn main() -> std::io::Result<()> {
 
     file.write_all(create_instruction_schema_string.as_bytes());
 
-
-
     let update_instruction_schema = schema_for!(UpdateInstruction);
-    let update_instruction_schema_string = serde_json::to_string_pretty(&update_instruction_schema).unwrap();
+    let update_instruction_schema_string =
+        serde_json::to_string_pretty(&update_instruction_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -78,7 +76,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(update_instruction_schema_string.as_bytes());
 
     let transfer_instruction_schema = schema_for!(TransferInstruction);
-    let transfer_instruction_schema_string = serde_json::to_string_pretty(&transfer_instruction_schema).unwrap();
+    let transfer_instruction_schema_string =
+        serde_json::to_string_pretty(&transfer_instruction_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -89,9 +88,9 @@ fn main() -> std::io::Result<()> {
 
     file.write_all(transfer_instruction_schema_string.as_bytes());
 
-
     let burn_instruction_schema = schema_for!(BurnInstruction);
-    let burn_instruction_schema_string = serde_json::to_string_pretty(&burn_instruction_schema).unwrap();
+    let burn_instruction_schema_string =
+        serde_json::to_string_pretty(&burn_instruction_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -105,7 +104,8 @@ fn main() -> std::io::Result<()> {
     let log_instruction_schema = schema_for!(LogInstruction);
 
     let token_distribution_schema = schema_for!(TokenDistribution);
-    let token_distribution_schema_string = serde_json::to_string_pretty(&token_distribution_schema).unwrap();
+    let token_distribution_schema_string =
+        serde_json::to_string_pretty(&token_distribution_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -117,7 +117,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(token_distribution_schema_string.as_bytes());
 
     let token_or_program_update_schema = schema_for!(TokenOrProgramUpdate);
-    let token_or_program_update_schema_string = serde_json::to_string_pretty(&token_or_program_update_schema).unwrap();
+    let token_or_program_update_schema_string =
+        serde_json::to_string_pretty(&token_or_program_update_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -129,7 +130,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(token_or_program_update_schema_string.as_bytes());
 
     let token_or_program_update_field_schema = schema_for!(TokenOrProgramUpdateField);
-    let token_or_program_update_field_schema_string = serde_json::to_string_pretty(&token_or_program_update_field_schema).unwrap();
+    let token_or_program_update_field_schema_string =
+        serde_json::to_string_pretty(&token_or_program_update_field_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -153,7 +155,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(token_update_schema_string.as_bytes());
 
     let token_update_field_schema = schema_for!(TokenUpdateField);
-    let token_update_field_schema_string = serde_json::to_string_pretty(&token_update_field_schema).unwrap();
+    let token_update_field_schema_string =
+        serde_json::to_string_pretty(&token_update_field_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -177,7 +180,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(token_field_schema_string.as_bytes());
 
     let token_field_value_schema = schema_for!(TokenFieldValue);
-    let token_field_value_schema_string = serde_json::to_string_pretty(&token_field_value_schema).unwrap();
+    let token_field_value_schema_string =
+        serde_json::to_string_pretty(&token_field_value_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -187,9 +191,10 @@ fn main() -> std::io::Result<()> {
         .open("./json_schema/token_field_value_schema.json")?;
 
     file.write_all(token_field_value_schema_string.as_bytes());
-    
+
     let program_update_schema = schema_for!(ProgramUpdate);
-    let program_update_schema_string = serde_json::to_string_pretty(&program_update_schema).unwrap();
+    let program_update_schema_string =
+        serde_json::to_string_pretty(&program_update_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -201,7 +206,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(program_update_schema_string.as_bytes());
 
     let program_update_field_schema = schema_for!(ProgramUpdateField);
-    let program_update_field_schema_string = serde_json::to_string_pretty(&program_update_field_schema).unwrap();
+    let program_update_field_schema_string =
+        serde_json::to_string_pretty(&program_update_field_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -224,8 +230,9 @@ fn main() -> std::io::Result<()> {
 
     file.write_all(program_field_schema_string.as_bytes());
 
-    let program_update_field_value_schema = schema_for!(ProgramFieldValue); 
-    let program_field_value_schema_string = serde_json::to_string_pretty(&program_update_field_schema).unwrap();
+    let program_update_field_value_schema = schema_for!(ProgramFieldValue);
+    let program_field_value_schema_string =
+        serde_json::to_string_pretty(&program_update_field_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -238,7 +245,7 @@ fn main() -> std::io::Result<()> {
 
     let balance_value_schema = schema_for!(BalanceValue);
     let balance_value_schema_string = serde_json::to_string_pretty(&balance_value_schema).unwrap();
-    
+
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .append(true)
@@ -249,7 +256,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(balance_value_schema_string.as_bytes());
 
     let metadata_value_schema = schema_for!(MetadataValue);
-    let metadata_value_schema_string = serde_json::to_string_pretty(&metadata_value_schema).unwrap();
+    let metadata_value_schema_string =
+        serde_json::to_string_pretty(&metadata_value_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -273,7 +281,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(data_value_schema_string.as_bytes());
 
     let approvals_value_schema = schema_for!(ApprovalsValue);
-    let approvals_value_schema_string = serde_json::to_string_pretty(&approvals_value_schema).unwrap();
+    let approvals_value_schema_string =
+        serde_json::to_string_pretty(&approvals_value_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -284,8 +293,9 @@ fn main() -> std::io::Result<()> {
 
     file.write_all(approvals_value_schema_string.as_bytes());
 
-    let allowance_value_schema = schema_for!(AllowanceValue); 
-    let allowance_value_schema_string = serde_json::to_string_pretty(&allowance_value_schema).unwrap();
+    let allowance_value_schema = schema_for!(AllowanceValue);
+    let allowance_value_schema_string =
+        serde_json::to_string_pretty(&allowance_value_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -309,7 +319,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(status_value_schema_string.as_bytes());
 
     let linked_programs_value_schema = schema_for!(LinkedProgramsValue);
-    let linked_programs_value_schema_string = serde_json::to_string_pretty(&linked_programs_value_schema).unwrap();
+    let linked_programs_value_schema_string =
+        serde_json::to_string_pretty(&linked_programs_value_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -345,7 +356,8 @@ fn main() -> std::io::Result<()> {
     file.write_all(namespace_schema_string.as_bytes());
 
     let address_or_namespace_schema = schema_for!(AddressOrNamespace);
-    let address_or_namespace_schema_string = serde_json::to_string_pretty(&address_or_namespace_schema).unwrap();
+    let address_or_namespace_schema_string =
+        serde_json::to_string_pretty(&address_or_namespace_schema).unwrap();
 
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -367,6 +379,6 @@ fn main() -> std::io::Result<()> {
         .open("./json_schema/u256_schema.json")?;
 
     file.write_all(u256_schema_string.as_bytes());
-    
+
     Ok(())
 }

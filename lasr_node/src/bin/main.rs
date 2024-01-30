@@ -3,33 +3,33 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use eo_listener::EoServerError;
+use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
+use lasr::actors::LasrRpcServerImpl;
+use lasr::rpc::LasrRpcServer;
 use lasr::AccountCacheActor;
 use lasr::ActorType;
 use lasr::Address;
+use lasr::Batcher;
+use lasr::BatcherActor;
 use lasr::BlobCacheActor;
+use lasr::DaClient;
 use lasr::DaSupervisor;
+use lasr::Engine;
 use lasr::EoClient;
 use lasr::EoClientActor;
+use lasr::EoServer;
 use lasr::EoServerWrapper;
+use lasr::ExecutionEngine;
+use lasr::ExecutorActor;
 use lasr::LasrRpcServerActor;
+use lasr::OciBundler;
 use lasr::OciBundlerBuilder;
 use lasr::OciManager;
 use lasr::PendingTransactionActor;
 use lasr::TaskScheduler;
-use lasr::Engine;
 use lasr::Validator;
-use lasr::EoServer;
-use lasr::BatcherActor;
-use lasr::Batcher;
-use lasr::ExecutionEngine;
-use lasr::ExecutorActor;
-use lasr::OciBundler;
-use eo_listener::EoServer as EoListener;
-use lasr::DaClient;
-use lasr::rpc::LasrRpcServer;
-use lasr::actors::LasrRpcServerImpl;
-use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
+use lasr_eo::EoServer as EoListener;
+use lasr_eo::EoServerError;
 use ractor::Actor;
 
 use secp256k1::Secp256k1;
@@ -37,29 +37,28 @@ use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(
-        log::Level::Info
-    ).map_err(|e| EoServerError::Other(e.to_string()))?;
+    simple_logger::init_with_level(log::Level::Info)
+        .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());
 
     dotenv::dotenv().ok();
 
-    //TODO(asmith): Move this to be read in when and where needed and dropped 
+    //TODO(asmith): Move this to be read in when and where needed and dropped
     //afterwards to minimize security vulnerabilities
-    let (_, sk_string) = std::env::vars().find(|(k, _)| k == "SECRET_KEY").ok_or(
-        Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
-    )?;
+    let (_, sk_string) = std::env::vars()
+        .find(|(k, _)| k == "SECRET_KEY")
+        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
 
-    let (_, block_processed_path) = std::env::vars().find(|(k, _)| k == "BLOCKS_PROCESSED_PATH").ok_or(
-        Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>
-    )?;
+    let (_, block_processed_path) = std::env::vars()
+        .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
+        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(|e| Box::new(e))?;
 
     dbg!(sk);
 
-    let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default() 
+    let eigen_da_client = lasr_da::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         .server_address("disperser-goerli.eigenda.xyz:443".to_string())
         .adversary_threshold(40)
@@ -80,12 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let oci_manager = OciManager::new(bundler);
-    let execution_engine = ExecutionEngine::new(
-        oci_manager,
-        ipfs_api::IpfsClient::default()
-    );
+    let execution_engine = ExecutionEngine::new(oci_manager, ipfs_api::IpfsClient::default());
 
-    let blob_cache_actor = BlobCacheActor::new(); 
+    let blob_cache_actor = BlobCacheActor::new();
     let account_cache_actor = AccountCacheActor::new();
     let pending_transaction_actor = PendingTransactionActor;
     let lasr_rpc_actor = LasrRpcServerActor::new();
@@ -98,109 +94,105 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor;
     let executor_actor = ExecutorActor;
-    let inner_eo_server = setup_eo_server(
-        web3_instance.clone(),
-        &block_processed_path
-    ).map_err(|e| {
-        Box::new(e)
-    })?;
-    
+    let inner_eo_server =
+        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(|e| Box::new(e))?;
+
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
     let batcher = Batcher::new(receivers_thread_tx);
-    
+
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
-    let (da_supervisor, _) = Actor::spawn(
-        Some("da_supervisor".to_string()),
-        da_supervisor,
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
+        .await
+        .map_err(|e| Box::new(e))?;
 
-    let (lasr_rpc_actor_ref, _) = Actor::spawn(
-        Some(ActorType::RpcServer.to_string()), 
-        lasr_rpc_actor, 
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (lasr_rpc_actor_ref, _) =
+        Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
-    let (_scheduler_actor_ref, _) = Actor::spawn(
-        Some(ActorType::Scheduler.to_string()), 
-        scheduler_actor, 
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (_scheduler_actor_ref, _) =
+        Actor::spawn(Some(ActorType::Scheduler.to_string()), scheduler_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
-    let (_engine_actor_ref, _) = Actor::spawn(
-        Some(ActorType::Engine.to_string()), 
-        engine_actor, 
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (_engine_actor_ref, _) =
+        Actor::spawn(Some(ActorType::Engine.to_string()), engine_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
-    let (_validator_actor_ref, _) = Actor::spawn(
-        Some(ActorType::Validator.to_string()),
-        validator_actor, 
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (_validator_actor_ref, _) =
+        Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
-    let (_eo_server_actor_ref, _) = Actor::spawn(
-        Some(ActorType::EoServer.to_string()), 
-        eo_server_actor, 
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (_eo_server_actor_ref, _) =
+        Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
     let (_eo_client_actor_ref, _) = Actor::spawn(
         Some(ActorType::EoClient.to_string()),
         eo_client_actor,
-        eo_client
-    ).await.map_err(|e| Box::new(e))?;
+        eo_client,
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
     let (_da_client_actor_ref, _) = Actor::spawn_linked(
-        Some(ActorType::DaClient.to_string()), 
-        da_client_actor, 
+        Some(ActorType::DaClient.to_string()),
+        da_client_actor,
         (),
-        da_supervisor.get_cell()
-    ).await.map_err(|e| Box::new(e))?;
+        da_supervisor.get_cell(),
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
     let (_pending_transaction_actor_ref, _) = Actor::spawn(
         Some(ActorType::PendingTransactions.to_string()),
         pending_transaction_actor,
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+        (),
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
-    let(_batcher_actor_ref, _) = Actor::spawn(
-        Some(ActorType::Batcher.to_string()), 
-        batcher_actor, 
-        batcher
-    ).await.map_err(|e| Box::new(e))?;
+    let (_batcher_actor_ref, _) =
+        Actor::spawn(Some(ActorType::Batcher.to_string()), batcher_actor, batcher)
+            .await
+            .map_err(|e| Box::new(e))?;
 
-    let(_executor_actor_ref, _) = Actor::spawn(
-        Some(ActorType::Executor.to_string()), 
-        executor_actor, 
-        execution_engine 
-    ).await.map_err(|e| Box::new(e))?;
+    let (_executor_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Executor.to_string()),
+        executor_actor,
+        execution_engine,
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
     let (_account_cache_actor_ref, _) = Actor::spawn(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+        (),
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
-    let (_blob_cache_actor_ref, _) = Actor::spawn(
-        Some(ActorType::BlobCache.to_string()),
-        blob_cache_actor,
-        ()
-    ).await.map_err(|e| Box::new(e))?;
+    let (_blob_cache_actor_ref, _) =
+        Actor::spawn(Some(ActorType::BlobCache.to_string()), blob_cache_actor, ())
+            .await
+            .map_err(|e| Box::new(e))?;
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
-    let server = RpcServerBuilder::default().build(format!("0.0.0.0:{}", port)).await.map_err(|e| {
-        Box::new(e)
-    })?;
-    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| {
-        Box::new(e)
-    })?;
+    let server = RpcServerBuilder::default()
+        .build(format!("0.0.0.0:{}", port))
+        .await
+        .map_err(|e| Box::new(e))?;
+    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| Box::new(e))?;
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
 
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
-    
+
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr::batch_requestor(stop_rx));
@@ -212,24 +204,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
 ) -> Result<EoListener, EoServerError> {
-
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
-    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
-    let contract_address = eo_address.parse().map_err(|err| {
-        EoServerError::Other(err.to_string())
-    })?;
-    let contract_abi = eo_listener::get_abi()?;
+    let eo_address = lasr_eo::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+    let contract_address = eo_address
+        .parse()
+        .map_err(|err| EoServerError::Other(err.to_string()))?;
+    let contract_abi = lasr_eo::get_abi()?;
     let address = web3::types::Address::from(contract_address);
     let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
-    
-    let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
-    let bridge_topic = eo_listener::get_bridge_event_topic();
+
+    let blob_settled_topic = lasr_eo::get_blob_index_settled_topic();
+    let bridge_topic = lasr_eo::get_bridge_event_topic();
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
         .from_block(BlockNumber::Number(0.into()))
@@ -245,16 +235,19 @@ fn setup_eo_server(
         .topics(bridge_topic.clone(), None, None, None)
         .build();
 
-    let blob_settled_event = contract.abi().event("BlobIndexSettled").map_err(|e| {
-       EoServerError::Other(e.to_string()) 
-    })?.clone();
+    let blob_settled_event = contract
+        .abi()
+        .event("BlobIndexSettled")
+        .map_err(|e| EoServerError::Other(e.to_string()))?
+        .clone();
 
-    let bridge_event = contract.abi().event("Bridge").map_err(|e| {
-        EoServerError::Other(e.to_string())
-    })?.clone();
+    let bridge_event = contract
+        .abi()
+        .event("Bridge")
+        .map_err(|e| EoServerError::Other(e.to_string()))?
+        .clone();
 
-    
-    let eo_server = eo_listener::EoServerBuilder::default()
+    let eo_server = lasr_eo::EoServerBuilder::default()
         .web3(web3_instance)
         .eo_address(eo_address)
         .processed_blocks(BTreeSet::new())
@@ -269,28 +262,24 @@ fn setup_eo_server(
         .bridge_event(bridge_event)
         .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
         .build()?;
-    
+
     Ok(eo_server)
 }
 
 async fn setup_eo_client(
-    web3_instance: web3::Web3<web3::transports::Http>, 
-    sk: web3::signing::SecretKey
+    web3_instance: web3::Web3<web3::transports::Http>,
+    sk: web3::signing::SecretKey,
 ) -> Result<EoClient, Box<dyn std::error::Error>> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
 
-    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+    let eo_address = lasr_eo::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
     // Initialize the web3 instance
-    let contract_address = eo_address.parse().map_err(|err| {
-        Box::new(
-            err
-        ) as Box<dyn std::error::Error>
-    })?;
-    let contract_abi = eo_listener::get_abi().map_err(|e| {
-        Box::new(e) as Box<dyn std::error::Error>
-    })?;
+    let contract_address = eo_address
+        .parse()
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+    let contract_abi = lasr_eo::get_abi().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     let address = web3::types::Address::from(contract_address);
     let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
 
@@ -299,7 +288,7 @@ async fn setup_eo_client(
     let (_secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
 
     let user_address: Address = public_key.into();
-    EoClient::new(web3_instance, contract, user_address, sk).await.map_err(|e| {
-        Box::new(e) as Box<dyn std::error::Error>
-    })
+    EoClient::new(web3_instance, contract, user_address, sk)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }

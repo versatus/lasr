@@ -1,0 +1,14 @@
+.env
+/target
+/eigenda
+/base_image
+/containers
+/payload
+/json_repr
+/json_schema
+/json_schema/inputs_schema.json
+/json_schema/outputs_schema.json
+/src/bin/json_repr.rs
+/.lasr
+*.gz
+blocks_processed.dat

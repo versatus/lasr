@@ -1,8 +1,11 @@
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use secp256k1::{
+    ecdsa::{RecoverableSignature as Signature, RecoveryId},
+    Message, PublicKey,
+};
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 use std::collections::BTreeSet;
-use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId}, Message};
 
 /// Represents a recoverable ECDSA signature.
 ///
@@ -10,11 +13,13 @@ use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId
 /// two 32-byte arrays `r` and `s`, and a recovery id `v`. The signature can be
 /// used in cryptographic operations where the public key needs to be recovered
 /// from the signature and the original message.
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct RecoverableSignature {
     r: [u8; 32],
     s: [u8; 32],
-    v: i32
+    v: i32,
 }
 
 impl RecoverableSignature {
@@ -95,7 +100,11 @@ impl From<Signature> for RecoverableSignature {
         r.copy_from_slice(&rs[0..32]);
         s.copy_from_slice(&rs[32..]);
 
-        Self { r, s, v: v.to_i32() }
+        Self {
+            r,
+            s,
+            v: v.to_i32(),
+        }
     }
 }
 
@@ -119,11 +128,12 @@ impl TryFrom<&RecoverableSignature> for Signature {
     }
 }
 
-
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct Certificate {
     quorum_id: [u8; 20],
-    quorum_sigs: BTreeSet<RecoverableSignature>
+    quorum_sigs: BTreeSet<RecoverableSignature>,
 }
 
 impl Certificate {
@@ -135,12 +145,13 @@ impl Certificate {
 
         let sigs: &BTreeSet<RecoverableSignature> = &self.quorum_sigs;
         bytes.extend(
-            &sigs.iter()
+            &sigs
+                .iter()
                 .map(|sig| sig.to_vec())
                 .collect::<Vec<Vec<u8>>>()
                 .into_iter()
                 .flatten()
-                .collect::<Vec<u8>>()
+                .collect::<Vec<u8>>(),
         );
 
         bytes

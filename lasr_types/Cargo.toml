@@ -1,0 +1,11 @@
+[package]
+name = "lasr_types"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lasr_types"
+path = "src/lib.rs"
+
+[dependencies]
+secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }

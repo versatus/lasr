@@ -1,18 +1,28 @@
 #![allow(unused)]
-use std::{collections::HashMap, fmt::Display};
+use super::{
+    da_client, eo_server, handle_actor_response,
+    messages::{
+        DaClientMessage, EngineMessage, EoMessage, RpcMessage, RpcResponseError, SchedulerMessage,
+        ValidatorMessage,
+    },
+    types::ActorType,
+};
+use crate::{
+    account::Address, check_account_cache, check_da_for_account, create_handler,
+    AccountCacheMessage, RecoverableSignature, Transaction, TransactionResponse,
+};
 use async_trait::async_trait;
 use ethereum_types::U256;
-use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort};
-use thiserror::*;
-use crate::{account::Address, create_handler, RecoverableSignature, AccountCacheMessage, check_account_cache, TransactionResponse, check_da_for_account, Transaction};
-use super::{messages::{RpcMessage, ValidatorMessage, EngineMessage, SchedulerMessage, RpcResponseError, EoMessage, DaClientMessage}, types::ActorType, handle_actor_response, eo_server, da_client};
 use jsonrpsee::core::Error as RpcError;
+use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use std::{collections::HashMap, fmt::Display};
+use thiserror::*;
 
-/// A generic error type to propagate errors from this actor 
+/// A generic error type to propagate errors from this actor
 /// and other actors that interact with it
 #[derive(Debug, Clone, Error)]
 pub enum SchedulerError {
-    Custom(String)
+    Custom(String),
 }
 
 /// Display implementation for Scheduler error
@@ -24,9 +34,7 @@ impl Display for SchedulerError {
 
 impl Default for SchedulerError {
     fn default() -> Self {
-        SchedulerError::Custom(
-            "Scheduler unable to acquire actor".to_string()
-        )
+        SchedulerError::Custom("Scheduler unable to acquire actor".to_string())
     }
 }
 
@@ -37,50 +45,49 @@ pub struct TaskScheduler;
 impl TaskScheduler {
     /// Creates a new TaskScheduler with a reference to the Registry actor
     pub fn new() -> Self {
-        Self 
+        Self
     }
 
-    async fn handle_get_account_request(&self, address: Address, rpc_reply: RpcReplyPort<RpcMessage>) -> Result<(), SchedulerError> {
+    async fn handle_get_account_request(
+        &self,
+        address: Address,
+        rpc_reply: RpcReplyPort<RpcMessage>,
+    ) -> Result<(), SchedulerError> {
         if let Some(account) = check_account_cache(address).await {
-            rpc_reply.send(
-                RpcMessage::Response { 
-                    response: Ok(
-                        TransactionResponse::GetAccountResponse(account)
-                    ), 
-                    reply: None 
-                }
-            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
-            
-            return Ok(())
+            rpc_reply
+                .send(RpcMessage::Response {
+                    response: Ok(TransactionResponse::GetAccountResponse(account)),
+                    reply: None,
+                })
+                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
+
+            return Ok(());
         } else if let Some(account) = check_da_for_account(address).await {
-            rpc_reply.send(
-                RpcMessage::Response { 
-                    response: Ok(
-                        TransactionResponse::GetAccountResponse(account)
-                    ), 
-                    reply: None 
-                }
-            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
+            rpc_reply
+                .send(RpcMessage::Response {
+                    response: Ok(TransactionResponse::GetAccountResponse(account)),
+                    reply: None,
+                })
+                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            rpc_reply.send(
-                RpcMessage::Response { 
-                    response: Err(
-                        RpcResponseError
-                    ), 
-                    reply: None 
-                }
-            ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
+            rpc_reply
+                .send(RpcMessage::Response {
+                    response: Err(RpcResponseError),
+                    reply: None,
+                })
+                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         }
 
         Ok(())
     }
 
     fn handle_send(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
-            ActorType::Engine.to_string()
-        ).ok_or(
-            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
-        )?.into();
+        let engine_actor: ActorRef<EngineMessage> =
+            ractor::registry::where_is(ActorType::Engine.to_string())
+                .ok_or(Box::new(SchedulerError::Custom(
+                    "unable to acquire engine actor".to_string(),
+                )))?
+                .into();
 
         let message = EngineMessage::Send { transaction };
 
@@ -89,19 +96,13 @@ impl TaskScheduler {
         Ok(())
     }
 
-    fn handle_call(
-        &self,
-        transaction: Transaction
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
-            ActorType::Engine.to_string()
-        ).ok_or(
-            Box::new(
-                SchedulerError::Custom(
-                    "unable to acquire engine actor".to_string()
-                )
-            )
-        )?.into();
+    fn handle_call(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        let engine_actor: ActorRef<EngineMessage> =
+            ractor::registry::where_is(ActorType::Engine.to_string())
+                .ok_or(Box::new(SchedulerError::Custom(
+                    "unable to acquire engine actor".to_string(),
+                )))?
+                .into();
 
         let message = EngineMessage::Call { transaction };
         engine_actor.cast(message)?;
@@ -109,12 +110,16 @@ impl TaskScheduler {
         Ok(())
     }
 
-    fn handle_register_program(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
-            ActorType::Engine.to_string()
-        ).ok_or(
-            Box::new(SchedulerError::Custom("unable to acquire engine actor".to_string()))
-        )?.into();
+    fn handle_register_program(
+        &self,
+        transaction: Transaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let engine_actor: ActorRef<EngineMessage> =
+            ractor::registry::where_is(ActorType::Engine.to_string())
+                .ok_or(Box::new(SchedulerError::Custom(
+                    "unable to acquire engine actor".to_string(),
+                )))?
+                .into();
 
         let message = EngineMessage::RegisterProgram { transaction };
 
@@ -124,13 +129,12 @@ impl TaskScheduler {
     }
 }
 
-
 #[async_trait]
 impl Actor for TaskScheduler {
     type Msg = SchedulerMessage;
     type State = HashMap<String, RpcReplyPort<RpcMessage>>;
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -147,88 +151,102 @@ impl Actor for TaskScheduler {
     ) -> Result<(), ActorProcessingErr> {
         println!("Scheduler Received RPC Call");
         match message {
-            SchedulerMessage::Call { transaction, rpc_reply } => {
+            SchedulerMessage::Call {
+                transaction,
+                rpc_reply,
+            } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
                 self.handle_call(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
-                // Send to executor, when executor returns send to validator for validation 
+                // Send to executor, when executor returns send to validator for validation
                 // engine for creation and batcher for application to accounts
-            },
-            SchedulerMessage::Send { transaction, rpc_reply } => {
+            }
+            SchedulerMessage::Send {
+                transaction,
+                rpc_reply,
+            } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
                 self.handle_send(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
                 // Send to `Engine` where a `Transaction` will be created
                 // add to RpcCollector with reply port
                 // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
+                // the collector will respond to the channel opened by the
                 // RpcServer with the necessary information
-            },
-            SchedulerMessage::RegisterProgram { transaction, rpc_reply } => {
+            }
+            SchedulerMessage::RegisterProgram {
+                transaction,
+                rpc_reply,
+            } => {
                 log::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
                 // Add to pending transactions where a dependency graph will be built
                 // add to RpcCollector with reply port
                 // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
+                // the collector will respond to the channel opened by the
                 // RpcServer with the necessary information
                 self.handle_register_program(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
-            },
+            }
             SchedulerMessage::GetAccount { address, rpc_reply } => {
                 log::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
                 // Check cache
                 self.handle_get_account_request(address, rpc_reply).await;
                 // if not in cache check DA
                 // if not in DA check archives
-            },
-            SchedulerMessage::TransactionApplied { transaction_hash, token } => {
+            }
+            SchedulerMessage::TransactionApplied {
+                transaction_hash,
+                token,
+            } => {
                 log::warn!("Received TransactionApplied message, checking for RPCReplyPort");
                 if let Some(reply_port) = state.remove(&transaction_hash) {
-                    let response = Ok(
-                        TransactionResponse::SendResponse(token)
-                    );
-                    let message = RpcMessage::Response { 
+                    let response = Ok(TransactionResponse::SendResponse(token));
+                    let message = RpcMessage::Response {
                         response,
-                        reply: None 
+                        reply: None,
                     };
                     reply_port.send(message);
                 }
             }
             SchedulerMessage::RegistrationSuccess { transaction_hash } => {
                 if let Some(reply_port) = state.remove(&transaction_hash) {
-                    let response = Ok(
-                        TransactionResponse::RegisterProgramResponse(None)
-                    );
+                    let response = Ok(TransactionResponse::RegisterProgramResponse(None));
 
-                    let message = RpcMessage::Response { response, reply: None };
-                    reply_port.send(message);
-                }
-            },
-            SchedulerMessage::CallTransactionApplied { transaction_hash, account } => {
-                if let Some(reply_port) = state.remove(&transaction_hash) {
-                    let response = Ok(
-                        TransactionResponse::CallResponse(account)
-                    );
                     let message = RpcMessage::Response {
                         response,
-                        reply: None
+                        reply: None,
                     };
                     reply_port.send(message);
                 }
-            },
-            SchedulerMessage::CallTransactionFailure { transaction_hash, outputs, error } => {
+            }
+            SchedulerMessage::CallTransactionApplied {
+                transaction_hash,
+                account,
+            } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(TransactionResponse::CallResponse(account));
+                    let message = RpcMessage::Response {
+                        response,
+                        reply: None,
+                    };
+                    reply_port.send(message);
+                }
+            }
+            SchedulerMessage::CallTransactionFailure {
+                transaction_hash,
+                outputs,
+                error,
+            } => {
                 if let Some(reply_port) = state.remove(&transaction_hash) {
                     let response = Ok(
                         //TODO(asmith): Add more verbose and descriptive error options for RPC Response
                         //Error
-                        TransactionResponse::TransactionError(
-                            RpcResponseError
-                        )
+                        TransactionResponse::TransactionError(RpcResponseError),
                     );
 
                     let message = RpcMessage::Response {
                         response,
-                        reply: None
+                        reply: None,
                     };
                     reply_port.send(message);
                 }
@@ -237,6 +255,5 @@ impl Actor for TaskScheduler {
         }
 
         Ok(())
-
     }
 }

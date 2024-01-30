@@ -1,17 +1,16 @@
-
-use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
-use sha3::{Sha3_256, Digest};
-use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
+use crate::{Address, ArbitraryData, Metadata, Status, Token, TokenBuilder};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
-use std::collections::BTreeMap;
-use std::fmt::{LowerHex, Display};
+use schemars::JsonSchema;
 use secp256k1::PublicKey;
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+use std::collections::BTreeMap;
+use std::fmt::{Display, LowerHex};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Error)]
 pub enum ToTokenError {
-    Custom(String)
+    Custom(String),
 }
 
 impl Display for ToTokenError {
@@ -20,49 +19,51 @@ impl Display for ToTokenError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TransactionType {
     BridgeIn(crate::U256),
     Send(crate::U256),
     Call(crate::U256),
     BridgeOut(crate::U256),
-    RegisterProgram(crate::U256)
+    RegisterProgram(crate::U256),
 }
 
 impl TransactionType {
     pub fn is_send(&self) -> bool {
         match self {
             TransactionType::Send(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_bridge_in(&self) -> bool {
         match self {
             TransactionType::BridgeIn(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_call(&self) -> bool {
         match self {
             TransactionType::Call(_) => true,
-            _ => false
+            _ => false,
         }
     }
-    
+
     pub fn is_bridge_out(&self) -> bool {
         match self {
             TransactionType::BridgeOut(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_register_program(&self) -> bool {
         match self {
             TransactionType::RegisterProgram(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -79,7 +80,7 @@ impl ToString for TransactionType {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Payload {
     transaction_type: TransactionType,
@@ -146,18 +147,20 @@ impl Payload {
         bytes.extend_from_slice(&self.to().as_ref());
         bytes.extend_from_slice(&self.program_id().as_ref());
         bytes.extend_from_slice(self.inputs().to_string().as_bytes());
-        let mut u256 = Vec::new(); 
+        let mut u256 = Vec::new();
         let value = self.value();
-        value.0.iter().for_each(|n| { 
+        value.0.iter().for_each(|n| {
             let le = n.to_le_bytes();
             u256.extend_from_slice(&le);
-        }); 
+        });
         bytes.extend_from_slice(&u256);
         bytes
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
@@ -176,7 +179,9 @@ pub struct Transaction {
 impl Default for Transaction {
     fn default() -> Self {
         Self {
-            transaction_type: TransactionType::Send(crate::U256::from(ethereum_types::U256::from(0))),
+            transaction_type: TransactionType::Send(crate::U256::from(ethereum_types::U256::from(
+                0,
+            ))),
             from: [0u8; 20],
             to: [0u8; 20],
             program_id: [0u8; 20],
@@ -186,13 +191,15 @@ impl Default for Transaction {
             nonce: crate::U256::from(ethereum_types::U256::from(0)),
             v: 0,
             r: [0u8; 32],
-            s: [0u8; 32]
+            s: [0u8; 32],
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(rename_all(deserialize="lowercase"))]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all(deserialize = "lowercase"))]
 pub enum TransactionFields {
     TransactionType,
     From,
@@ -240,12 +247,13 @@ impl Transaction {
         self.nonce
     }
 
-    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
+    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> {
         let sig = RecoverableSignatureBuilder::default()
             .r(self.r)
             .s(self.s)
             .v(self.v)
-            .build().map_err(|e| Box::new(e))?;
+            .build()
+            .map_err(|e| Box::new(e))?;
 
         Ok(sig)
     }
@@ -280,18 +288,20 @@ impl Transaction {
         bytes.extend_from_slice(&self.to().as_ref());
         bytes.extend_from_slice(&self.program_id().as_ref());
         bytes.extend_from_slice(self.inputs().to_string().as_bytes());
-        let mut u256 = Vec::new(); 
+        let mut u256 = Vec::new();
         let value = self.value();
-        value.0.iter().for_each(|n| { 
+        value.0.iter().for_each(|n| {
             let le = n.to_le_bytes();
             u256.extend_from_slice(&le);
-        }); 
+        });
         bytes.extend_from_slice(&u256);
         bytes
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.as_bytes())
+        self.sig()
+            .map_err(|_| secp256k1::Error::InvalidMessage)?
+            .verify(&self.as_bytes())
     }
 
     pub fn get_accounts_involved(&self) -> Vec<Address> {
@@ -310,17 +320,17 @@ impl LowerHex for Transaction {
 
 impl From<(Payload, RecoverableSignature)> for Transaction {
     fn from(value: (Payload, RecoverableSignature)) -> Self {
-        Transaction { 
-            transaction_type: value.0.transaction_type(), 
-            from: value.0.from(), 
-            to: value.0.to(), 
-            program_id: value.0.program_id(), 
+        Transaction {
+            transaction_type: value.0.transaction_type(),
+            from: value.0.from(),
+            to: value.0.to(),
+            program_id: value.0.program_id(),
             op: value.0.op(),
-            inputs: value.0.inputs(), 
-            value: value.0.value(), 
+            inputs: value.0.inputs(),
+            value: value.0.value(),
             nonce: value.0.nonce(),
-            v: value.1.get_v(), 
-            r: value.1.get_r(), 
+            v: value.1.get_v(),
+            r: value.1.get_r(),
             s: value.1.get_s(),
         }
     }
@@ -338,7 +348,8 @@ impl From<Transaction> for Token {
             .approvals(BTreeMap::new())
             .data(ArbitraryData::new())
             .status(Status::Free)
-            .build().unwrap()
+            .build()
+            .unwrap()
     }
 }
 
@@ -358,10 +369,7 @@ impl TryFrom<(Token, Transaction)> for Token {
                     .data(value.0.data())
                     .status(value.0.status())
                     .build()
-                    .map_err(|e| {
-                        Box::new(e) as Box<dyn std::error::Error + Send>
-                    })?
-                )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
             }
             return Ok(TokenBuilder::default()
                 .program_id(value.0.program_id())
@@ -373,8 +381,8 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .approvals(value.0.approvals())
                 .data(value.0.data())
                 .status(value.0.status())
-                .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-            );
+                .build()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
         }
 
         if value.1.to() == value.0.owner_id() {
@@ -388,16 +396,13 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .approvals(value.0.approvals())
                 .data(value.0.data())
                 .status(value.0.status())
-                .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-            );
+                .build()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
         }
 
-        return Err(
-            Box::new(
-                ToTokenError::Custom(
-                    "cannot convert into token, token owner_id does not match sender or receiver".to_string()
-                )
-            )
-        )
+        return Err(Box::new(ToTokenError::Custom(
+            "cannot convert into token, token owner_id does not match sender or receiver"
+                .to_string(),
+        )));
     }
 }
