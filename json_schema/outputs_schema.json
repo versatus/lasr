@@ -23,38 +23,38 @@
       "description": "Represents an LASR account.\n\nThis structure contains details of an LASR account, including its address, associated programs, nonce, signatures, hashes, and certificates. It implements traits for serialization, hashing, and comparison.",
       "type": "object",
       "required": [
-        "account_type",
+        "accountType",
         "nonce",
-        "owner_address",
-        "program_account_data",
-        "program_account_linked_programs",
-        "program_account_metadata",
+        "ownerAddress",
+        "programAccountData",
+        "programAccountLinkedPrograms",
+        "programAccountMetadata",
         "programs"
       ],
       "properties": {
-        "account_type": {
+        "accountType": {
           "$ref": "#/definitions/AccountType"
         },
         "nonce": {
           "$ref": "#/definitions/U256"
         },
-        "owner_address": {
+        "ownerAddress": {
           "$ref": "#/definitions/Address"
         },
-        "program_account_data": {
+        "programAccountData": {
           "$ref": "#/definitions/ArbitraryData"
         },
-        "program_account_linked_programs": {
+        "programAccountLinkedPrograms": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/AddressOrNamespace"
           },
           "uniqueItems": true
         },
-        "program_account_metadata": {
+        "programAccountMetadata": {
           "$ref": "#/definitions/Metadata"
         },
-        "program_namespace": {
+        "programNamespace": {
           "anyOf": [
             {
               "$ref": "#/definitions/AddressOrNamespace"
@@ -77,16 +77,16 @@
         {
           "type": "string",
           "enum": [
-            "User"
+            "user"
           ]
         },
         {
           "type": "object",
           "required": [
-            "Program"
+            "program"
           ],
           "properties": {
-            "Program": {
+            "program": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -110,16 +110,16 @@
         {
           "type": "string",
           "enum": [
-            "This"
+            "this"
           ]
         },
         {
           "type": "object",
           "required": [
-            "Address"
+            "address"
           ],
           "properties": {
-            "Address": {
+            "address": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -128,10 +128,10 @@
         {
           "type": "object",
           "required": [
-            "Namespace"
+            "namespace"
           ],
           "properties": {
-            "Namespace": {
+            "namespace": {
               "$ref": "#/definitions/Namespace"
             }
           },
@@ -144,10 +144,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "type": "array",
               "items": [
                 {
@@ -166,10 +166,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "array",
               "items": {
                 "type": "array",
@@ -191,10 +191,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "type": "array",
               "items": [
                 {
@@ -213,10 +213,10 @@
         {
           "type": "object",
           "required": [
-            "Revoke"
+            "revoke"
           ],
           "properties": {
-            "Revoke": {
+            "revoke": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -229,10 +229,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "type": "array",
               "items": [
                 {
@@ -254,10 +254,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "array",
               "items": {
                 "type": "array",
@@ -282,10 +282,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "type": "array",
               "items": [
                 {
@@ -307,10 +307,10 @@
         {
           "type": "object",
           "required": [
-            "Revoke"
+            "revoke"
           ],
           "properties": {
-            "Revoke": {
+            "revoke": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -330,10 +330,10 @@
         {
           "type": "object",
           "required": [
-            "Credit"
+            "credit"
           ],
           "properties": {
-            "Credit": {
+            "credit": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -342,10 +342,10 @@
         {
           "type": "object",
           "required": [
-            "Debit"
+            "debit"
           ],
           "properties": {
-            "Debit": {
+            "debit": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -358,9 +358,9 @@
       "required": [
         "caller",
         "from",
-        "program_id",
+        "programId",
         "token",
-        "token_ids"
+        "tokenIds"
       ],
       "properties": {
         "amount": {
@@ -379,13 +379,13 @@
         "from": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
-        "program_id": {
+        "programId": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
         "token": {
           "$ref": "#/definitions/Address"
         },
-        "token_ids": {
+        "tokenIds": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/U256"
@@ -449,11 +449,11 @@
       "type": "object",
       "required": [
         "distribution",
-        "initialized_supply",
-        "program_id",
-        "program_namespace",
-        "program_owner",
-        "total_supply"
+        "initializedSupply",
+        "programId",
+        "programNamespace",
+        "programOwner",
+        "totalSupply"
       ],
       "properties": {
         "distribution": {
@@ -462,19 +462,19 @@
             "$ref": "#/definitions/TokenDistribution"
           }
         },
-        "initialized_supply": {
+        "initializedSupply": {
           "$ref": "#/definitions/U256"
         },
-        "program_id": {
+        "programId": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
-        "program_namespace": {
+        "programNamespace": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
-        "program_owner": {
+        "programOwner": {
           "$ref": "#/definitions/Address"
         },
-        "total_supply": {
+        "totalSupply": {
           "$ref": "#/definitions/U256"
         }
       }
@@ -484,10 +484,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "type": "array",
               "items": [
                 {
@@ -506,10 +506,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "object",
               "additionalProperties": {
                 "type": "string"
@@ -521,10 +521,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "type": "string"
             }
           },
@@ -542,7 +542,7 @@
         "version"
       ],
       "properties": {
-        "account_info": {
+        "accountInfo": {
           "anyOf": [
             {
               "$ref": "#/definitions/Account"
@@ -574,10 +574,10 @@
           "description": "The return type created by the construction method of a contract",
           "type": "object",
           "required": [
-            "Create"
+            "create"
           ],
           "properties": {
-            "Create": {
+            "create": {
               "$ref": "#/definitions/CreateInstruction"
             }
           },
@@ -587,10 +587,10 @@
           "description": "Tells the protocol to update a field, should almost never be used to add balance to a token or add a token id (for Non-fungible or Data tokens) should prrimarily be used to update approvals, allowances, metadata, arbitrary data etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used to lock value",
           "type": "object",
           "required": [
-            "Update"
+            "update"
           ],
           "properties": {
-            "Update": {
+            "update": {
               "$ref": "#/definitions/UpdateInstruction"
             }
           },
@@ -600,10 +600,10 @@
           "description": "Tells the protocol to subtract balance of one address/token pair and add to different address",
           "type": "object",
           "required": [
-            "Transfer"
+            "transfer"
           ],
           "properties": {
-            "Transfer": {
+            "transfer": {
               "$ref": "#/definitions/TransferInstruction"
             }
           },
@@ -613,10 +613,10 @@
           "description": "Tells the protocol to burn a token (amount or id for NFT/Data tokens)",
           "type": "object",
           "required": [
-            "Burn"
+            "burn"
           ],
           "properties": {
-            "Burn": {
+            "burn": {
               "$ref": "#/definitions/BurnInstruction"
             }
           },
@@ -626,10 +626,10 @@
           "description": "Tells the protocol to log something",
           "type": "object",
           "required": [
-            "Log"
+            "log"
           ],
           "properties": {
-            "Log": {
+            "log": {
               "$ref": "#/definitions/LogInstruction"
             }
           },
@@ -642,10 +642,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -654,10 +654,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/Address"
@@ -669,10 +669,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -695,10 +695,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "type": "array",
               "items": [
                 {
@@ -717,10 +717,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "object",
               "additionalProperties": {
                 "type": "string"
@@ -732,10 +732,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "type": "string"
             }
           },
@@ -749,9 +749,9 @@
     "ProgramField": {
       "type": "string",
       "enum": [
-        "LinkedPrograms",
-        "Metadata",
-        "Data"
+        "linkedPrograms",
+        "metadata",
+        "data"
       ]
     },
     "ProgramFieldValue": {
@@ -759,10 +759,10 @@
         {
           "type": "object",
           "required": [
-            "LinkedPrograms"
+            "linkedPrograms"
           ],
           "properties": {
-            "LinkedPrograms": {
+            "linkedPrograms": {
               "$ref": "#/definitions/LinkedProgramsValue"
             }
           },
@@ -771,10 +771,10 @@
         {
           "type": "object",
           "required": [
-            "Metadata"
+            "metadata"
           ],
           "properties": {
-            "Metadata": {
+            "metadata": {
               "$ref": "#/definitions/MetadataValue"
             }
           },
@@ -783,10 +783,10 @@
         {
           "type": "object",
           "required": [
-            "Data"
+            "data"
           ],
           "properties": {
-            "Data": {
+            "data": {
               "$ref": "#/definitions/DataValue"
             }
           },
@@ -830,16 +830,16 @@
     "Status": {
       "type": "string",
       "enum": [
-        "Locked",
-        "Free"
+        "locked",
+        "free"
       ]
     },
     "StatusValue": {
       "type": "string",
       "enum": [
-        "Reverse",
-        "Lock",
-        "Unlock"
+        "reverse",
+        "lock",
+        "unlock"
       ]
     },
     "Token": {
@@ -850,10 +850,10 @@
         "balance",
         "data",
         "metadata",
-        "owner_id",
-        "program_id",
+        "ownerId",
+        "programId",
         "status",
-        "token_ids"
+        "tokenIds"
       ],
       "properties": {
         "allowance": {
@@ -880,16 +880,16 @@
         "metadata": {
           "$ref": "#/definitions/Metadata"
         },
-        "owner_id": {
+        "ownerId": {
           "$ref": "#/definitions/Address"
         },
-        "program_id": {
+        "programId": {
           "$ref": "#/definitions/Address"
         },
         "status": {
           "$ref": "#/definitions/Status"
         },
-        "token_ids": {
+        "tokenIds": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/U256"
@@ -900,10 +900,10 @@
     "TokenDistribution": {
       "type": "object",
       "required": [
-        "program_id",
+        "programId",
         "to",
-        "token_ids",
-        "update_fields"
+        "tokenIds",
+        "updateFields"
       ],
       "properties": {
         "amount": {
@@ -916,19 +916,19 @@
             }
           ]
         },
-        "program_id": {
+        "programId": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
         "to": {
           "$ref": "#/definitions/AddressOrNamespace"
         },
-        "token_ids": {
+        "tokenIds": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/U256"
           }
         },
-        "update_fields": {
+        "updateFields": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/TokenUpdateField"
@@ -939,15 +939,15 @@
     "TokenField": {
       "type": "string",
       "enum": [
-        "ProgramId",
-        "OwnerId",
-        "Balance",
-        "Metadata",
-        "TokenIds",
-        "Allowance",
-        "Approvals",
-        "Data",
-        "Status"
+        "programId",
+        "ownerId",
+        "balance",
+        "metadata",
+        "tokenIds",
+        "allowance",
+        "approvals",
+        "data",
+        "status"
       ]
     },
     "TokenFieldValue": {
@@ -955,10 +955,10 @@
         {
           "type": "object",
           "required": [
-            "Balance"
+            "balance"
           ],
           "properties": {
-            "Balance": {
+            "balance": {
               "$ref": "#/definitions/BalanceValue"
             }
           },
@@ -967,10 +967,10 @@
         {
           "type": "object",
           "required": [
-            "Metadata"
+            "metadata"
           ],
           "properties": {
-            "Metadata": {
+            "metadata": {
               "$ref": "#/definitions/MetadataValue"
             }
           },
@@ -979,10 +979,10 @@
         {
           "type": "object",
           "required": [
-            "TokenIds"
+            "tokenIds"
           ],
           "properties": {
-            "TokenIds": {
+            "tokenIds": {
               "$ref": "#/definitions/TokenIdValue"
             }
           },
@@ -991,10 +991,10 @@
         {
           "type": "object",
           "required": [
-            "Allowance"
+            "allowance"
           ],
           "properties": {
-            "Allowance": {
+            "allowance": {
               "$ref": "#/definitions/AllowanceValue"
             }
           },
@@ -1003,10 +1003,10 @@
         {
           "type": "object",
           "required": [
-            "Approvals"
+            "approvals"
           ],
           "properties": {
-            "Approvals": {
+            "approvals": {
               "$ref": "#/definitions/ApprovalsValue"
             }
           },
@@ -1015,10 +1015,10 @@
         {
           "type": "object",
           "required": [
-            "Data"
+            "data"
           ],
           "properties": {
-            "Data": {
+            "data": {
               "$ref": "#/definitions/DataValue"
             }
           },
@@ -1027,10 +1027,10 @@
         {
           "type": "object",
           "required": [
-            "Status"
+            "status"
           ],
           "properties": {
-            "Status": {
+            "status": {
               "$ref": "#/definitions/StatusValue"
             }
           },
@@ -1043,16 +1043,16 @@
         {
           "type": "string",
           "enum": [
-            "Pop"
+            "pop"
           ]
         },
         {
           "type": "object",
           "required": [
-            "Push"
+            "push"
           ],
           "properties": {
-            "Push": {
+            "push": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1061,10 +1061,10 @@
         {
           "type": "object",
           "required": [
-            "Extend"
+            "extend"
           ],
           "properties": {
-            "Extend": {
+            "extend": {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/U256"
@@ -1076,10 +1076,10 @@
         {
           "type": "object",
           "required": [
-            "Insert"
+            "insert"
           ],
           "properties": {
-            "Insert": {
+            "insert": {
               "type": "array",
               "items": [
                 {
@@ -1100,10 +1100,10 @@
         {
           "type": "object",
           "required": [
-            "Remove"
+            "remove"
           ],
           "properties": {
-            "Remove": {
+            "remove": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1116,10 +1116,10 @@
         {
           "type": "object",
           "required": [
-            "TokenUpdate"
+            "tokenUpdate"
           ],
           "properties": {
-            "TokenUpdate": {
+            "tokenUpdate": {
               "$ref": "#/definitions/TokenUpdate"
             }
           },
@@ -1128,10 +1128,10 @@
         {
           "type": "object",
           "required": [
-            "ProgramUpdate"
+            "programUpdate"
           ],
           "properties": {
-            "ProgramUpdate": {
+            "programUpdate": {
               "$ref": "#/definitions/ProgramUpdate"
             }
           },
@@ -1183,11 +1183,11 @@
         "inputs",
         "nonce",
         "op",
-        "program_id",
+        "programId",
         "r",
         "s",
         "to",
-        "transaction_type",
+        "transactionType",
         "v",
         "value"
       ],
@@ -1211,7 +1211,7 @@
         "op": {
           "type": "string"
         },
-        "program_id": {
+        "programId": {
           "type": "array",
           "items": {
             "type": "integer",
@@ -1251,7 +1251,7 @@
           "maxItems": 20,
           "minItems": 20
         },
-        "transaction_type": {
+        "transactionType": {
           "$ref": "#/definitions/TransactionType"
         },
         "v": {
@@ -1268,10 +1268,10 @@
         {
           "type": "object",
           "required": [
-            "BridgeIn"
+            "bridgeIn"
           ],
           "properties": {
-            "BridgeIn": {
+            "bridgeIn": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1280,10 +1280,10 @@
         {
           "type": "object",
           "required": [
-            "Send"
+            "send"
           ],
           "properties": {
-            "Send": {
+            "send": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1292,10 +1292,10 @@
         {
           "type": "object",
           "required": [
-            "Call"
+            "call"
           ],
           "properties": {
-            "Call": {
+            "call": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1304,10 +1304,10 @@
         {
           "type": "object",
           "required": [
-            "BridgeOut"
+            "bridgeOut"
           ],
           "properties": {
-            "BridgeOut": {
+            "bridgeOut": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -1316,10 +1316,10 @@
         {
           "type": "object",
           "required": [
-            "RegisterProgram"
+            "registerProgram"
           ],
           "properties": {
-            "RegisterProgram": {
+            "registerProgram": {
               "$ref": "#/definitions/U256"
             }
           },

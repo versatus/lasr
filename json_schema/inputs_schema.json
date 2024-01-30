@@ -10,7 +10,7 @@
     "version"
   ],
   "properties": {
-    "account_info": {
+    "accountInfo": {
       "anyOf": [
         {
           "$ref": "#/definitions/Account"
@@ -39,38 +39,38 @@
       "description": "Represents an LASR account.\n\nThis structure contains details of an LASR account, including its address, associated programs, nonce, signatures, hashes, and certificates. It implements traits for serialization, hashing, and comparison.",
       "type": "object",
       "required": [
-        "account_type",
+        "accountType",
         "nonce",
-        "owner_address",
-        "program_account_data",
-        "program_account_linked_programs",
-        "program_account_metadata",
+        "ownerAddress",
+        "programAccountData",
+        "programAccountLinkedPrograms",
+        "programAccountMetadata",
         "programs"
       ],
       "properties": {
-        "account_type": {
+        "accountType": {
           "$ref": "#/definitions/AccountType"
         },
         "nonce": {
           "$ref": "#/definitions/U256"
         },
-        "owner_address": {
+        "ownerAddress": {
           "$ref": "#/definitions/Address"
         },
-        "program_account_data": {
+        "programAccountData": {
           "$ref": "#/definitions/ArbitraryData"
         },
-        "program_account_linked_programs": {
+        "programAccountLinkedPrograms": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/AddressOrNamespace"
           },
           "uniqueItems": true
         },
-        "program_account_metadata": {
+        "programAccountMetadata": {
           "$ref": "#/definitions/Metadata"
         },
-        "program_namespace": {
+        "programNamespace": {
           "anyOf": [
             {
               "$ref": "#/definitions/AddressOrNamespace"
@@ -93,16 +93,16 @@
         {
           "type": "string",
           "enum": [
-            "User"
+            "user"
           ]
         },
         {
           "type": "object",
           "required": [
-            "Program"
+            "program"
           ],
           "properties": {
-            "Program": {
+            "program": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -126,16 +126,16 @@
         {
           "type": "string",
           "enum": [
-            "This"
+            "this"
           ]
         },
         {
           "type": "object",
           "required": [
-            "Address"
+            "address"
           ],
           "properties": {
-            "Address": {
+            "address": {
               "$ref": "#/definitions/Address"
             }
           },
@@ -144,10 +144,10 @@
         {
           "type": "object",
           "required": [
-            "Namespace"
+            "namespace"
           ],
           "properties": {
-            "Namespace": {
+            "namespace": {
               "$ref": "#/definitions/Namespace"
             }
           },
@@ -175,8 +175,8 @@
     "Status": {
       "type": "string",
       "enum": [
-        "Locked",
-        "Free"
+        "locked",
+        "free"
       ]
     },
     "Token": {
@@ -187,10 +187,10 @@
         "balance",
         "data",
         "metadata",
-        "owner_id",
-        "program_id",
+        "ownerId",
+        "programId",
         "status",
-        "token_ids"
+        "tokenIds"
       ],
       "properties": {
         "allowance": {
@@ -217,16 +217,16 @@
         "metadata": {
           "$ref": "#/definitions/Metadata"
         },
-        "owner_id": {
+        "ownerId": {
           "$ref": "#/definitions/Address"
         },
-        "program_id": {
+        "programId": {
           "$ref": "#/definitions/Address"
         },
         "status": {
           "$ref": "#/definitions/Status"
         },
-        "token_ids": {
+        "tokenIds": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/U256"
@@ -241,11 +241,11 @@
         "inputs",
         "nonce",
         "op",
-        "program_id",
+        "programId",
         "r",
         "s",
         "to",
-        "transaction_type",
+        "transactionType",
         "v",
         "value"
       ],
@@ -269,7 +269,7 @@
         "op": {
           "type": "string"
         },
-        "program_id": {
+        "programId": {
           "type": "array",
           "items": {
             "type": "integer",
@@ -309,7 +309,7 @@
           "maxItems": 20,
           "minItems": 20
         },
-        "transaction_type": {
+        "transactionType": {
           "$ref": "#/definitions/TransactionType"
         },
         "v": {
@@ -326,10 +326,10 @@
         {
           "type": "object",
           "required": [
-            "BridgeIn"
+            "bridgeIn"
           ],
           "properties": {
-            "BridgeIn": {
+            "bridgeIn": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -338,10 +338,10 @@
         {
           "type": "object",
           "required": [
-            "Send"
+            "send"
           ],
           "properties": {
-            "Send": {
+            "send": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -350,10 +350,10 @@
         {
           "type": "object",
           "required": [
-            "Call"
+            "call"
           ],
           "properties": {
-            "Call": {
+            "call": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -362,10 +362,10 @@
         {
           "type": "object",
           "required": [
-            "BridgeOut"
+            "bridgeOut"
           ],
           "properties": {
-            "BridgeOut": {
+            "bridgeOut": {
               "$ref": "#/definitions/U256"
             }
           },
@@ -374,10 +374,10 @@
         {
           "type": "object",
           "required": [
-            "RegisterProgram"
+            "registerProgram"
           ],
           "properties": {
-            "RegisterProgram": {
+            "registerProgram": {
               "$ref": "#/definitions/U256"
             }
           },
