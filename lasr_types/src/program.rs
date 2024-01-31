@@ -1,5 +1,7 @@
 use crate::account::Address;
 use crate::certificate::{Certificate, RecoverableSignature};
+use crate::{AddressOrNamespace, ProgramField, ProgramFieldValue};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -60,4 +62,48 @@ pub struct ContractBlob {
     registeration_certificate: Certificate,
     statics: BTreeMap<StaticTopicHash, StaticValue>,
     constants: BTreeMap<ConstantTopicHash, ConstantValue>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgramUpdate {
+    account: AddressOrNamespace,
+    updates: Vec<ProgramUpdateField>,
+}
+
+impl ProgramUpdate {
+    pub fn new(account: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
+        Self { account, updates }
+    }
+
+    pub fn account(&self) -> &AddressOrNamespace {
+        &self.account
+    }
+
+    pub fn updates(&self) -> &Vec<ProgramUpdateField> {
+        &self.updates
+    }
+}
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgramUpdateField {
+    field: ProgramField,
+    value: ProgramFieldValue,
+}
+
+impl ProgramUpdateField {
+    pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
+        Self { field, value }
+    }
+
+    pub fn field(&self) -> &ProgramField {
+        &self.field
+    }
+
+    pub fn value(&self) -> &ProgramFieldValue {
+        &self.value
+    }
 }

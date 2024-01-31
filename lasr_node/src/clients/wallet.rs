@@ -1,10 +1,13 @@
 #![allow(unused)]
 use crate::{
-    Account, Address, LasrRpcClient, PayloadBuilder, RecoverableSignature, Token, Transaction,
-    TransactionType,
+    LasrRpcClient, 
 };
 use bip39::{Language, Mnemonic};
 use ethereum_types::U256;
+use lasr_types::{
+    Account, Address, PayloadBuilder, RecoverableSignature, Token, Transaction,
+    TransactionType,
+};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use secp256k1::{
     hashes::{sha256, Hash},
@@ -116,7 +119,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self,
         to: &Address,
         program_id: &Address,
-        value: crate::U256,
+        value: lasr_types::U256,
     ) -> WalletResult<Token> {
         let account = self.account();
         let address = self.address();
@@ -124,7 +127,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         account.validate_balance(program_id, value)?;
 
         let tx_nonce =
-            { crate::U256::from(account.nonce() + ethereum_types::U256::from(1).into()) };
+            { lasr_types::U256::from(account.nonce() + ethereum_types::U256::from(1).into()) };
         let payload = self
             .builder
             .transaction_type(TransactionType::Send(account.nonce()))
@@ -166,7 +169,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self,
         program_id: &Address,
         to: &Address,
-        value: crate::U256,
+        value: lasr_types::U256,
         op: &String,
         inputs: &String,
     ) -> WalletResult<Account> {

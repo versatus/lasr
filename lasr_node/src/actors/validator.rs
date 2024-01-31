@@ -1,9 +1,12 @@
 use std::{collections::HashMap, fmt::Display};
 
+use lasr_types::{
+    Account, AddressOrNamespace, TokenFieldValue, Transaction, TransactionType,
+};
 use crate::{
-    check_account_cache, check_da_for_account, Account, ActorType, AddressOrNamespace,
-    BatcherMessage, Instruction, Outputs, PendingTransactionMessage, TokenFieldValue,
-    TokenOrProgramUpdate, Transaction, TransactionType,
+    check_account_cache, check_da_for_account, ActorType, 
+    BatcherMessage, Instruction, Outputs, PendingTransactionMessage, 
+    TokenOrProgramUpdate, 
 };
 use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef};

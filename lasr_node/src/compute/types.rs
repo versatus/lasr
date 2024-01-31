@@ -1,6 +1,6 @@
-use crate::{
-    Account, Address, Certificate, Namespace, ProgramField, ProgramFieldValue, TokenField,
-    TokenFieldValue, TokenWitness, Transaction, TransactionFields,
+use lasr_types::{
+    Account, Address, AddressOrNamespace, Certificate, ProgramUpdate, ProgramUpdateField,
+    TokenField, TokenUpdateField, TokenWitness, Transaction, TransactionFields,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -97,22 +97,12 @@ pub struct ReadParams {
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum AddressOrNamespace {
-    Address(Address),
-    Namespace(Namespace),
-    This,
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
     program_id: AddressOrNamespace,
     program_owner: Address,
-    total_supply: crate::U256,
-    initialized_supply: crate::U256,
+    total_supply: lasr_types::U256,
+    initialized_supply: lasr_types::U256,
     distribution: Vec<TokenDistribution>,
 }
 
@@ -143,11 +133,11 @@ impl CreateInstruction {
         &self.program_owner
     }
 
-    pub fn total_supply(&self) -> &crate::U256 {
+    pub fn total_supply(&self) -> &lasr_types::U256 {
         &self.total_supply
     }
 
-    pub fn initialized_supply(&self) -> &crate::U256 {
+    pub fn initialized_supply(&self) -> &lasr_types::U256 {
         &self.initialized_supply
     }
 
@@ -163,8 +153,8 @@ impl CreateInstruction {
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
-    amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>,
+    amount: Option<lasr_types::U256>,
+    token_ids: Vec<lasr_types::U256>,
     update_fields: Vec<TokenUpdateField>,
 }
 impl TokenDistribution {
@@ -176,11 +166,11 @@ impl TokenDistribution {
         &self.to
     }
 
-    pub fn amount(&self) -> &Option<crate::U256> {
+    pub fn amount(&self) -> &Option<lasr_types::U256> {
         &self.amount
     }
 
-    pub fn token_ids(&self) -> &Vec<crate::U256> {
+    pub fn token_ids(&self) -> &Vec<lasr_types::U256> {
         &self.token_ids
     }
 
@@ -205,48 +195,6 @@ pub enum TokenOrProgramUpdate {
     ProgramUpdate(ProgramUpdate),
 }
 
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenUpdateField {
-    field: TokenField,
-    value: TokenFieldValue,
-}
-
-impl TokenUpdateField {
-    pub fn field(&self) -> &TokenField {
-        &self.field
-    }
-
-    pub(crate) fn value(&self) -> &TokenFieldValue {
-        &self.value
-    }
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct ProgramUpdateField {
-    field: ProgramField,
-    value: ProgramFieldValue,
-}
-
-impl ProgramUpdateField {
-    pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
-        Self { field, value }
-    }
-
-    pub fn field(&self) -> &ProgramField {
-        &self.field
-    }
-
-    pub fn value(&self) -> &ProgramFieldValue {
-        &self.value
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstruction {
@@ -266,7 +214,7 @@ impl UpdateInstruction {
                     accounts_involved.push(token_update.account.clone())
                 }
                 TokenOrProgramUpdate::ProgramUpdate(program_update) => {
-                    accounts_involved.push(program_update.account.clone())
+                    accounts_involved.push(program_update.account().clone())
                 }
             }
         }
@@ -302,33 +250,12 @@ impl TokenUpdate {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ProgramUpdate {
-    account: AddressOrNamespace,
-    updates: Vec<ProgramUpdateField>,
-}
-
-impl ProgramUpdate {
-    pub fn new(account: AddressOrNamespace, updates: Vec<ProgramUpdateField>) -> Self {
-        Self { account, updates }
-    }
-
-    pub fn account(&self) -> &AddressOrNamespace {
-        &self.account
-    }
-
-    pub fn updates(&self) -> &Vec<ProgramUpdateField> {
-        &self.updates
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
 pub struct TransferInstruction {
     token: Address,
     from: AddressOrNamespace,
     to: AddressOrNamespace,
-    amount: Option<crate::U256>,
-    ids: Vec<crate::U256>,
+    amount: Option<lasr_types::U256>,
+    ids: Vec<lasr_types::U256>,
 }
 
 impl TransferInstruction {
@@ -336,8 +263,8 @@ impl TransferInstruction {
         token: Address,
         from: AddressOrNamespace,
         to: AddressOrNamespace,
-        amount: Option<crate::U256>,
-        ids: Vec<crate::U256>,
+        amount: Option<lasr_types::U256>,
+        ids: Vec<lasr_types::U256>,
     ) -> Self {
         Self {
             token,
@@ -364,11 +291,11 @@ impl TransferInstruction {
         &self.to
     }
 
-    pub fn amount(&self) -> &Option<crate::U256> {
+    pub fn amount(&self) -> &Option<lasr_types::U256> {
         &self.amount
     }
 
-    pub fn ids(&self) -> &Vec<crate::U256> {
+    pub fn ids(&self) -> &Vec<lasr_types::U256> {
         &self.ids
     }
 
@@ -403,8 +330,8 @@ pub struct BurnInstruction {
     program_id: AddressOrNamespace,
     token: Address,
     from: AddressOrNamespace,
-    amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>,
+    amount: Option<lasr_types::U256>,
+    token_ids: Vec<lasr_types::U256>,
 }
 
 impl BurnInstruction {
@@ -428,11 +355,11 @@ impl BurnInstruction {
         &self.from
     }
 
-    pub fn amount(&self) -> &Option<crate::U256> {
+    pub fn amount(&self) -> &Option<lasr_types::U256> {
         &self.amount
     }
 
-    pub fn token_ids(&self) -> &Vec<crate::U256> {
+    pub fn token_ids(&self) -> &Vec<lasr_types::U256> {
         &self.token_ids
     }
 }

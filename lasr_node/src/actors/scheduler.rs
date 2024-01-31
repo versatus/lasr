@@ -8,12 +8,13 @@ use super::{
     types::ActorType,
 };
 use crate::{
-    account::Address, check_account_cache, check_da_for_account, create_handler,
-    AccountCacheMessage, RecoverableSignature, Transaction, TransactionResponse,
+    check_account_cache, check_da_for_account, create_handler, AccountCacheMessage,
+    TransactionResponse,
 };
 use async_trait::async_trait;
 use ethereum_types::U256;
 use jsonrpsee::core::Error as RpcError;
+use lasr_types::{Address, Transaction};
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::{collections::HashMap, fmt::Display};
 use thiserror::*;

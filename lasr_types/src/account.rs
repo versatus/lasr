@@ -1,6 +1,6 @@
 use crate::{
-    AccountCacheError, AddressOrNamespace, ArbitraryData, DataValue, Metadata, MetadataValue,
-    ProgramUpdate, ToTokenError, Token, TokenBuilder, TokenUpdateField, Transaction,
+    ArbitraryData, DataValue, Metadata, MetadataValue, ProgramUpdate, ToTokenError, Token,
+    TokenBuilder, TokenUpdateField, Transaction,
 };
 use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
@@ -15,6 +15,17 @@ use std::{
     hash::Hash,
     str::FromStr,
 };
+use thiserror::Error;
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum AddressOrNamespace {
+    Address(Address),
+    Namespace(Namespace),
+    This,
+}
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
 
@@ -77,6 +88,21 @@ impl<'de> Deserialize<'de> for Address {
         D: Deserializer<'de>,
     {
         deserializer.deserialize_any(AddressVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Error)]
+pub struct AccountCacheError;
+
+impl Display for AccountCacheError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Default for AccountCacheError {
+    fn default() -> Self {
+        AccountCacheError
     }
 }
 
@@ -365,10 +391,7 @@ impl Account {
         return U256::from(0).into();
     }
 
-    pub(crate) fn apply_send_transaction(
-        &mut self,
-        transaction: Transaction,
-    ) -> AccountResult<Token> {
+    pub fn apply_send_transaction(&mut self, transaction: Transaction) -> AccountResult<Token> {
         if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
             let new_token: Token = (token.clone(), transaction).try_into()?;
             *token = new_token;
@@ -392,7 +415,7 @@ impl Account {
         )));
     }
 
-    pub(crate) fn apply_transfer_to_instruction(
+    pub fn apply_transfer_to_instruction(
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
@@ -435,7 +458,7 @@ impl Account {
         }
     }
 
-    pub(crate) fn apply_transfer_from_instruction(
+    pub fn apply_transfer_from_instruction(
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
@@ -458,7 +481,7 @@ impl Account {
         )));
     }
 
-    pub(crate) fn apply_burn_instruction(
+    pub fn apply_burn_instruction(
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
@@ -483,7 +506,7 @@ impl Account {
         )));
     }
 
-    pub(crate) fn apply_token_distribution(
+    pub fn apply_token_distribution(
         &mut self,
         program_id: &Address,
         amount: &Option<crate::U256>,
@@ -544,7 +567,7 @@ impl Account {
         }
     }
 
-    pub(crate) fn apply_token_update(
+    pub fn apply_token_update(
         &mut self,
         program_id: &Address,
         updates: &Vec<TokenUpdateField>,
@@ -643,7 +666,7 @@ impl Account {
         Ok(())
     }
 
-    pub(crate) fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
+    pub fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
         let _program_addr = if let AccountType::Program(program_addr) = self.account_type() {
             program_addr
         } else {
@@ -660,11 +683,11 @@ impl Account {
         Ok(())
     }
 
-    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
+    pub fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
         self.programs.insert(program_id.clone(), token)
     }
 
-    pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
+    pub fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
         if let Some(_token) = self.programs.get(program_id) {
             return Ok(());
         }
@@ -672,11 +695,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn validate_balance(
-        &self,
-        program_id: &Address,
-        amount: crate::U256,
-    ) -> AccountResult<()> {
+    pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if token.balance() >= amount {
                 return Ok(());
@@ -686,7 +705,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn validate_token_ownership(
+    pub fn validate_token_ownership(
         &self,
         program_id: &Address,
         token_ids: &Vec<crate::U256>,
@@ -703,7 +722,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn validate_approved_spend(
+    pub fn validate_approved_spend(
         &self,
         program_id: &Address,
         spender: &Address,
@@ -732,7 +751,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn validate_approved_token_transfer(
+    pub fn validate_approved_token_transfer(
         &self,
         program_id: &Address,
         spender: &Address,
@@ -761,7 +780,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
+    pub fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
         log::info!("checking nonce: {nonce} > {}", self.nonce);
         if self.nonce == crate::U256::from(ethereum_types::U256::from(0))
             && nonce == crate::U256::from(ethereum_types::U256::from(0))
@@ -774,7 +793,7 @@ impl Account {
         return Err(Box::new(AccountCacheError));
     }
 
-    pub(crate) fn increment_nonce(&mut self) {
+    pub fn increment_nonce(&mut self) {
         let new_nonce = U256::from(self.nonce) + U256::from(1);
         self.nonce = new_nonce.into();
     }

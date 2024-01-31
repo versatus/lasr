@@ -26,13 +26,21 @@ use tokio::{
 };
 use web3::types::BlockNumber;
 
+use lasr_types::{
+    program, Account, AccountBuilder, 
+    AccountType, Address, AddressOrNamespace, ArbitraryData, 
+    Metadata, Namespace,
+    ProgramAccount, ProgramUpdate,
+    Transaction, TransactionType,
+    U256,
+};
 use crate::{
-    get_account, handle_actor_response, program, Account, AccountBuilder, AccountCacheMessage,
-    AccountType, ActorType, Address, AddressOrNamespace, ArbitraryData, BatcherMessage,
-    BurnInstruction, ContractLogType, DaClientMessage, EoMessage, Instruction, Metadata, Namespace,
-    Outputs, PendingTransactionMessage, ProgramAccount, ProgramUpdate, SchedulerMessage,
-    TokenDistribution, TokenOrProgramUpdate, TokenUpdate, Transaction, TransactionType,
-    TransferInstruction, UpdateInstruction, U256,
+    get_account, handle_actor_response, AccountCacheMessage,
+     ActorType,  BatcherMessage,
+    BurnInstruction, ContractLogType, DaClientMessage, EoMessage, Instruction, 
+    Outputs, PendingTransactionMessage,  SchedulerMessage,
+    TokenDistribution, TokenOrProgramUpdate, TokenUpdate,
+    TransferInstruction, UpdateInstruction, 
 };
 
 const BATCH_INTERVAL: u64 = 180;
@@ -353,7 +361,7 @@ impl Batcher {
                 transaction.from()
             );
             let mut account = AccountBuilder::default()
-                .account_type(crate::AccountType::User)
+                .account_type(AccountType::User)
                 .program_namespace(None)
                 .owner_address(transaction.from())
                 .programs(BTreeMap::new())
@@ -389,7 +397,7 @@ impl Batcher {
                     transaction.to()
                 );
                 let mut account = AccountBuilder::default()
-                    .account_type(crate::AccountType::User)
+                    .account_type(AccountType::User)
                     .program_namespace(None)
                     .owner_address(transaction.to())
                     .programs(BTreeMap::new())
@@ -541,10 +549,10 @@ impl Batcher {
             match to {
                 AddressOrNamespace::Address(address) => {
                     let mut account = AccountBuilder::default()
-                        .account_type(crate::AccountType::User)
+                        .account_type(lasr_types::AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(lasr_types::U256::from(ethereum_types::U256::from(0)))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -644,7 +652,7 @@ impl Batcher {
                         .account_type(AccountType::Program(transaction.to()))
                         .program_namespace(None)
                         .owner_address(transaction.from())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(lasr_types::U256::from(ethereum_types::U256::from(0)))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -687,7 +695,7 @@ impl Batcher {
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(to_addr.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(lasr_types::U256::from(ethereum_types::U256::from(0)))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -767,7 +775,7 @@ impl Batcher {
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(lasr_types::U256::from(ethereum_types::U256::from(0)))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -825,7 +833,7 @@ impl Batcher {
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(lasr_types::U256::from(ethereum_types::U256::from(0)))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())

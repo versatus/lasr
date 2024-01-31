@@ -1,9 +1,10 @@
 use crate::{
     ActorType, EngineMessage, ExecutorMessage, Inputs, OciManager, ProgramSchema, Required,
-    SchedulerMessage, Transaction,
+    SchedulerMessage,
 };
 use async_trait::async_trait;
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
+use lasr_types::Transaction;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path, str::FromStr, time::Duration};

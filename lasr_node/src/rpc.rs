@@ -1,6 +1,6 @@
-use crate::Transaction;
 use jsonrpsee::core::Error;
 use jsonrpsee::proc_macros::rpc;
+use lasr_types::Transaction;
 
 #[rpc(client, server, namespace = "lasr")]
 #[async_trait::async_trait]

@@ -305,7 +305,7 @@ pub struct Token {
 }
 
 impl Token {
-    pub(crate) fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
         if amount > &self.balance {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -317,7 +317,7 @@ impl Token {
         return Ok(());
     }
 
-    pub(crate) fn credit(
+    pub fn credit(
         &mut self,
         amount: &U256,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -325,7 +325,7 @@ impl Token {
         return Ok(());
     }
 
-    pub(crate) fn remove_token_ids(
+    pub fn remove_token_ids(
         &mut self,
         token_ids: &Vec<U256>,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -348,7 +348,7 @@ impl Token {
         Ok(())
     }
 
-    pub(crate) fn add_token_ids(
+    pub fn add_token_ids(
         &mut self,
         token_ids: &Vec<U256>,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -356,7 +356,7 @@ impl Token {
         Ok(())
     }
 
-    pub(crate) fn apply_token_update_field_values(
+    pub fn apply_token_update_field_values(
         &mut self,
         token_update_value: &TokenFieldValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -525,6 +525,122 @@ impl Token {
     }
 }
 
+impl Token {
+    pub fn program_id(&self) -> Address {
+        self.program_id.clone()
+    }
+
+    pub fn owner_id(&self) -> Address {
+        self.owner_id.clone()
+    }
+
+    pub fn balance(&self) -> U256 {
+        self.balance.clone()
+    }
+
+    pub fn metadata(&self) -> Metadata {
+        self.metadata.clone()
+    }
+
+    pub fn token_ids(&self) -> Vec<U256> {
+        self.token_ids.clone()
+    }
+
+    pub fn allowance(&self) -> BTreeMap<Address, U256> {
+        self.allowance.clone()
+    }
+
+    pub fn approvals(&self) -> BTreeMap<Address, Vec<U256>> {
+        self.approvals.clone()
+    }
+
+    pub fn data(&self) -> ArbitraryData {
+        self.data.clone()
+    }
+
+    pub fn status(&self) -> Status {
+        self.status.clone()
+    }
+
+    pub fn update_balance(&mut self, receive: U256, send: U256) {
+        self.balance += receive;
+        self.balance -= send;
+    }
+}
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum Status {
+    Locked,
+    Free,
+}
+
+impl AddAssign for Token {
+    fn add_assign(&mut self, rhs: Self) {
+        let new_balance = EthU256::from(self.balance) + EthU256::from(rhs.balance());
+        self.balance = new_balance.into();
+    }
+}
+
+impl SubAssign for Token {
+    fn sub_assign(&mut self, rhs: Self) {
+        let new_balance: EthU256 = EthU256::from(self.balance) - EthU256::from(rhs.balance());
+        self.balance = new_balance.into();
+    }
+}
+
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenWitness {
+    user: Address,
+    token: Address,
+    init: Token,
+    transactions: TransactionGraph,
+    finalized: Box<Token>,
+    sig: RecoverableSignature,
+    version: String,
+}
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionGraph {
+    transactions: BTreeMap<[u8; 32], GraphEntry>,
+}
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphEntry {
+    transaction: Transaction,
+    dependencies: Vec<[u8; 32]>,
+}
+
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUpdateField {
+    field: TokenField,
+    value: TokenFieldValue,
+}
+
+impl TokenUpdateField {
+    pub fn field(&self) -> &TokenField {
+        &self.field
+    }
+
+    pub fn value(&self) -> &TokenFieldValue {
+        &self.value
+    }
+}
+
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -626,101 +742,4 @@ pub enum StatusValue {
     Reverse,
     Lock,
     Unlock,
-}
-
-impl Token {
-    pub fn program_id(&self) -> Address {
-        self.program_id.clone()
-    }
-
-    pub fn owner_id(&self) -> Address {
-        self.owner_id.clone()
-    }
-
-    pub fn balance(&self) -> U256 {
-        self.balance.clone()
-    }
-
-    pub fn metadata(&self) -> Metadata {
-        self.metadata.clone()
-    }
-
-    pub fn token_ids(&self) -> Vec<U256> {
-        self.token_ids.clone()
-    }
-
-    pub fn allowance(&self) -> BTreeMap<Address, U256> {
-        self.allowance.clone()
-    }
-
-    pub fn approvals(&self) -> BTreeMap<Address, Vec<U256>> {
-        self.approvals.clone()
-    }
-
-    pub fn data(&self) -> ArbitraryData {
-        self.data.clone()
-    }
-
-    pub fn status(&self) -> Status {
-        self.status.clone()
-    }
-
-    pub fn update_balance(&mut self, receive: U256, send: U256) {
-        self.balance += receive;
-        self.balance -= send;
-    }
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub enum Status {
-    Locked,
-    Free,
-}
-
-impl AddAssign for Token {
-    fn add_assign(&mut self, rhs: Self) {
-        let new_balance = EthU256::from(self.balance) + EthU256::from(rhs.balance());
-        self.balance = new_balance.into();
-    }
-}
-
-impl SubAssign for Token {
-    fn sub_assign(&mut self, rhs: Self) {
-        let new_balance: EthU256 = EthU256::from(self.balance) - EthU256::from(rhs.balance());
-        self.balance = new_balance.into();
-    }
-}
-
-#[derive(
-    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenWitness {
-    user: Address,
-    token: Address,
-    init: Token,
-    transactions: TransactionGraph,
-    finalized: Box<Token>,
-    sig: RecoverableSignature,
-    version: String,
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct TransactionGraph {
-    transactions: BTreeMap<[u8; 32], GraphEntry>,
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphEntry {
-    transaction: Transaction,
-    dependencies: Vec<[u8; 32]>,
 }

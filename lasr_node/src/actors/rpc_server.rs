@@ -5,10 +5,9 @@ use super::{
     messages::{RpcMessage, SchedulerMessage, TransactionResponse},
     types::{ActorType, RpcRequestMethod},
 };
-use crate::{
-    actors::handle_actor_response, create_handler, rpc::LasrRpcServer, Address, Transaction,
-};
+use crate::{actors::handle_actor_response, create_handler, rpc::LasrRpcServer};
 use jsonrpsee::core::Error as RpcError;
+use lasr_types::{Address, Transaction};
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 
 #[allow(unused)]

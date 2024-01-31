@@ -1,5 +1,5 @@
 [package]
-name = "lasr"
+name = "lasr_node"
 version = "0.1.0"
 edition = "2021"
 
@@ -42,6 +42,9 @@ name = "blackjack"
 path = "examples/contract/blackjack/blackjack.rs"
 
 [dependencies]
+lasr_da = { path = "../lasr_da" }
+lasr_eo = { path = "../lasr_eo" }
+lasr_types = { path = "../lasr_types" }
 secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }
 ethereum-types = "0.14.1"
 web3 = "0.19.0"
@@ -64,8 +67,6 @@ bincode = "1.3.3"
 derive_builder = "0.12.0"
 sha3 = "0.10.8"
 hex = "0.4.3"
-lasr_da = { path = "../lasr_da" }
-lasr_eo = { path = "../lasr_eo" }
 ractor = { version = "0.9.3", features = [ "async-std", "cluster" ]}
 ractor_cluster_derive = "0.9.3"
 ractor_cluster = "0.9.3"

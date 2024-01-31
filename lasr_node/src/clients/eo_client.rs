@@ -19,7 +19,8 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use crate::{ActorType, Address, EoMessage, EoServerError, HashOrError};
+use crate::{ActorType, EoMessage, EoServerError, HashOrError};
+use lasr_types::Address;
 
 #[derive(Clone, Debug)]
 pub struct EoClientActor;
@@ -380,11 +381,11 @@ impl Actor for EoClientActor {
                     let holdings = state
                         .get_erc721_holdings(program_id.into(), address.into())
                         .await;
-                    let holdings: Option<Vec<crate::U256>> = if let Some(h) = holdings {
+                    let holdings: Option<Vec<lasr_types::U256>> = if let Some(h) = holdings {
                         Some(
                             h.iter()
                                 .map(|eth_u256| {
-                                    let internal_u256: crate::U256 = eth_u256.into();
+                                    let internal_u256: lasr_types::U256 = eth_u256.into();
                                     internal_u256
                                 })
                                 .collect(),

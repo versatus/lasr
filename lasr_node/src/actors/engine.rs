@@ -5,11 +5,9 @@ use std::{
 };
 
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, handle_actor_response, Account,
-    AccountCacheMessage, AccountType, Address, AddressOrNamespace, ArbitraryData, BridgeEvent,
-    DaClientMessage, EoMessage, ExecutorMessage, Metadata, Outputs, PendingTransactionMessage,
-    RecoverableSignature, SchedulerMessage, Status, Token, TokenBuilder, Transaction,
-    TransactionBuilder, TransactionType, ValidatorMessage,
+    check_account_cache, check_da_for_account, create_handler, handle_actor_response,
+    AccountCacheMessage, BridgeEvent, DaClientMessage, EoMessage, ExecutorMessage, Outputs,
+    PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
 };
 use async_trait::async_trait;
 use ethereum_types::{H256, U256};
@@ -19,6 +17,11 @@ use futures::{
 };
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use lasr_da::payload::EigenDaBlobPayload;
+use lasr_types::{
+    Account, AccountType, Address, AddressOrNamespace, ArbitraryData, Metadata,
+    RecoverableSignature, Status, Token, TokenBuilder, Transaction, TransactionBuilder,
+    TransactionType,
+};
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
     Actor, ActorProcessingErr, ActorRef,

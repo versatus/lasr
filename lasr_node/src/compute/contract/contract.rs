@@ -1,4 +1,5 @@
-use crate::{AddressOrNamespace, Instruction, U256};
+use crate::Instruction;
+use lasr_types::{AddressOrNamespace, U256};
 pub trait PayableContract {
     fn receive_payment(
         from: AddressOrNamespace,

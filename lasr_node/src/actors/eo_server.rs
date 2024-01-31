@@ -1,10 +1,11 @@
 #![allow(unused)]
 use std::fmt::Display;
 
-use crate::{create_handler, Account, Address, Token};
+use crate::create_handler;
 use async_trait::async_trait;
 use jsonrpsee::core::Error as RpcError;
 use lasr_eo::{EoServer as InnerEoServer, EventType};
+use lasr_types::{Account, Address, Token};
 use ractor::{
     concurrency::{oneshot, OneshotSender},
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,

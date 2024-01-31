@@ -1,33 +1,15 @@
-use crate::{
-    Account, AccountCacheMessage, Address, RpcMessage, RpcResponseError, TransactionResponse,
-};
+use crate::{AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
+use lasr_types::{Account, AccountCacheError, Address};
 use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef};
 use std::{
     collections::HashMap,
-    fmt::Display,
     time::{Duration, Instant},
 };
-use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct AccountCacheActor;
-
-#[derive(Debug, Clone, Error)]
-pub struct AccountCacheError;
-
-impl Display for AccountCacheError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl Default for AccountCacheError {
-    fn default() -> Self {
-        AccountCacheError
-    }
-}
 
 #[allow(unused)]
 #[derive(Debug)]
@@ -80,7 +62,7 @@ impl AccountCache {
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         match account.account_type() {
-            crate::AccountType::User => {
+            lasr_types::AccountType::User => {
                 let address = account.owner_address();
                 if let Some(entry) = self.cache.get_mut(&address) {
                     log::info!("Found account: 0x{:x} in cache, updating...", &address);
@@ -98,7 +80,7 @@ impl AccountCache {
                     );
                 }
             }
-            crate::AccountType::Program(program_address) => {
+            lasr_types::AccountType::Program(program_address) => {
                 if let Some(_entry) = self.cache.get_mut(&program_address) {
                     log::info!(
                         "Found program_account: 0x{:x} in cache, updating...",

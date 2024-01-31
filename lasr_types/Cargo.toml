@@ -9,3 +9,18 @@ path = "src/lib.rs"
 
 [dependencies]
 secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }
+ethereum-types = "0.14.1"
+serde = { version = "1.0.192", features = [ "derive" ] } 
+serde_json = "1.0.108"
+bincode = "1.3.3"
+derive_builder = "0.12.0"
+hex = "0.4.3"
+schemars = "0.8.16"
+sha3 = "0.10.8"
+thiserror = "1.0.50"
+log = "0.4.20"
+simple_logger = "4.3.0"
+
+[dev-dependencies]
+simple_logger = "4.3.0"
+

@@ -1,8 +1,6 @@
-use crate::{
-    ActorType, Address, AddressOrNamespace, Outputs, PendingTransactionMessage, Transaction,
-    TransactionType, ValidatorMessage,
-};
+use crate::{ActorType, Outputs, PendingTransactionMessage, ValidatorMessage};
 use async_trait::async_trait;
+use lasr_types::{Address, AddressOrNamespace, Transaction, TransactionType};
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

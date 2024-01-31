@@ -29,7 +29,7 @@ pub use validator::*;
 use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::ActorRef;
 
-use crate::{Account, Address};
+use lasr_types::{Account, AccountCacheError, Address};
 
 #[macro_export]
 macro_rules! create_handler {

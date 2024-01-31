@@ -1,4 +1,5 @@
-use crate::{ActorType, Address, BlobCacheMessage, DaClientMessage, Transaction};
+use lasr_types::{Address, Transaction};
+use crate::{ActorType, BlobCacheMessage, DaClientMessage};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_da::proof::BlobVerificationProof;

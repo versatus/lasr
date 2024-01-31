@@ -1,4 +1,5 @@
-use crate::{ActorType, ExecutorMessage, Inputs, ProgramSchema, Transaction};
+use crate::{ActorType, ExecutorMessage, Inputs, ProgramSchema};
+use lasr_types::Transaction;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use ractor::ActorRef;
 use std::io::Read;

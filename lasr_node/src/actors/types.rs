@@ -1,4 +1,4 @@
-use crate::{Address, Transaction};
+use lasr_types::{Address, Transaction};
 
 use serde::{Deserialize, Serialize};
 use tokio::time::Duration;

@@ -14,7 +14,7 @@ use jsonrpsee::{
     core::client::ClientT,
     http_client::{HttpClient, HttpClientBuilder},
 };
-use lasr::{
+use lasr_types::{
     account::Address, Account, LasrRpcClient, Namespace, PayloadBuilder, Wallet, WalletBuilder,
     WalletInfo,
 };
@@ -33,7 +33,7 @@ enum Unit {
 }
 
 #[derive(Clone, Debug)]
-struct U256Wrapper(pub lasr::U256);
+struct U256Wrapper(pub lasr_types::U256);
 
 impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
@@ -42,8 +42,8 @@ impl FromStr for U256Wrapper {
     }
 }
 
-impl std::ops::Mul<&Unit> for lasr::U256 {
-    type Output = lasr::U256;
+impl std::ops::Mul<&Unit> for lasr_types::U256 {
+    type Output = lasr_types::U256;
     fn mul(self, rhs: &Unit) -> Self::Output {
         match rhs {
             Unit::Echo => return (U256::from(self) * U256::from(1 as u128)).into(),
@@ -63,7 +63,7 @@ impl std::ops::Mul<&Unit> for lasr::U256 {
     }
 }
 
-fn parse_u256(s: &str) -> Result<lasr::U256, String> {
+fn parse_u256(s: &str) -> Result<lasr_types::U256, String> {
     Ok(ethereum_types::U256::from_dec_str(s)
         .map_err(|e| format!("Failed to parse U256: {}", e))?
         .into())

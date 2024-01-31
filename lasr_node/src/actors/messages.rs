@@ -1,6 +1,7 @@
 use crate::actors::types::RpcRequestMethod;
-use crate::{Account, Certificate, ContractBlob, Outputs, Transaction};
-use crate::{Address, Token};
+use crate::Outputs;
+use lasr_types::{Account, Certificate, ContractBlob, Transaction};
+use lasr_types::{Address, Token};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
@@ -169,8 +170,8 @@ pub enum EngineMessage {
 pub struct SettlementEvent {
     accounts: Vec<web3::ethabi::Token>,
     batch_header_hash: FixedBytes,
-    blob_index: crate::U256,
-    settlement_event_id: crate::U256,
+    blob_index: lasr_types::U256,
+    settlement_event_id: lasr_types::U256,
 }
 
 /// An event type that the Executable Oracle contract listener
@@ -179,10 +180,10 @@ pub struct SettlementEvent {
 pub struct BridgeEvent {
     user: EthereumAddress,
     program_id: EthereumAddress,
-    amount: crate::U256,
-    token_id: crate::U256,
+    amount: lasr_types::U256,
+    token_id: lasr_types::U256,
     token_type: String,
-    bridge_event_id: crate::U256,
+    bridge_event_id: lasr_types::U256,
 }
 
 impl BridgeEvent {
@@ -197,12 +198,12 @@ impl BridgeEvent {
     }
 
     /// A getter for the `amount` field in a bridge event
-    pub fn amount(&self) -> crate::U256 {
+    pub fn amount(&self) -> lasr_types::U256 {
         self.amount
     }
 
     /// A getter for the `token_id` field in a bridge event
-    pub fn token_id(&self) -> crate::U256 {
+    pub fn token_id(&self) -> lasr_types::U256 {
         self.token_id
     }
 
@@ -211,7 +212,7 @@ impl BridgeEvent {
         self.token_type.clone()
     }
 
-    pub fn bridge_event_id(&self) -> crate::U256 {
+    pub fn bridge_event_id(&self) -> lasr_types::U256 {
         self.bridge_event_id
     }
 }
@@ -254,7 +255,7 @@ pub enum EoMessage {
     Bridge {
         program_id: Address,
         address: Address,
-        amount: crate::U256,
+        amount: lasr_types::U256,
         content: Option<[u8; 32]>,
     },
     Settle {
@@ -289,12 +290,12 @@ pub enum EoMessage {
     AccountBalanceAcquired {
         program_id: Address,
         address: Address,
-        balance: Option<crate::U256>,
+        balance: Option<lasr_types::U256>,
     },
     NftHoldingsAcquired {
         program_id: Address,
         address: Address,
-        holdings: Option<Vec<crate::U256>>,
+        holdings: Option<Vec<lasr_types::U256>>,
     },
     AccountBlobIndexNotFound {
         address: Address,
