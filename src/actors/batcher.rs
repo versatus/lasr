@@ -1,12 +1,14 @@
 #![allow(unused)]
 use std::{collections::{HashMap, VecDeque, BTreeMap, BTreeSet, HashSet}, fmt::Display};
 
+use sha3::{Digest, Keccak256};
 use async_trait::async_trait;
 use eigenda_client::{response::BlobResponse, proof::BlobVerificationProof};
 use ethereum_types::H256;
 use futures::stream::{FuturesUnordered, StreamExt};
 use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::{oneshot, OneshotReceiver}, ActorCell};
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use thiserror::Error;
 use tokio::{task::JoinHandle, sync::mpsc::{UnboundedSender, Sender, Receiver}};
 use web3::types::BlockNumber;
@@ -918,6 +920,75 @@ impl Batcher {
         }
     }
 
+    async fn apply_program_registration(
+        &mut self,
+        transaction: &Transaction
+    ) -> Result<(), BatcherError> {
+        let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs()).map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        let content_id = {
+            if let Some(id) = json.get("contentId") {
+                match id {
+                    Value::String(h) => {
+                        if h.starts_with("0x") {
+                            hex::decode(&h[2..]).map_err(|e| BatcherError::Custom(e.to_string()))?
+                        } else {
+                            hex::decode(&h).map_err(|e| BatcherError::Custom(e.to_string()))?
+                        }
+                    },
+                    _ => {
+                        //TODO(asmith): Allow arrays but validate the items in the array
+                        return Err(BatcherError::Custom("contentId is incorrect type".to_string()))
+                    }
+                }
+            } else {
+                return Err(BatcherError::Custom("contentId is required".to_string()));
+            }
+        }; 
+
+        let program_id = if &content_id.len() == &32 {
+            let mut hasher = sha3::Keccak256::new();
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&content_id[..]);
+            hasher.update(buf);
+            hasher.update(transaction.hash());
+            let address_hash = hasher.finalize();
+            let mut addr_buf = [0u8; 32];
+            addr_buf.copy_from_slice(&address_hash[..]);
+            Address::from(addr_buf) 
+        } else if &content_id.len() == &20 {
+            let mut buf = [0u8; 20];
+            buf.copy_from_slice(&content_id[..]);
+            Address::from(buf)
+        } else {
+            return Err(BatcherError::Custom("invalid length for content id".to_string()))
+        };
+
+        let mut program_account = AccountBuilder::default()
+            .account_type(AccountType::Program(program_id.clone()))
+            .owner_address(transaction.from())
+            .nonce(crate::U256::from(0))
+            .programs(BTreeMap::new())
+            .program_namespace(None)
+            .program_account_linked_programs(BTreeSet::new())
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+        self.cache_account(&program_account).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+
+        })?;
+
+        self.add_account_to_batch(program_account).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        Ok(())
+    }
+
     fn add_account_to_batch_buffer(
         &mut self, 
         batch_buffer: &mut HashMap<Address, Account>, 
@@ -1219,7 +1290,12 @@ impl Actor for BatcherActor {
                             log::error!("Call transaction result did not contain outputs")
                         }
                     }
-                    TransactionType::RegisterProgram(_) => {}
+                    TransactionType::RegisterProgram(_) => {
+                        let res = state.apply_program_registration(&transaction).await;
+                        if let Err(e) = res {
+                            log::error!("{e}");
+                        }
+                    },
                     TransactionType::BridgeOut(_) => {}
                 }
             }

@@ -195,10 +195,10 @@ impl Actor for TaskScheduler {
                     reply_port.send(message);
                 }
             }
-            SchedulerMessage::RegistrationSuccess { transaction_hash } => {
-                if let Some(reply_port) = state.remove(&transaction_hash) {
+            SchedulerMessage::RegistrationSuccess { transaction, program_id } => {
+                if let Some(reply_port) = state.remove(&transaction.hash_string()) {
                     let response = Ok(
-                        TransactionResponse::RegisterProgramResponse(None)
+                        TransactionResponse::RegisterProgramResponse(Some(program_id.to_full_string()))
                     );
 
                     let message = RpcMessage::Response { response, reply: None };

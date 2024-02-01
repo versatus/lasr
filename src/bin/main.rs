@@ -93,6 +93,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     #[cfg(feature = "remote")]
+    log::info!("Attempting to connect compute agent");
+    #[cfg(feature = "remote")]
     let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let compute_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default().build(compute_rpc_url).await.map_err(|e| {
@@ -100,8 +102,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     #[cfg(feature = "remote")]
+    log::info!("Attempting to connect strorage agent");
+    let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
+    #[cfg(feature = "remote")]
+    let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default().build(storage_rpc_url).await.map_err(|e| {
+        Box::new(e) as Box<dyn std::error::Error>
+    })?;
+
+    #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(
-        compute_rpc_client
+        compute_rpc_client,
+        storage_rpc_client,
     );
 
     let blob_cache_actor = BlobCacheActor::new(); 
