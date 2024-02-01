@@ -101,7 +101,8 @@ pub enum SchedulerMessage {
         error: String,
     },
     RegistrationSuccess {
-        transaction_hash: String,
+        transaction: Transaction,
+        program_id: Address
     },
     RegistrationFailure {
         transaction_hash: String,
@@ -425,7 +426,11 @@ pub enum BatcherMessage {
 
 #[derive(Debug, RactorMessage)]
 pub enum ExecutorMessage {
-    Retrieve(String /*ContentId*/),
+    Retrieve {
+        transaction: Transaction,
+        content_id: String,
+        program_id: Address,
+    },
     Create {
         transaction_hash: String,
         program_id: Address,

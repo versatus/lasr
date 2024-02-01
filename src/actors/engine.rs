@@ -1,7 +1,6 @@
 #![allow(unused)]
 use std::{fmt::Display, collections::{BTreeMap, HashMap}};
 
-use ethereum_types::H256;
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
@@ -128,7 +127,7 @@ impl Engine {
     async fn request_blob_index(
         &self,
         account: &Address
-    ) -> Result<(Address /*user*/, H256/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
+    ) -> Result<(Address /*user*/, ethereum_types::H256/* batchHeaderHash*/, u128 /*blobIndex*/), EngineError> {
         let (tx, rx) = oneshot();
         let message = EoMessage::GetAccountBlobIndex { address: account.clone(), sender: tx };
         let actor: ActorRef<EoMessage> = ractor::registry::where_is(
@@ -261,6 +260,9 @@ impl Engine {
             return Err(EngineError::Custom("invalid length for content id".to_string()))
         };
 
+        #[cfg(feature = "remote")]
+        let cid = hex::encode(content_id);
+
         let entrypoint = format!("{}", program_id.to_full_string());
         let program_args = if let Some(v) = json.get("programArgs") {
             match v {
@@ -309,6 +311,7 @@ impl Engine {
             None
         };
 
+        #[cfg(feature = "local")]
         let message = ExecutorMessage::Create {
             transaction_hash: transaction.hash_string(),
             program_id, 
@@ -317,6 +320,9 @@ impl Engine {
             constructor_op,
             constructor_inputs,
         };
+
+        #[cfg(feature = "remote")]
+        let message = ExecutorMessage::Retrieve { content_id: cid, program_id, transaction };
         self.inform_executor(message).await?;
         Ok(())
     }

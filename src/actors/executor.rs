@@ -1,13 +1,12 @@
-use std::{collections::HashMap, path::Path, time::Duration, str::FromStr};
+use std::{collections::HashMap, path::Path, time::Duration, str::FromStr, fs::metadata};
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction};
+use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, Address, BatcherMessage};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RemoteExecutorActor;
+use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType};
+use internal_rpc::api::InternalRpcApiClient;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -30,33 +29,19 @@ impl PendingJob {
     }
 }
 
-#[derive(Debug)]
-pub struct RemoteExecutionEngine<C: ClientT> {
-    client: C,
-    pending: HashMap<uuid::Uuid, PendingJob>
-}
-
-impl<C: ClientT> RemoteExecutionEngine<C> {
-    pub fn new(client: C) -> Self {
-        Self {
-            client,
-            pending: HashMap::new()
-        }
-    }
-
-}
-
 // This will be a weighted LRU cache that captures the size of the 
 // containers and kills/deletes LRU containers
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DynCache;
 
 #[allow(unused)]
-pub struct ExecutionEngine<C: ClientT> {
+pub struct ExecutionEngine<C: InternalRpcApiClient> {
     #[cfg(feature = "local")]
     manager: OciManager,
     #[cfg(feature = "remote")]
-    rpc_client: C,
+    compute_rpc_client: C,
+    #[cfg(feature = "remote")]
+    storage_rpc_client: C,
     #[cfg(feature = "remote")]
     pending: HashMap<uuid::Uuid, PendingJob>,
     #[cfg(feature = "local")]
@@ -70,10 +55,11 @@ pub struct ExecutionEngine<C: ClientT> {
 
 
 #[cfg(feature = "remote")]
-impl<C: ClientT> ExecutionEngine<C> {
-    pub fn new(rpc_client: C) -> Self {
+impl<C: InternalRpcApiClient> ExecutionEngine<C> {
+    pub fn new(compute_rpc_client: C, storage_rpc_client: C) -> Self {
         Self {
-            rpc_client,
+            compute_rpc_client,
+            storage_rpc_client,
             pending: HashMap::new(),
             handles: HashMap::new(),
             cache: DynCache
@@ -188,6 +174,7 @@ impl ExecutorActor {
         Ok(())
     }
 
+    #[cfg(feature = "local")]
     fn registration_success(&self, transaction_hash: String) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
@@ -200,6 +187,30 @@ impl ExecutorActor {
 
         Ok(())
     }
+
+    #[cfg(feature = "remote")]
+    fn registration_success(&self, content_id: String, program_id: Address, transaction: Transaction) -> std::io::Result<()> {
+
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
+        )?.into();
+
+        let message = SchedulerMessage::RegistrationSuccess { program_id, transaction: transaction.clone() };
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
+
+        let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Batcher")
+        )?.into();
+
+        batcher.cast(message);
+
+        Ok(())
+    }
+
 
     fn execution_success(
         &self,
@@ -258,7 +269,9 @@ impl Actor for ExecutorActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ExecutorMessage::Retrieve(_content_id) => {
+            ExecutorMessage::Retrieve {
+                ..
+            }=> {
                 // Retrieve the package from IPFS
                 // Convert the package into a payload
                 // Build container
@@ -473,57 +486,71 @@ impl Actor for ExecutorActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ExecutorMessage::Retrieve(content_id) => {
+            ExecutorMessage::Retrieve { content_id, program_id, transaction } => {
                 // Used to retrieve Schema under this model
-                match state.rpc_client.request::<String, &[u8]>(
-                    "get_object",
-                    content_id.as_bytes()
-                ).await {
-                    Ok(_job_id) => {
+                //    #[method(name = "pin_object")]
+                match state.storage_rpc_client.is_pinned(&content_id).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        match state.storage_rpc_client.pin_object(&content_id, false).await {
+                            Ok(results) => {
+                                if let Err(e) = self.registration_success(content_id, program_id, transaction) {
+                                    log::error!("Error in state.handle_registeration_success: {e}");
+                                }
+                            }
+                            Err(e) => {}
+                        }
                     }
-                    Err(_e) => {
-                    }
+                    Err(e) => log::error!("Error in state.storage_rpc_client.is_pinned: {e}")
                 }
             },
             ExecutorMessage::Exec { transaction } => {
                 // Fire off RPC call to compute runtime
                 // program_id, op, inputs, transaction_hash
-                let program_id = transaction.program_id();
-                let op = transaction.op();
-                let inputs = transaction.inputs();
-                let transaction_hash = transaction.hash_string();
-                match state.rpc_client.request::<String, (String, String, String)>(
-                    "queue_job", (
-                        program_id.to_full_string(),
-                        op,
-                        inputs
-                    )
-                ).await {
-                    // Spin a thread to periodically poll for the result
-                    Ok(job_id_string) => {
-                        let job_id_res = uuid::Uuid::from_str(&job_id_string);
-                        match job_id_res {
-                            Ok(job_id) => {
-                                let (tx, rx) = tokio::sync::mpsc::channel(1); 
-                                let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
-                                match poll_spawn_result {
-                                    Ok(handle) => {
-                                        // Stash the job_id
-                                        let pending_job = PendingJob::new(handle, tx, transaction_hash);
-                                        state.pending.insert(job_id.clone(), pending_job);
+                let inputs = Inputs {
+                    version: 1,
+                    account_info: None,
+                    transaction: transaction.clone(),
+                    op: transaction.op(),
+                    inputs: transaction.inputs()
+                };
+                if let Some(account) = get_account(transaction.to()).await {
+                    let metadata = account.program_account_metadata();
+                    if let Some(cid) = metadata.inner().get("cid") {
+                        if let Ok(json_inputs) = serde_json::to_string(&inputs) {
+                            match state.compute_rpc_client.request::<String, (&str, ServiceJobType, String)>(
+                                "queue_job", 
+                                (cid, ServiceJobType::Compute(ComputeJobExecutionType::SmartContract), json_inputs)
+                            ).await {
+                                // Spin a thread to periodically poll for the result
+                                Ok(job_id_string) => {
+                                    let job_id_res = uuid::Uuid::from_str(&job_id_string);
+                                    match job_id_res {
+                                        Ok(job_id) => {
+                                            let (tx, rx) = tokio::sync::mpsc::channel(1); 
+                                            let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
+                                            match poll_spawn_result {
+                                                Ok(handle) => {
+                                                // Stash the job_id
+                                                let pending_job = PendingJob::new(handle, tx, transaction.hash_string());
+                                                state.pending.insert(job_id.clone(), pending_job);
+                                                }
+                                                Err(_e) => {}
+                                            }
+                                        },
+                                        Err(_e) => {}
                                     }
-                                    Err(_e) => {}
                                 }
-                            },
-                            Err(_e) => {}
+                                Err(_e) => {}
+                            }
+                        } else {
+                            log::error!("Unable to serialize JSON inputs")
                         }
                     }
-                    Err(_e) => {}
                 }
-
             },
             ExecutorMessage::PollJobStatus { job_id } => {
-                match state.rpc_client.request::<String, &[u8]>(
+                match state.compute_rpc_client.request::<String, &[u8]>(
                     "job_status", 
                     job_id.to_string().as_bytes()
                 ).await {
