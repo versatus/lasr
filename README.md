@@ -2,10 +2,13 @@
 
 ## LASR Node Environment Variables
 
-SECRET_KEY
-BLOCKS_PROCESSED_PATH
-ETH_RPC_URL
-EO_CONTRACT_ADDRESS
+| Environment Variable   | Description                                           |
+|------------------------|-------------------------------------------------------|
+| `SECRET_KEY`           | Used for signing transactions and securing connections. |
+| `BLOCKS_PROCESSED_PATH`| Path where processed blocks information is stored.    |
+| `ETH_RPC_URL`          | URL for Ethereum RPC endpoint.                        |
+| `EO_CONTRACT_ADDRESS`  | Address of the Executable Oracle contract.            |
+| `COMPUTE_RPC_URL`      | URL for the compute RPC endpoint.                     |
 
 ## CLI Environment Variables
 
