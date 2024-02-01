@@ -367,6 +367,19 @@ fn main() -> std::io::Result<()> {
         .open("./json_schema/u256_schema.json")?;
 
     file.write_all(u256_schema_string.as_bytes());
+
+    let transaction_schema = schema_for!(lasr::Transaction);
+    let transaction_schema_string = serde_json::to_string_pretty(&transaction_schema).unwrap();
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .append(true)
+        .read(true)
+        .create(true)
+        .open("./json_schema/transaction_schema.json")?;
+
+    file.write_all(transaction_schema_string.as_bytes());
+
     
     Ok(())
 }

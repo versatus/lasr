@@ -13,7 +13,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs, CreateInstruction, MetadataValue};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -34,8 +34,8 @@ pub struct BatcherActor;
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize)]
 pub struct Batch {
-    transactions: HashMap<[u8; 32], Transaction>,
-    accounts: HashMap<[u8; 20], Account>,
+    transactions: HashMap<String, Transaction>,
+    accounts: HashMap<String, Account>,
 }
 
 impl Batch {
@@ -51,16 +51,16 @@ impl Batch {
         self.accounts().is_empty()
     }
 
-    pub fn get_user_account(&self, address: impl Into<[u8; 20]>) -> Option<Account> {
-        if let Some(ua) = self.accounts().get(&address.into()) {
+    pub fn get_user_account(&self, address: Address) -> Option<Account> {
+        if let Some(ua) = self.accounts().get(&address.to_full_string()) {
             return Some(ua.clone())
         }
 
         None
     }
 
-    pub fn get_transaction(&self, id: impl Into<[u8; 32]>) -> Option<Transaction> {
-        if let Some(transaction) = self.transactions().get(&id.into()) {
+    pub fn get_transaction(&self, id: String) -> Option<Transaction> {
+        if let Some(transaction) = self.transactions().get(&id) {
             return Some(transaction.clone())
         }
 
@@ -69,7 +69,7 @@ impl Batch {
 
     pub fn get_program_account(&self, account_type: AccountType) -> Option<Account> {
         if let AccountType::Program(program_address) = account_type {
-            if let Some(program_account) = self.accounts().get(&program_address.inner()) {
+            if let Some(program_account) = self.accounts().get(&program_address.to_full_string()) {
                 return Some(program_account.clone())
             }
         }
@@ -78,19 +78,17 @@ impl Batch {
     }
 
     pub(super) fn serialize_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        bincode::serialize(&self).map_err(|e| {
-            BatcherError::Custom(e.to_string())
-        })
+        Ok(bincode::serialize(&self).map_err(|e| {
+            BatcherError::Custom(format!("ERROR: batcher.rs in serialized_batch method: {}", e.to_string()))
+        })?)
     }
 
     pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
-        Ok(bincode::deserialize(
-            &Self::decompress_batch(
-                bytes
-            )?
-        ).map_err(|e| {
-            BatcherError::Custom(format!("ERROR: batcher.rs 71 {}", e.to_string()))
-        })?)
+        let decompressed = Batch::decompress_batch(bytes)?;
+        Ok(bincode::deserialize(&decompressed).map_err(|e| {
+                BatcherError::Custom(format!("ERROR: batcher.rs 89 {}", e.to_string()))
+            }
+        )?)
     }
 
     pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
@@ -153,9 +151,7 @@ impl Batch {
         transaction: Transaction
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        let mut id: [u8; 32] = [0; 32];
-        id.copy_from_slice(&transaction.hash());
-        test_batch.transactions.insert(id, transaction.clone());
+        test_batch.transactions.insert(transaction.hash_string(), transaction.clone());
         test_batch.at_capacity()
     }
 
@@ -164,7 +160,7 @@ impl Batch {
         account: Account
     ) -> Result<bool, BatcherError> {
         let mut test_batch = self.clone();
-        test_batch.accounts.insert(account.owner_address().into(), account);
+        test_batch.accounts.insert(account.owner_address().to_full_string(), account);
         test_batch.at_capacity()
     }
 
@@ -174,9 +170,7 @@ impl Batch {
 
     pub fn insert_transaction(&mut self, transaction: Transaction) -> Result<(), BatcherError> {
         if !self.transaction_would_exceed_capacity(transaction.clone())? {
-            let mut id: [u8; 32] = [0; 32];
-            id.copy_from_slice(&transaction.hash());
-            self.transactions.insert(id, transaction.clone());
+            self.transactions.insert(transaction.hash_string(), transaction.clone());
             return Ok(())
         }
 
@@ -190,8 +184,7 @@ impl Batch {
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
         if !self.clone().account_would_exceed_capacity(account.clone())? {
             log::info!("inserting account into batch");
-            let mut id: [u8; 20] = account.owner_address().into();
-            self.accounts.insert(id, account.clone());
+            self.accounts.insert(account.owner_address().to_full_string(), account.clone());
             log::info!("{:?}", &self);
             return Ok(())
         }
@@ -203,11 +196,11 @@ impl Batch {
         )
     }
 
-    pub fn transactions(&self) -> HashMap<[u8; 32], Transaction> {
+    pub fn transactions(&self) -> HashMap<String, Transaction> {
         self.transactions.clone()
     }
 
-    pub fn accounts(&self) -> HashMap<[u8; 20], Account> {
+    pub fn accounts(&self) -> HashMap<String, Account> {
         self.accounts.clone()
     }
 }
@@ -298,9 +291,22 @@ impl Batcher {
         &mut self,
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut new_batch = false; 
         let mut res = self.parent.insert_transaction(transaction.clone());
-        if let Err(e) = res {
-            log::info!("{e}");
+        let mut iter = self.children.iter_mut();
+        while let Err(ref mut e) = res {
+            log::error!("{e}");
+            if let Some(mut child) = iter.next() {
+                res = child.insert_transaction(transaction.clone());
+            } else {
+                new_batch = true;
+            }
+        }
+        
+        if new_batch {
+            let mut batch = Batch::new();
+            batch.insert_transaction(transaction.clone());
+            self.children.push_back(batch);
         }
 
         Ok(())
@@ -336,6 +342,7 @@ impl Batcher {
         &mut self,
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log::warn!("checking account cache for account: {:?}", transaction.from());
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             let token = account.apply_send_transaction(transaction.clone()).map_err(|e| e as Box<dyn std::error::Error>)?;
@@ -351,7 +358,7 @@ impl Batcher {
                 .program_namespace(None)
                 .owner_address(transaction.from())
                 .programs(BTreeMap::new())
-                .nonce(ethereum_types::U256::from(0).into())
+                .nonce(crate::U256::from(0))
                 .program_account_data(ArbitraryData::new())
                 .program_account_metadata(Metadata::new())
                 .program_account_linked_programs(BTreeSet::new())
@@ -373,6 +380,7 @@ impl Batcher {
         self.add_account_to_batch(from_account).await?;
 
         if transaction.to() != transaction.from() {
+            log::warn!("checking account cache for account: {:?}", transaction.to());
             let mut to_account = get_account(transaction.to()).await;
             let to_account = if let Some(mut account) = to_account {
                 let _ = account.apply_send_transaction(transaction.clone());
@@ -384,7 +392,7 @@ impl Batcher {
                     .program_namespace(None)
                     .owner_address(transaction.to())
                     .programs(BTreeMap::new())
-                    .nonce(ethereum_types::U256::from(0).into())
+                    .nonce(crate::U256::from(0))
                     .program_account_data(ArbitraryData::new())
                     .program_account_metadata(Metadata::new())
                     .program_account_linked_programs(BTreeSet::new())
@@ -439,6 +447,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(&account_address) {
                     return Ok(account.clone())
                 } else {
+                    log::info!("requesting account: {:?}", &account_address.to_full_string());
                     return get_account(account_address).await.ok_or(
                         BatcherError::Custom(
                             "the `from` account in a transfer must exist".to_string()
@@ -448,8 +457,10 @@ impl Batcher {
             }
             AddressOrNamespace::Address(address) => {
                 if let Some(account) = batch_buffer.get(&address) {
+                let account_address = transaction.clone().to();
                     return Ok(account.clone())
                 } else {
+                    log::info!("requesting account: {:?}", &address.to_full_string());
                     return get_account(address.clone()).await.ok_or(
                         BatcherError::Custom(
                             "the `from` account in a transfer must exist".to_string()
@@ -479,6 +490,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(&account_address) {
                     return Some(account.clone())
                 } else {
+                    log::info!("requesting account: {:?}", &account_address.to_full_string());
                     return get_account(account_address).await
                 }
             }
@@ -486,6 +498,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(&address) {
                     return Some(account.clone())
                 } else {
+                    log::info!("requesting account: {:?}", &address.to_full_string());
                     return get_account(address.clone()).await
                 }
             }
@@ -528,7 +541,7 @@ impl Batcher {
                         .account_type(crate::AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(crate::U256::from(0))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -623,7 +636,7 @@ impl Batcher {
                         .account_type(AccountType::Program(transaction.to()))
                         .program_namespace(None)
                         .owner_address(transaction.from())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(crate::U256::from(0))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -666,7 +679,7 @@ impl Batcher {
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(to_addr.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(crate::U256::from(0))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -683,6 +696,7 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
+
                     Ok(account)
                 }
             }
@@ -724,7 +738,10 @@ impl Batcher {
                         )
                     })?;
                     return Ok(account.clone())
-                } else if let Some(mut account) = get_account(transaction.to()).await {
+                }
+                
+                log::warn!("attempting to get account: {} from cache in batcher", &transaction.to());
+                if let Some(mut account) = get_account(transaction.to()).await {
                     account.apply_token_update(
                         &program_id, token_update.updates()
                     ).map_err(|e| {
@@ -750,8 +767,11 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
-                    Ok(account.clone())
-                } else if let Some(mut account) = get_account(address.clone()).await {
+                    return Ok(account.clone())
+                } 
+
+                log::warn!("attempting to get account: {} from cache in batcher", &transaction.to());
+                if let Some(mut account) = get_account(address.clone()).await {
                     account.apply_token_update(
                         &program_id, token_update.updates()
                     ).map_err(|e| {
@@ -759,13 +779,13 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
-                    Ok(account)
+                    return Ok(account)
                 } else {
                     let mut account = AccountBuilder::default()
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(crate::U256::from(0))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -813,8 +833,11 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
-                    Ok(account.clone())
-                } else if let Some(mut account) = get_account(transaction.to()).await {
+                    return Ok(account.clone())
+                }
+                    
+                log::warn!("attempting to get account {} from cache in batcher.rs 832", transaction.to());
+                if let Some(mut account) = get_account(transaction.to()).await {
                     account.apply_program_update(
                         program_update
                     ).map_err(|e| {
@@ -822,7 +845,7 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
-                    Ok(account)
+                    return Ok(account)
                 } else {
                     return Err(
                         BatcherError::Custom(
@@ -832,6 +855,7 @@ impl Batcher {
                 }
             }
             AddressOrNamespace::Address(address) => {
+                log::warn!("attempting to get account {} from cache in batcher.rs 852", &address);
                 if let Some(mut account) = get_account(address.clone()).await {
                     account.apply_program_update(
                         program_update
@@ -846,7 +870,7 @@ impl Batcher {
                         .account_type(AccountType::User)
                         .program_namespace(None)
                         .owner_address(address.clone())
-                        .nonce(crate::U256::from(ethereum_types::U256::from(0)))
+                        .nonce(crate::U256::from(0))
                         .programs(BTreeMap::new())
                         .program_account_linked_programs(BTreeSet::new())
                         .program_account_metadata(Metadata::new())
@@ -909,6 +933,39 @@ impl Batcher {
         }
     }
 
+    async fn try_create_program_account(
+        &mut self,
+        transaction: &Transaction,
+        instruction: CreateInstruction
+    ) -> Result<Account, BatcherError> {
+        if let Some(account) = get_account(transaction.to()).await {
+            return Ok(account)
+        } else {
+            let mut metadata = Metadata::new();
+            metadata.inner_mut().insert(
+                "max_supply".to_string(),
+                format!("0x{:064x}", instruction.total_supply())
+            );
+            metadata.inner_mut().insert(
+                "init_supply".to_string(),
+                format!("0x{:064x}", instruction.initialized_supply())
+            );
+            let mut account = AccountBuilder::default()
+                .account_type(AccountType::Program(transaction.to()))
+                .program_namespace(None)
+                .owner_address(transaction.from())
+                .program_account_data(ArbitraryData::new())
+                .program_account_metadata(Metadata::new())
+                .program_account_linked_programs(BTreeSet::new())
+                .programs(BTreeMap::new())
+                .nonce(crate::U256::from(0))
+                .build()
+                .map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+            return Ok(account)
+        }
+    }
+
     async fn apply_instructions_to_accounts(
         &mut self,
         transaction: &Transaction, 
@@ -931,6 +988,9 @@ impl Batcher {
                         let account = self.apply_distribution(&transaction, dist, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
+
+                    let program_account = self.try_create_program_account(&transaction, create).await?;
+                    self.add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
                     for token_or_program_update in update.updates() {
@@ -957,7 +1017,15 @@ impl Batcher {
                     e.to_string()
                 )
             })?;
+
+            self.add_account_to_batch(account).await.map_err(|e| {
+                BatcherError::Custom(e.to_string())
+            })?;
         }
+
+        self.add_transaction_to_batch(transaction.clone()).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        });
 
         let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
             ActorType::Scheduler.to_string()
@@ -983,6 +1051,7 @@ impl Batcher {
 
         pending_transactions.cast(message);
 
+        log::warn!("attempting to get account: {:?} in batcher.rs 1003", transaction.from());
         let account = get_account(transaction.from()).await.ok_or(
             BatcherError::Custom("Error: batcher.rs: 821: unable to acquire caller account".to_string())
         )?;
@@ -1071,12 +1140,10 @@ impl Batcher {
             BatcherError::Custom("unable to acquire eo client actor ref".to_string())
         )?.into();
 
-        let accounts = self.cache.get(&request_id).ok_or(
+        let accounts: HashSet<String> = self.cache.get(&request_id).ok_or(
             BatcherError::Custom("request id not in cache".to_string())
-        )?.accounts.iter()
-            .map(|(addr, _)| addr.into())
-            .collect();
-        
+        )?.accounts.iter().map(|(k, _)| k.clone()).collect();
+
         let decoded = base64::decode(&proof.batch_metadata().batch_header_hash().to_string()).map_err(|e| {
             BatcherError::Custom("unable to decode batch_header_hash()".to_string())
         })?;

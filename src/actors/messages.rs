@@ -257,7 +257,7 @@ pub enum EoMessage {
         content: Option<[u8; 32]> 
     },
     Settle {
-        accounts: HashSet<Address>,
+        accounts: HashSet<String>,
         batch_header_hash: H256,
         blob_index: u128
     },
@@ -308,21 +308,21 @@ pub enum EoMessage {
     SettleSuccess {
         batch_header_hash: H256,
         blob_index: u128,
-        accounts: HashSet<Address>,
+        accounts: HashSet<String>,
         hash: HashOrError,
         receipt: Option<TransactionReceipt>,
     },
     SettleFailure {
         batch_header_hash: H256,
         blob_index: u128,
-        accounts: HashSet<Address>,
+        accounts: HashSet<String>,
         hash: HashOrError,
         receipt: Option<TransactionReceipt>,
     },
     SettleTimedOut {
         batch_header_hash: H256,
         blob_index: u128,
-        accounts: HashSet<Address>,
+        accounts: HashSet<String>,
         elapsed: tokio::time::error::Elapsed
     },
     CommTest

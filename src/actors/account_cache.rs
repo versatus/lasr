@@ -106,10 +106,10 @@ impl AccountCache {
     }
 
     fn check_build_batch(&mut self) -> Result<(), Box<dyn std::error::Error + Send>> {
-        let bytes = bincode::serialize(&self.cache).map_err(|e| {
+        let bytes = serde_json::to_vec(&self.cache).map_err(|e| {
             Box::new(e) as Box<dyn std::error::Error + Send>
         })?;
-        if base64::encode(bytes).len() >= crate::MAX_BATCH_SIZE {
+        if base64::encode(&bytes).len() >= crate::MAX_BATCH_SIZE {
             self.build_batch()?;
         } else if let Some(instant) = self.last_batch {
             if Instant::now().duration_since(instant) > self.batch_interval {
@@ -161,8 +161,9 @@ impl Actor for AccountCacheActor {
                 log::info!("Account: {:?}", &account);
             }
             AccountCacheMessage::Read { address, tx } => {
-                log::info!("Recieved account cache read request"); 
+                log::info!("Recieved account cache read request for account: {:?}", &address); 
                 let account = state.get(&address);
+                log::info!("acquired account option: {:?}", &account);
                 let _ = tx.send(account.cloned());
             }
             AccountCacheMessage::Remove { address } => {

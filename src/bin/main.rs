@@ -13,7 +13,9 @@ use lasr::EoClient;
 use lasr::EoClientActor;
 use lasr::EoServerWrapper;
 use lasr::LasrRpcServerActor;
+#[cfg(feature = "local")]
 use lasr::OciBundlerBuilder;
+#[cfg(feature = "local")]
 use lasr::OciManager;
 use lasr::PendingTransactionActor;
 use lasr::TaskScheduler;
@@ -24,6 +26,7 @@ use lasr::BatcherActor;
 use lasr::Batcher;
 use lasr::ExecutionEngine;
 use lasr::ExecutorActor;
+#[cfg(feature = "local")]
 use lasr::OciBundler;
 use eo_listener::EoServer as EoListener;
 use lasr::DaClient;
@@ -72,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
 
+    #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
         .runtime("/usr/local/bin/runsc".to_string())
         .base_images("./base_image".to_string())
@@ -79,10 +83,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
+    #[cfg(feature = "local")]
     let oci_manager = OciManager::new(bundler);
+
+    #[cfg(feature = "local")]
     let execution_engine = ExecutionEngine::new(
         oci_manager,
         ipfs_api::IpfsClient::default()
+    );
+
+    let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
+    let compute_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default().build(compute_rpc_url).await.map_err(|e| {
+        Box::new(e) as Box<dyn std::error::Error>
+    })?;
+
+    #[cfg(feature = "remote")]
+    let execution_engine = ExecutionEngine::new(
+        compute_rpc_client
     );
 
     let blob_cache_actor = BlobCacheActor::new(); 

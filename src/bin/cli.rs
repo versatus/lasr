@@ -1,5 +1,6 @@
 #![allow(unused)]
-use std::str::FromStr;
+use std::fs::OpenOptions;
+use std::{str::FromStr, path::Path};
 use std::io::Write;
 use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}, ArgMatches};
 
@@ -394,6 +395,28 @@ fn wallet_command() -> Command {
         )
 }
 
+fn from_json_file_arg() -> Arg {
+    Arg::new("from-file")
+        .short('f')
+        .long("from-file")
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
+        .default_value("false")
+}
+
+fn json_arg() -> Arg {
+    Arg::new("json")
+        .short('j')
+        .long("json")
+}
+
+fn parse_outputs() -> Command {
+    Command::new("parse-outputs")
+        .arg(from_json_file_arg())
+        .arg(json_arg())
+}
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
@@ -404,6 +427,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .about("A cli interacting with the LASR network")
         .subcommand(
             wallet_command()
+        )
+        .subcommand(
+            parse_outputs()
         )
         .get_matches();
 
@@ -533,6 +559,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             }
         }
+
+        Some(("parse-outputs", children)) => {
+            let values = children.ids();
+            let from_file = children.get_one::<bool>("from-file");
+            if let Some(true) = from_file {
+                let json = children.get_one::<String>("json").expect("unable to acquire json filepath");
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .write(false)
+                    .append(false)
+                    .truncate(false)
+                    .create_new(false)
+                    .open(json).expect("unable to open json file");
+
+                let mut json_str = String::new();
+                file.read_to_string(&mut json_str).expect("unable to read json file contents to string");
+                let outputs: lasr::Outputs = serde_json::from_str(&json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                println!("{:#?}", outputs);
+            } else {
+                let json_str = children.get_one::<String>("json").expect("unable to acquire json from command line");
+                let outputs: lasr::Outputs = serde_json::from_str(&json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                println!("{:#?}", outputs);
+            }
+        }
         _ => {}
 
     }
@@ -595,6 +645,7 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         let client = HttpClientBuilder::default().build(lasr_rpc_url)?;
         let res = &client.get_account(format!("{:x}", address)).await;
         let account = if let Ok(account_str) = res {
+            println!("{}", account_str);
             let account: Account = serde_json::from_str(&account_str)?;
             account
         } else {

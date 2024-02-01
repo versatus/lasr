@@ -286,6 +286,7 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
 }
 
 pub async fn get_account(address: Address) -> Option<Account> {
+    log::info!("checking account cache for account: {} using `get_account` method in mod.rs", address.to_full_string());
     let mut account = check_account_cache(address).await;
     if let None = &mut account {
         account = check_da_for_account(address).await;

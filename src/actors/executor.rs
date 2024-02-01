@@ -44,6 +44,42 @@ impl<C: ClientT> RemoteExecutionEngine<C> {
         }
     }
 
+}
+
+// This will be a weighted LRU cache that captures the size of the 
+// containers and kills/deletes LRU containers
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DynCache;
+
+#[allow(unused)]
+pub struct ExecutionEngine<C: ClientT> {
+    #[cfg(feature = "local")]
+    manager: OciManager,
+    #[cfg(feature = "remote")]
+    rpc_client: C,
+    #[cfg(feature = "remote")]
+    pending: HashMap<uuid::Uuid, PendingJob>,
+    #[cfg(feature = "local")]
+    ipfs_client: ipfs_api::IpfsClient,
+    handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
+    cache: DynCache,
+    #[cfg(feature = "local")]
+    phantom: std::marker::PhantomData<C>,
+}
+
+
+
+#[cfg(feature = "remote")]
+impl<C: ClientT> ExecutionEngine<C> {
+    pub fn new(rpc_client: C) -> Self {
+        Self {
+            rpc_client,
+            pending: HashMap::new(),
+            handles: HashMap::new(),
+            cache: DynCache
+        }
+    }
+
     pub(super) fn spawn_poll(&self, job_id: uuid::Uuid, mut rx: Receiver<()>) -> std::io::Result<JoinHandle<std::io::Result<()>>> {
         Ok(tokio::task::spawn(async move {
             let mut attempts = 0;
@@ -68,25 +104,13 @@ impl<C: ClientT> RemoteExecutionEngine<C> {
     }
 }
 
-// This will be a weighted LRU cache that captures the size of the 
-// containers and kills/deletes LRU containers
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DynCache;
-
-#[allow(unused)]
-pub struct ExecutionEngine {
-    manager: OciManager,
-    ipfs_client: ipfs_api::IpfsClient,
-    handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
-    cache: DynCache
-}
-
-impl ExecutionEngine {
+#[cfg(feature = "local")]
+impl<C: ClientT> ExecutionEngine<C> {
     pub fn new(
         manager: OciManager,  
         ipfs_client: ipfs_api::IpfsClient,
     ) -> Self  {
-        Self { manager, ipfs_client, handles: HashMap::new(), cache: DynCache }
+        Self { manager, ipfs_client, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
     }
 
     pub(super) async fn create_bundle(
@@ -146,6 +170,7 @@ impl ExecutionEngine {
         Ok(Vec::new())
     }
 }
+
 
 pub struct ExecutorActor;
 
@@ -210,10 +235,12 @@ impl ExecutorActor {
     }
 }
 
+
+#[cfg(feature = "local")]
 #[async_trait]
 impl Actor for ExecutorActor {
     type Msg = ExecutorMessage;
-    type State = ExecutionEngine; 
+    type State = ExecutionEngine<WsClient>; 
     type Arguments = Self::State;
     
     async fn pre_start(
@@ -424,10 +451,11 @@ impl Actor for ExecutorActor {
 }
 
 
+#[cfg(feature = "remote")]
 #[async_trait]
-impl Actor for RemoteExecutorActor {
+impl Actor for ExecutorActor {
     type Msg = ExecutorMessage;
-    type State = RemoteExecutionEngine<WsClient>; 
+    type State = ExecutionEngine<WsClient>; 
     type Arguments = Self::State;
     
     async fn pre_start(
@@ -447,7 +475,10 @@ impl Actor for RemoteExecutorActor {
         match message {
             ExecutorMessage::Retrieve(content_id) => {
                 // Used to retrieve Schema under this model
-                match state.client.request::<String, &[u8]>("get_object", content_id.as_bytes()).await {
+                match state.rpc_client.request::<String, &[u8]>(
+                    "get_object",
+                    content_id.as_bytes()
+                ).await {
                     Ok(_job_id) => {
                     }
                     Err(_e) => {
@@ -461,7 +492,7 @@ impl Actor for RemoteExecutorActor {
                 let op = transaction.op();
                 let inputs = transaction.inputs();
                 let transaction_hash = transaction.hash_string();
-                match state.client.request::<String, (String, String, String)>(
+                match state.rpc_client.request::<String, (String, String, String)>(
                     "queue_job", (
                         program_id.to_full_string(),
                         op,
@@ -492,7 +523,7 @@ impl Actor for RemoteExecutorActor {
 
             },
             ExecutorMessage::PollJobStatus { job_id } => {
-                match state.client.request::<String, &[u8]>(
+                match state.rpc_client.request::<String, &[u8]>(
                     "job_status", 
                     job_id.to_string().as_bytes()
                 ).await {

@@ -157,33 +157,125 @@ impl Payload {
     }
 }
 
+// Custom deserialization function
+fn deserialize_address_bytes<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Bytes20Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Bytes20Visitor {
+        type Value = [u8; 20];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a hex string or a byte array representing 20 bytes")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<[u8; 20], E>
+        where
+            E: serde::de::Error,
+        {
+            // Handle hex string
+            if value.starts_with("0x") {
+                let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
+                bytes.try_into().map_err(|_| E::custom("Hex string does not represent a valid 20-byte array"))
+            } 
+            // Handle byte array
+            else if value.starts_with("[") && value.ends_with("]") {
+                let bytes_str = &value[1..value.len() - 1];
+                let bytes: Vec<u8> = bytes_str.split(',')
+                    .map(str::trim)
+                    .map(|s| s.parse::<u8>().map_err(E::custom))
+                    .collect::<Result<Vec<u8>, E>>()?;
+                
+                bytes.try_into().map_err(|_| E::custom("Invalid length for 20-byte array"))
+            } 
+            else {
+                Err(E::custom("Invalid format"))
+            }
+        }
+    }
+
+    deserializer.deserialize_str(Bytes20Visitor)
+}
+
+// Custom deserialization function
+fn deserialize_signature_bytes<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Bytes32Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Bytes32Visitor {
+        type Value = [u8; 32];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a hex string or a byte array representing 32 bytes")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<[u8; 32], E>
+        where
+            E: serde::de::Error,
+        {
+            // Handle hex string
+            if value.starts_with("0x") {
+                let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
+                bytes.try_into().map_err(|_| E::custom("Hex string does not represent a valid 32-byte array"))
+            } 
+            // Handle byte array
+            else if value.starts_with("[") && value.ends_with("]") {
+                let bytes_str = &value[1..value.len() - 1];
+                let bytes: Vec<u8> = bytes_str.split(',')
+                    .map(str::trim)
+                    .map(|s| s.parse::<u8>().map_err(E::custom))
+                    .collect::<Result<Vec<u8>, E>>()?;
+                
+                bytes.try_into().map_err(|_| E::custom("Invalid length for 32-byte array"))
+            } 
+            else {
+                Err(E::custom("Invalid format"))
+            }
+        }
+    }
+
+    deserializer.deserialize_str(Bytes32Visitor)
+}
+
+
+
+
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
+    #[serde(deserialize_with = "deserialize_address_bytes")]
     from: [u8; 20],
+    #[serde(deserialize_with = "deserialize_address_bytes")]
     to: [u8; 20],
+    #[serde(deserialize_with = "deserialize_address_bytes")]
     program_id: [u8; 20],
     op: String,
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,
     v: i32,
+    #[serde(deserialize_with = "deserialize_signature_bytes")]
     r: [u8; 32],
+    #[serde(deserialize_with = "deserialize_signature_bytes")]
     s: [u8; 32],
 }
 
 impl Default for Transaction {
     fn default() -> Self {
         Self {
-            transaction_type: TransactionType::Send(crate::U256::from(ethereum_types::U256::from(0))),
+            transaction_type: TransactionType::Send(crate::U256::from(0)),
             from: [0u8; 20],
             to: [0u8; 20],
             program_id: [0u8; 20],
             op: String::from(""),
             inputs: String::from(""),
-            value: crate::U256::from(ethereum_types::U256::from(0)),
-            nonce: crate::U256::from(ethereum_types::U256::from(0)),
+            value: crate::U256::from(0),
+            nonce: crate::U256::from(0),
             v: 0,
             r: [0u8; 32],
             s: [0u8; 32]

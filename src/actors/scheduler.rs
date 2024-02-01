@@ -1,7 +1,6 @@
 #![allow(unused)]
 use std::{collections::HashMap, fmt::Display};
 use async_trait::async_trait;
-use ethereum_types::U256;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort};
 use thiserror::*;
 use crate::{account::Address, create_handler, RecoverableSignature, AccountCacheMessage, check_account_cache, TransactionResponse, check_da_for_account, Transaction};
@@ -41,6 +40,7 @@ impl TaskScheduler {
     }
 
     async fn handle_get_account_request(&self, address: Address, rpc_reply: RpcReplyPort<RpcMessage>) -> Result<(), SchedulerError> {
+        log::info!("Checking for account cache for account: {} from scheduler", address.to_full_string());
         if let Some(account) = check_account_cache(address).await {
             rpc_reply.send(
                 RpcMessage::Response { 
@@ -62,6 +62,7 @@ impl TaskScheduler {
                 }
             ).map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
+            log::info!("unable to find account in cache or da");
             rpc_reply.send(
                 RpcMessage::Response { 
                     response: Err(

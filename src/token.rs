@@ -5,24 +5,26 @@ use std::collections::BTreeMap;
 use std::fmt::{Display, Debug};
 use std::ops::{AddAssign, SubAssign};
 use schemars::JsonSchema;
+use uint::construct_uint;
 
 use crate::{Address, RecoverableSignature, Transaction};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
-#[derive(Copy, Clone, Default, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
-#[serde(rename_all = "camelCase")]
-pub struct U256(pub [u64; 4]);
+construct_uint! {
+	/// 256-bit unsigned integer.
+    #[derive(JsonSchema)] 
+    #[serde(rename_all = "camelCase")]
+	pub struct U256(4);
+}
 
 impl Serialize for U256 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let hex_string = self.0.iter()
-            .map(|&num| format!("{:016x}", num))  // Format each u64 as a 16-character hex string
-            .collect::<String>();
-        serializer.serialize_str(&hex_string)
+        let hex_str = format!("0x{:064x}", self);
+        serializer.serialize_str(&hex_str)
     }
 }
 
@@ -41,96 +43,43 @@ impl<'de> Visitor<'de> for U256Visitor {
     type Value = U256;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a 64-character hex string")
+        formatter.write_str("a 64-character hex string or [u64; 4] array as a string")
     }
 
     fn visit_str<E>(self, v: &str) -> Result<U256, E>
     where
         E: serde::de::Error,
     {
-        if v.len() != 64 {
-            return Err(E::invalid_length(v.len(), &self));
+
+        let value = if v.starts_with("0x") { &v[2..] } else { v };
+        if value.starts_with("[") && v.ends_with("]") {
+            // Parse as a byte array
+            let nums_str = &v[1..v.len() - 1];
+            let nums: Vec<u64> = nums_str.split(',')
+                .map(str::trim)
+                .map(|s| s.parse::<u64>().map_err(E::custom))
+                .collect::<Result<Vec<u64>, E>>()?;
+
+            if nums.len() == 4 {
+                let arr = [nums[0], nums[1], nums[2], nums[3]];
+                Ok(U256(arr))
+            } else {
+                Err(E::custom("Array does not have 4 elements"))
+            }
+        } else if value.len() == 64 {
+            // Parse as a hex string
+            log::info!("{}", &value);
+            let decoded = hex::decode(value).map_err(E::custom)?;
+            if decoded.len() == 32 {
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&decoded[..]);
+                Ok(U256::from(&bytes))
+            } else {
+                Err(E::custom("decoded result is improper length"))
+            }
+        } else {
+            Err(E::custom("Invalid format for U256"))
         }
-
-        let mut nums = [0u64; 4];
-        for (i, chunk) in v.as_bytes().chunks(16).enumerate() {
-            nums[i] = u64::from_str_radix(std::str::from_utf8(chunk).map_err(E::custom)?, 16)
-                .map_err(E::custom)?;
-        }
-
-        Ok(U256(nums))
-    }
-}
-
-impl Display for U256 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-       let to_display: EthU256 = self.into();
-       write!(f, "{}", to_display)
-    }
-}
-
-impl Debug for U256 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let to_display: EthU256 = self.into();
-        write!(f, "{:?}", to_display)
-    }
-}
-
-impl std::ops::Add for U256 {
-    type Output = U256;
-    fn add(self, rhs: Self) -> Self::Output {
-        let new: EthU256 = EthU256::from(self) + EthU256::from(rhs);
-        new.into()
-    }
-}
-
-impl std::ops::Sub for U256 {
-    type Output = U256;
-    fn sub(self, rhs: Self) -> Self::Output {
-        let new: EthU256 = EthU256::from(self) - EthU256::from(rhs);
-        new.into()
-    }
-}
-
-impl AddAssign for U256 {
-    fn add_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
-        *self = new.into();
-    }
-}
-
-impl SubAssign for U256 {
-    fn sub_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
-        *self = new.into();
-    }
-}
-
-impl AddAssign for &mut U256 {
-    fn add_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(self.clone()) + EthU256::from(rhs);
-        *self = new.into();
-    }
-}
-
-impl SubAssign for &mut U256 {
-    fn sub_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(self.clone()) - EthU256::from(rhs);
-        *self = new.into();
-    }
-}
-
-impl AddAssign for &U256 {
-    fn add_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) + EthU256::from(rhs);
-        *self = new.into();
-    }
-}
-
-impl SubAssign for &U256 {
-    fn sub_assign(&mut self, rhs: Self) {
-        let new: EthU256 = EthU256::from(*self) - EthU256::from(rhs);
-        *self = new.into();
     }
 }
 
@@ -223,17 +172,17 @@ impl ArbitraryData {
         &mut self.0
     }
 
-    pub fn to_hex(&self) -> Result<String, Box<bincode::ErrorKind>> {
+    pub fn to_hex(&self) -> Result<String, serde_json::Error> {
         let bytes = self.to_bytes()?;
         Ok(hex::encode(&bytes))
     }
 
-    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
-        bincode::serialize(&self)
+    pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(&self)
     }
 
     pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
-        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|_| {
+        Ok(serde_json::from_slice(&hex::decode(hex)?).map_err(|_| {
             FromHexError::InvalidStringLength
         }))?
     }
@@ -361,6 +310,7 @@ impl Token {
                 self.apply_data_update(data_update)?;
             }
             TokenFieldValue::Metadata(metadata_update) => {
+                log::info!("found metadata update: {:?}", &metadata_update);
                 self.apply_metadata_update(metadata_update)?;
             }
             TokenFieldValue::Approvals(approvals_update) => {
@@ -416,13 +366,14 @@ impl Token {
     fn apply_metadata_update(&mut self, metadata_update: &MetadataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
         match metadata_update {
             MetadataValue::Insert(key, value) => {
-                self.metadata().inner_mut().insert(key.clone(), value.clone());
+                self.metadata.inner_mut().insert(key.clone(), value.clone());
             }
             MetadataValue::Extend(iter) => {
-                self.metadata().inner_mut().extend(iter.clone());
+                log::info!("found metadata_extend update, {:?} applying", &iter);
+                self.metadata.inner_mut().extend(iter.clone());
             }
             MetadataValue::Remove(key) => {
-                self.metadata().inner_mut().remove(key);
+                self.metadata.inner_mut().remove(key);
             }
         }
 
@@ -599,42 +550,62 @@ impl Token {
 
     pub fn owner_id(&self) -> Address {
         self.owner_id.clone()
-
     } 
 
     pub fn balance(&self) -> U256 {
         self.balance.clone()
+    }
 
+    pub fn balance_mut(&mut self) -> &mut U256 {
+        &mut self.balance
     }
 
     pub fn metadata(&self) -> Metadata {
         self.metadata.clone()
+    }
 
+    pub fn metadata_mut(&mut self) -> &mut Metadata {
+        &mut self.metadata
     }
 
     pub fn token_ids(&self) -> Vec<U256> {
         self.token_ids.clone()
+    }
 
+    pub fn token_ids_mut(&mut self) -> &mut Vec<U256> {
+        &mut self.token_ids
     }
 
     pub fn allowance(&self) -> BTreeMap<Address, U256> {
         self.allowance.clone()
+    }
 
+    pub fn allowance_mut(&mut self) -> &mut BTreeMap<Address, U256> {
+        &mut self.allowance
     }
 
     pub fn approvals(&self) -> BTreeMap<Address, Vec<U256>> {
         self.approvals.clone()
+    }
 
+    pub fn approvals_mut(&mut self) -> &mut BTreeMap<Address, Vec<U256>> {
+        &mut self.approvals
     }
 
     pub fn data(&self) -> ArbitraryData {
         self.data.clone()
+    }
 
+    pub fn data_mut(&mut self) -> &mut ArbitraryData {
+        &mut self.data
     }
 
     pub fn status(&self) -> Status {
         self.status.clone()
+    }
 
+    pub fn status_mut(&mut self) -> &mut Status {
+        &mut self.status
     }
 
     pub fn update_balance(&mut self, receive: U256, send: U256) {

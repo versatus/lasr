@@ -1,14 +1,14 @@
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
-use ethereum_types::U256 as EthU256;
 use lasr::{Outputs, U256};
 use serde::Deserialize;
 use serde::Serialize;
 
 use lasr::{ 
-    Address, AddressOrNamespace, ArbitraryData, DataValue, Inputs, Instruction,
-    Namespace, PayableContract, ProgramField, ProgramFieldValue, ProgramUpdate,
+    Address, AddressOrNamespace, DataValue, Inputs, Instruction,
+    PayableContract, ProgramField, ProgramFieldValue, ProgramUpdate,
     ProgramUpdateField, TokenOrProgramUpdate, TransferInstruction, UpdateInstruction
 }; 
 
@@ -74,9 +74,9 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
     /// If the condition is not met in time, the depositor can revoke the escrow
     /// and receive their tokens/item back.
     fn revoke(
-        deposit_id: [u8; 32],
-        depositor_address: [u8; 20], 
-        conditions: Self::Conditions,
+        _deposit_id: [u8; 32],
+        _depositor_address: [u8; 20], 
+        _conditions: Self::Conditions,
     ) -> Vec<Instruction> {
         Vec::new()
     }
@@ -86,12 +86,13 @@ pub trait Escrow: PayableContract + Serialize + Deserialize<'static> {
 pub struct EscrowContract;
 
 impl PayableContract for EscrowContract {
-    const NAMESPACE: &'static str = "HelloEscrow"; 
     fn receive_payment(from: lasr::AddressOrNamespace, amount: Option<U256>, token_ids: Vec<U256>) -> Vec<Instruction> {
+        let mut addr = [0u8; 20];
+        addr[19] = 1;
         vec![
             Instruction::Transfer(
                 TransferInstruction::new(
-                    AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+                    Address::from(addr),
                     from,
                     AddressOrNamespace::This,
                     amount,
@@ -141,8 +142,7 @@ impl Escrow for EscrowContract {
         };
 
         let program_update = generate_deposit_update(
-            conditions, 
-            Namespace(Self::NAMESPACE.to_string())
+            conditions,
         );
 
         if program_update.len() == 0 { return vec![] }
@@ -153,7 +153,7 @@ impl Escrow for EscrowContract {
             payment_token,
             depositor,
             payment_amount.into(),
-            Namespace(Self::NAMESPACE.to_string())
+            AddressOrNamespace::This,
         );
 
         vec![Instruction::Update(update), Instruction::Transfer(transfer)]
@@ -180,7 +180,7 @@ impl Escrow for EscrowContract {
 
         let transfer_item_instruction = Instruction::Transfer(
             TransferInstruction::new(
-                AddressOrNamespace::Address(Address::from(item_address)),
+                Address::from(item_address),
                 AddressOrNamespace::Address(Address::from(caller)),
                 AddressOrNamespace::Address(Address::from(conditions.depositor)),
                 None,
@@ -190,7 +190,7 @@ impl Escrow for EscrowContract {
 
         let transfer_deposit_instruction = Instruction::Transfer(
             TransferInstruction::new(
-                AddressOrNamespace::Address(Address::from(conditions.payment_token)),
+                Address::from(conditions.payment_token),
                 AddressOrNamespace::This,
                 AddressOrNamespace::Address(Address::from(conditions.redeemer)),
                 Some(conditions.payment_amount.into()),
@@ -224,8 +224,8 @@ impl Escrow for EscrowContract {
         if Some(timestamp) > conditions.by {
             let transfer_instruction = Instruction::Transfer(
                 TransferInstruction::new(
-                    AddressOrNamespace::Address(Address::from(conditions.payment_token)),
-                    AddressOrNamespace::Namespace(Namespace(Self::NAMESPACE.to_string())),
+                    Address::from(conditions.payment_token),
+                    AddressOrNamespace::This,
                     AddressOrNamespace::Address(Address::from(depositor_address)),
                     Some(conditions.payment_amount.into()),
                     vec![]
@@ -242,15 +242,18 @@ impl Escrow for EscrowContract {
 
 fn generate_deposit_update(
     conditions: HelloEscrowConditions, 
-    namespace: Namespace,
 ) -> Vec<TokenOrProgramUpdate> {
-    let serialized_conditions = bincode::serialize(&conditions);
-    if let Err(_) = serialized_conditions {
+    let mut data = BTreeMap::new();
+    let res = serde_json::to_string(&conditions);
+    let json_conditions = if let Ok(json_str) = res {
+        json_str
+    } else {
         return vec![]
-    }
-    let account = AddressOrNamespace::Namespace(namespace);
+    };
+    data.insert("conditions".to_string(), json_conditions);
+    let account = AddressOrNamespace::This;
     let program_field = ProgramField::Data;
-    let data_value = DataValue::Extend(ArbitraryData::from(serialized_conditions.unwrap_or_default()));
+    let data_value = DataValue::Extend(data);
     let program_field_value = ProgramFieldValue::Data(data_value);
     let program_field_updates = ProgramUpdateField::new(program_field, program_field_value);
     let program_update = ProgramUpdate::new(account, vec![program_field_updates]);
@@ -261,12 +264,12 @@ fn generate_deposit_transfer(
     payment_token: [u8; 20],
     depositor: [u8; 20],
     payment_amount: U256,
-    program_account_namespace: Namespace,
+    program_account_namespace: AddressOrNamespace,
 ) -> TransferInstruction {
     let transfer = TransferInstruction::new(
-        AddressOrNamespace::Address(Address::from(payment_token)),
+        Address::from(payment_token),
         AddressOrNamespace::Address(Address::from(depositor)),
-        AddressOrNamespace::Namespace(program_account_namespace),
+        program_account_namespace,
         Some(payment_amount.into()),
         vec![],
     ); 
