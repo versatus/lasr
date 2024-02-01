@@ -281,7 +281,8 @@ async fn setup_eo_client(
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
 
-    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
+    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
     // Initialize the web3 instance
     let contract_address = eo_address.parse().map_err(|err| {
         Box::new(

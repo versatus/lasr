@@ -1,5 +1,15 @@
 # Versatus LASR
 
+## LASR Node Environment Variables
+
+SECRET_KEY
+BLOCKS_PROCESSED_PATH
+ETH_RPC_URL
+
+## CLI Environment Variables
+
+LASR_RPC_URL
+
 ## Base Image
 
 https://gvisor.dev/docs/user_guide/quick_start/oci/
