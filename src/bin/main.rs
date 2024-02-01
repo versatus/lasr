@@ -92,7 +92,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ipfs_api::IpfsClient::default()
     );
 
+    #[cfg(feature = "remote")]
     let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
+    #[cfg(feature = "remote")]
     let compute_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default().build(compute_rpc_url).await.map_err(|e| {
         Box::new(e) as Box<dyn std::error::Error>
     })?;
