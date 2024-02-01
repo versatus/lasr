@@ -531,7 +531,7 @@ impl Actor for Validator {
                 let transaction_type = transaction.transaction_type();
                 match transaction_type {
                     TransactionType::Send(_) => {
-                        log::info!("Received send transaction, checking account_cache");
+                        log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
                         let account = if let Some(account) = check_account_cache(transaction.from()).await {
                             log::info!("found account in cache");
                             Some(account)
@@ -539,6 +539,7 @@ impl Actor for Validator {
                             log::info!("found account in da");
                             Some(account)
                         } else {
+                            log::info!("unable to find account in cache or da");
                             None
                         };
 
@@ -570,6 +571,7 @@ impl Actor for Validator {
                         } else if let Some(account) = check_da_for_account(transaction.from()).await {
                             Some(account)
                         } else {
+                            log::info!("unable to find account in cache or da");
                             None
                         };
                         let op = state.validate_bridge_in();
@@ -614,6 +616,7 @@ impl Actor for Validator {
                         match &address {
                             AddressOrNamespace::This => {
                                 let addr = transaction.to();
+                                log::info!("Received call transaction checking account {} from validator", &addr.to_full_string()); 
                                 if let Some(account) = check_account_cache(addr.clone()).await {
                                     log::info!("Found `this` account in cache");
                                     validator_accounts.insert(address.clone(), Some(account));
@@ -621,11 +624,12 @@ impl Actor for Validator {
                                     log::info!("found `this` account in da");
                                     validator_accounts.insert(address.clone(), Some(account));
                                 } else {
+                                    log::info!("unable to find account in cache or da");
                                     validator_accounts.insert(address.clone(), None);
                                 }
                             }
                             AddressOrNamespace::Address(addr) => {
-                                log::info!("looking for account {:?} in cache", addr);
+                                log::info!("looking for account {:?} in cache from validator", addr.to_full_string());
                                 if let Some(account) = check_account_cache(addr.clone()).await {
                                     log::info!("found account in cache");
                                     validator_accounts.insert(address.clone(), Some(account));
@@ -633,6 +637,7 @@ impl Actor for Validator {
                                     log::info!("found account in da");
                                     validator_accounts.insert(address.clone(), Some(account));
                                 } else {
+                                    log::info!("unable to find account in cache or da");
                                     validator_accounts.insert(address.clone(), None);
                                 };
                             },

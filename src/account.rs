@@ -3,13 +3,13 @@ use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use schemars::JsonSchema;
 use serde::{ Serialize, Deserialize, Deserializer, Serializer};
-use serde::de::{Visitor};
+use serde::de::Visitor;
 use secp256k1::PublicKey;
 use sha3::{Digest, Keccak256};
 use crate::{
     Transaction, AccountCacheError, Token, ToTokenError, ArbitraryData, Metadata, 
     MetadataValue, DataValue, AddressOrNamespace, ProgramUpdate, TokenBuilder, 
-    TokenUpdateField
+    TokenUpdateField, Status
 };
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
@@ -71,7 +71,7 @@ impl<'de> Deserialize<'de> for Address {
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_any(AddressVisitor)
+        deserializer.deserialize_str(AddressVisitor)
     }
 }
 
@@ -95,6 +95,18 @@ impl Address {
     /// address
     pub fn to_full_string(&self) -> String {
         format!("0x{:x}", self)
+    }
+
+    pub fn from_hex(hex_str: &str) -> Result<Self, FromHexError> {
+        let hex_str = if hex_str.starts_with("0x") { &hex_str[2..] } else { hex_str };
+        let bytes = hex::decode(hex_str)?;
+        let mut addr_inner = [0u8; 20];
+        if bytes.len() != 20 {
+            return Err(FromHexError::OddLength)
+        }
+
+        addr_inner.copy_from_slice(&bytes[..]);
+        return Ok(Address(addr_inner));
     }
 
     pub fn inner(&self) -> [u8; 20] {
@@ -270,7 +282,7 @@ impl Account {
             program_namespace,
             owner_address,
             programs: BTreeMap::new(),
-            nonce: U256::default().into(),
+            nonce: crate::U256::default().into(),
             program_account_data: ArbitraryData::new(),
             program_account_metadata: Metadata::new(),
             program_account_linked_programs: BTreeSet::new()
@@ -332,7 +344,7 @@ impl Account {
             return entry.balance()
         }
 
-        return U256::from(0).into()
+        return crate::U256::from(0)
     }
 
     pub(crate) fn apply_send_transaction(
@@ -385,7 +397,7 @@ impl Account {
             let mut token = TokenBuilder::default()
                 .program_id(token_address.clone())
                 .owner_id(self.owner_address.clone())
-                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(Metadata::new())
                 .data(ArbitraryData::new())
@@ -483,6 +495,7 @@ impl Account {
             }
 
             for update in token_updates {
+                log::info!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
@@ -490,6 +503,7 @@ impl Account {
 
         } else {
 
+            log::info!("creating token for token distribution");
             let token_owner = {
                 if let AccountType::Program(program_account_address) = self.account_type() {
                     program_account_address
@@ -501,12 +515,13 @@ impl Account {
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
                 .owner_id(token_owner)
-                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(Metadata::new())
                 .data(ArbitraryData::new())
                 .approvals(BTreeMap::new())
                 .allowance(BTreeMap::new())
+                .status(Status::Free)
                 .build()
                 .map_err(|e| {
                     Box::new(
@@ -516,13 +531,17 @@ impl Account {
 
             if let Some(amt) = amount {
                 token.credit(amt)?;
+                log::info!("applied credits from token distribution");
             }
 
             if !token_ids.is_empty() {
                 token.add_token_ids(token_ids)?;
+                log::info!("applied token ids from token distribution");
             }
 
+            log::info!("token distribution includes token updates: {:?}", token_updates);
             for update in token_updates {
+                log::info!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
@@ -554,7 +573,7 @@ impl Account {
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
                 .owner_id(owner_address.clone())
-                .balance(crate::U256::from(ethereum_types::U256::from(0)))
+                .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .approvals(BTreeMap::new())
                 .allowance(BTreeMap::new())
@@ -760,8 +779,8 @@ impl Account {
 
     pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
         log::info!("checking nonce: {nonce} > {}", self.nonce);
-        if self.nonce == crate::U256::from(ethereum_types::U256::from(0)) && 
-            nonce == crate::U256::from(ethereum_types::U256::from(0)) {
+        if self.nonce == crate::U256::from(0) && 
+            nonce == crate::U256::from(0) {
             return Ok(())
         }
         if nonce > self.nonce {

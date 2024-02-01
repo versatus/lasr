@@ -144,7 +144,7 @@ impl EoClient {
 
     pub(super) async fn settle_batch(
         &mut self, 
-        accounts: HashSet<Address>,
+        accounts: HashSet<String>,
         batch_header_hash: H256,
         blob_index: u128
     ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
@@ -165,7 +165,11 @@ impl EoClient {
 
             log::info!("attempting to settle batch");
             let eth_addresses: Vec<EthereumAddress> = accounts.clone().iter().filter_map(|a| {
-                EoClient::parse_checksum_address(a.clone()).ok()
+                if let Some(addr) = Address::from_hex(a).ok() {
+                    EoClient::parse_checksum_address(addr.clone()).ok()
+                } else {
+                    None
+                }
             }).collect();
 
             log::info!("parsed addresses for batch settlement");
@@ -184,8 +188,10 @@ impl EoClient {
                 ]
             );
 
+            let gas = ethereum_types::U256::from(50000 * n_accounts) + ethereum_types::U256::from(100_000);
+            log::info!("providing {} gas for transaction", gas);
             let mut options = Options {
-                gas: Some(web3::types::U256::from(((50_000 * n_accounts) + 50_000))),
+                gas: Some(gas),
                 ..Options::default()
             };
 

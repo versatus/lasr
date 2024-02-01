@@ -1,9 +1,9 @@
 #![allow(unused)]
 use std::{fmt::Display, collections::{BTreeMap, HashMap}};
 
+use ethereum_types::H256;
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
-use ethereum_types::{U256, H256};
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use serde_json::Value;
 use thiserror::Error;
@@ -99,6 +99,7 @@ impl Engine {
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
+        log::info!("checking account cache for account: {} from engine", &address.to_full_string());
         Ok(check_account_cache(address.clone()).await)
     }
 

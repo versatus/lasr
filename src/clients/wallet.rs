@@ -132,9 +132,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         account.validate_balance(program_id, value)?;
 
-        let tx_nonce = {
-            crate::U256::from(account.nonce() + ethereum_types::U256::from(1).into())
-        };
+        let tx_nonce = account.nonce() + crate::U256::from(1);
         let payload = self.builder
             .transaction_type(TransactionType::Send(account.nonce()))
             .from(address.into())
