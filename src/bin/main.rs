@@ -220,7 +220,8 @@ fn setup_eo_server(
 
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
-    let eo_address = eo_listener::EoAddress::new("0x5FbDB2315678afecb367f032d93F642f64180aa3");
+    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
+    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
     let contract_address = eo_address.parse().map_err(|err| {
         EoServerError::Other(err.to_string())
     })?;
