@@ -1,4 +1,3 @@
-
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};

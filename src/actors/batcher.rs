@@ -928,6 +928,7 @@ impl Batcher {
             BatcherError::Custom(e.to_string())
         })?;
 
+        #[cfg(feature = "local")]
         let content_id = {
             if let Some(id) = json.get("contentId") {
                 match id {
@@ -948,6 +949,7 @@ impl Batcher {
             }
         }; 
 
+        #[cfg(feature = "local")]
         let program_id = if &content_id.len() == &32 {
             let mut hasher = sha3::Keccak256::new();
             let mut buf = [0u8; 32];
@@ -966,6 +968,39 @@ impl Batcher {
             return Err(BatcherError::Custom("invalid length for content id".to_string()))
         };
 
+
+        #[cfg(feature = "remote")]
+        let content_id = {
+            match json.get("contentId").ok_or(BatcherError::Custom("content id is required".to_string()))? { 
+                Value::String(cid) => cid.clone(),
+                _ => {
+                    return Err(BatcherError::Custom("contentId is incorrect type: Must be String".to_string()))
+                }
+            }
+        };
+        
+
+        #[cfg(feature = "remote")]
+        let program_id = {
+            let pubkey = transaction.sig().map_err(|e| {
+                BatcherError::Custom(
+                    "signature unable to be reconstructed".to_string()
+                )
+            })?.recover(&transaction.hash()).map_err(|e| {
+                BatcherError::Custom(
+                    "pubkey unable to be recovered from signature".to_string()
+                )
+            })?;
+
+            let mut hasher = Keccak256::new();
+            hasher.update(content_id.clone());
+            hasher.update(pubkey.to_string());
+            let hash = hasher.finalize();
+            let mut addr_bytes = [0u8; 20];
+            addr_bytes.copy_from_slice(&hash[..20]);
+            Address::from(addr_bytes)
+        };
+
         let mut program_account = AccountBuilder::default()
             .account_type(AccountType::Program(program_id.clone()))
             .owner_address(transaction.from())
@@ -979,7 +1014,6 @@ impl Batcher {
 
         self.cache_account(&program_account).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
-
         })?;
 
         self.add_account_to_batch(program_account).await.map_err(|e| {

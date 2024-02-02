@@ -6,6 +6,7 @@ use eigenda_client::payload::EigenDaBlobPayload;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use serde_json::Value;
 use thiserror::Error;
+use sha3::{Digest, Keccak256};
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
 use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage, AccountType, SchedulerMessage};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
@@ -228,6 +229,7 @@ impl Engine {
             EngineError::Custom(e.to_string())
         })?;
 
+        #[cfg(feature = "local")]
         let content_id = {
             if let Some(id) = json.get("contentId") {
                 match id {
@@ -248,6 +250,7 @@ impl Engine {
             }
         }; 
 
+        #[cfg(feature = "local")]
         let program_id = if &content_id.len() == &32 {
             let mut buf = [0u8; 32];
             buf.copy_from_slice(&content_id[..]);
@@ -261,9 +264,40 @@ impl Engine {
         };
 
         #[cfg(feature = "remote")]
-        let cid = hex::encode(content_id);
+        let content_id = {
+            match json.get("contentId").ok_or(EngineError::Custom("content id is required".to_string()))? { 
+                Value::String(cid) => cid.clone(),
+                _ => {
+                    return Err(EngineError::Custom("contentId is incorrect type: Must be String".to_string()))
+                }
+            }
+        };
+        
 
+        #[cfg(feature = "remote")]
+        let program_id = {
+            let pubkey = transaction.sig().map_err(|e| {
+                EngineError::Custom(
+                    "signature unable to be reconstructed".to_string()
+                )
+            })?.recover(&transaction.hash()).map_err(|e| {
+                EngineError::Custom(
+                    "pubkey unable to be recovered from signature".to_string()
+                )
+            })?;
+
+            let mut hasher = Keccak256::new();
+            hasher.update(content_id.clone());
+            hasher.update(pubkey.to_string());
+            let hash = hasher.finalize();
+            let mut addr_bytes = [0u8; 20];
+            addr_bytes.copy_from_slice(&hash[..20]);
+            Address::from(addr_bytes)
+        };
+
+        #[cfg(feature = "local")]
         let entrypoint = format!("{}", program_id.to_full_string());
+        #[cfg(feature = "local")]
         let program_args = if let Some(v) = json.get("programArgs") {
             match v {
                 Value::Array(arr) => {
@@ -288,6 +322,7 @@ impl Engine {
             None
         };
 
+        #[cfg(feature = "local")]
         let constructor_op = if let Some(op) = json.get("constructorOp") {
             match op {
                 Value::String(o) => {
@@ -300,6 +335,7 @@ impl Engine {
             None
         };
 
+        #[cfg(feature = "local")]
         let constructor_inputs = if let Some(inputs) = json.get("constructorInputs") {
             match inputs {
                 Value::String(i) => {
@@ -322,7 +358,7 @@ impl Engine {
         };
 
         #[cfg(feature = "remote")]
-        let message = ExecutorMessage::Retrieve { content_id: cid, program_id, transaction };
+        let message = ExecutorMessage::Retrieve { content_id, program_id, transaction };
         self.inform_executor(message).await?;
         Ok(())
     }

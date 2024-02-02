@@ -490,15 +490,20 @@ impl Actor for ExecutorActor {
                 // Used to retrieve Schema under this model
                 //    #[method(name = "pin_object")]
                 match state.storage_rpc_client.is_pinned(&content_id).await {
-                    Ok(true) => {}
+                    Ok(true) => {
+                        log::info!("Item: {content_id} is already pinned, inform requestor");
+                    }
                     Ok(false) => {
-                        match state.storage_rpc_client.pin_object(&content_id, false).await {
+                        match state.storage_rpc_client.pin_object(&content_id, true).await {
                             Ok(results) => {
                                 if let Err(e) = self.registration_success(content_id, program_id, transaction) {
-                                    log::error!("Error in state.handle_registeration_success: {e}");
+                                    log::error!("Error in state.handle_registration_success: {e}");
                                 }
+                                log::info!("Pinned Object to Storage Agent: {:?}", results);
                             }
-                            Err(e) => {}
+                            Err(e) => {
+                                log::error!("Error pinning object to storage agent: {e}");
+                            }
                         }
                     }
                     Err(e) => log::error!("Error in state.storage_rpc_client.is_pinned: {e}")
