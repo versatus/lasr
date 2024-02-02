@@ -13,16 +13,16 @@ use internal_rpc::api::InternalRpcApiClient;
 pub struct PendingJob {
     handle: JoinHandle<std::io::Result<()>>,
     sender: Sender<()>,
-    transaction_hash: String,
+    transaction: Transaction,
 }
 
 impl PendingJob {
     pub fn new(
         handle: JoinHandle<std::io::Result<()>>,
         sender: Sender<()>, 
-        transaction_hash: String
+        transaction: Transaction
     ) -> Self {
-        Self { handle, sender, transaction_hash } }
+        Self { handle, sender, transaction } }
 
     pub async fn join_handle(self) {
         let _ = self.handle.await;
@@ -189,7 +189,7 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "remote")]
-    fn registration_success(&self, program_id: Address, transaction: Transaction) -> std::io::Result<()> {
+    fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
 
         let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
 
@@ -206,7 +206,6 @@ impl ExecutorActor {
     fn execution_success(
         &self,
         transaction: &Transaction,
-        transaction_hash: &String,
         outputs: &String
     ) -> std::io::Result<()> {
         let actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
@@ -215,7 +214,7 @@ impl ExecutorActor {
 
         let message = EngineMessage::CallSuccess { 
             transaction: transaction.clone(),
-            transaction_hash: transaction_hash.clone(), 
+            transaction_hash: transaction.hash_string(), 
             outputs: outputs.clone() 
         };
 
@@ -484,7 +483,7 @@ impl Actor for ExecutorActor {
                     Ok(()) => {
                         log::info!("Item: {content_id} is already pinned, inform requestor");
                         // check if the program account exists
-                        if let Err(e) = self.registration_success(program_id, transaction) {
+                        if let Err(e) = self.registration_success(transaction) {
                             log::error!("Error in in self.registration_success: {e}");
                         }
                     }
@@ -492,7 +491,7 @@ impl Actor for ExecutorActor {
                         log::error!("Error in state.storage_rpc_client.is_pinned: {e}");
                         match state.storage_rpc_client.pin_object(&content_id, true).await {
                             Ok(results) => {
-                                if let Err(e) = self.registration_success(program_id, transaction) {
+                                if let Err(e) = self.registration_success(transaction) {
                                     log::error!("Error in self.registration_success: {e}");
                                 }
                                 log::info!("Pinned Object to Storage Agent: {:?}", results);
@@ -532,7 +531,7 @@ impl Actor for ExecutorActor {
                                     match poll_spawn_result {
                                         Ok(handle) => {
                                         // Stash the job_id
-                                        let pending_job = PendingJob::new(handle, tx, transaction.hash_string());
+                                        let pending_job = PendingJob::new(handle, tx, transaction);
                                         state.pending.insert(job_id.clone(), pending_job);
                                         }
                                         Err(_e) => {}
@@ -551,7 +550,17 @@ impl Actor for ExecutorActor {
                     "job_status", 
                     job_id.to_string().as_bytes()
                 ).await {
-                    Ok(_outputs) => {
+                    Ok(outputs) => {
+                        let pending_job = state.pending.get(&job_id);
+                        match pending_job {
+                            Some(pj) => {
+                                match self.execution_success(&pj.transaction, &outputs) {
+                                    Ok(_) => {}
+                                    Err(_) => {}
+                                }
+                            }
+                            None => {}
+                        }
                     },
                     Err(_e) => {
                     }

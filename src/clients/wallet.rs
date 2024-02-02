@@ -249,11 +249,13 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         //TODO: return `payment token` with approval set to Address(0), i.e. network
         //should be able to pull fees from the contract deployer/owner account
-        let _ = self.client.register_program(
+        let program_id = self.client.register_program(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         self.get_account(&self.address()).await?;
+
+        println!("{}", program_id);
 
         Ok(())
     }

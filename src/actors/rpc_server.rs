@@ -190,7 +190,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn register_program(
         &self,
         transaction: Transaction 
-    ) -> Result<(), jsonrpsee::core::Error> {
+    ) -> Result<String, jsonrpsee::core::Error> {
         log::info!("Received RPC registerProgram method"); 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
@@ -211,8 +211,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
                 match resp {
                     TransactionResponse::RegisterProgramResponse(opt) => {
                         match opt {
-                            None => return Ok(()),
-                            Some(e) => return Err(RpcError::Custom(e)) 
+                            Some(program_id) => return Ok(program_id), 
+                            None => return Err(RpcError::Custom("program registeration failed to return program_id".to_string())),
                         }
                     },
                     _ => {
