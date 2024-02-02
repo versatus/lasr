@@ -582,7 +582,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     dbg!("Account obtained");
                     dbg!("Getting inputs");
                     let cid = children.get_one::<String>("content-id").expect("required");
-                    let inputs = json!({"conentId": cid});
+                    let inputs = json!({"contentId": cid});
                     dbg!("Inputs obtained: {:?}", inputs.to_string());
                     dbg!("Registering program");
                     let _ = wallet.register_program(&inputs.to_string()).await;
