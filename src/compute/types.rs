@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account, DataValue};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
@@ -135,6 +135,19 @@ pub struct CreateInstruction {
     distribution: Vec<TokenDistribution>
 }
 
+impl Default for CreateInstruction {
+    fn default() -> Self {
+        CreateInstruction { 
+            program_namespace: AddressOrNamespace::This, 
+            program_id: AddressOrNamespace::Address(Address::from([0; 20])), 
+            program_owner: Address::from([0; 20]), 
+            total_supply: crate::U256::from(0), 
+            initialized_supply: crate::U256::from(0), 
+            distribution: vec![TokenDistribution::default()] 
+        }
+    }
+}
+
 impl CreateInstruction {
     pub fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
         let mut accounts_involved = vec![
@@ -184,6 +197,19 @@ pub struct TokenDistribution {
     token_ids: Vec<crate::U256>,
     update_fields: Vec<TokenUpdateField>
 }
+
+impl Default for TokenDistribution {
+    fn default() -> Self {
+        TokenDistribution { 
+            program_id: AddressOrNamespace::This, 
+            to: AddressOrNamespace::Address(Address::from([0; 20])), 
+            amount: Some(crate::U256::from(0)), 
+            token_ids: vec![crate::U256::from(0)], 
+            update_fields: vec![TokenUpdateField::default()] 
+        }
+    }
+}
+
 impl TokenDistribution { 
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
@@ -220,11 +246,26 @@ pub enum TokenOrProgramUpdate {
     ProgramUpdate(ProgramUpdate),
 }
 
+impl Default for TokenOrProgramUpdate {
+    fn default() -> Self {
+        TokenOrProgramUpdate::TokenUpdate(TokenUpdate::default())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUpdateField {
     field: TokenField,
     value: TokenFieldValue
+}
+
+impl Default for TokenUpdateField {
+    fn default() -> Self {
+        TokenUpdateField { 
+            field: TokenField::Data,
+            value: TokenFieldValue::Data(DataValue::Insert("some".to_string(), "data".to_string())) 
+        }
+    }
 }
 
 impl TokenUpdateField {
@@ -264,6 +305,12 @@ pub struct UpdateInstruction {
     updates: Vec<TokenOrProgramUpdate>
 }
 
+impl Default for UpdateInstruction {
+    fn default() -> Self {
+        UpdateInstruction { updates: vec![TokenOrProgramUpdate::default()] }
+    }
+}
+
 impl UpdateInstruction {
     pub fn new(updates: Vec<TokenOrProgramUpdate>) -> Self {
         Self { updates }
@@ -291,6 +338,16 @@ pub struct TokenUpdate {
     account: AddressOrNamespace,
     token: AddressOrNamespace,
     updates: Vec<TokenUpdateField>
+}
+
+impl Default for TokenUpdate {
+    fn default() -> Self {
+        TokenUpdate { 
+            account: AddressOrNamespace::Address(Address::from([0; 20])),
+            token: AddressOrNamespace::This, 
+            updates: vec![TokenUpdateField::default()]
+        }
+    }
 }
 
 impl TokenUpdate {
@@ -336,6 +393,19 @@ pub struct TransferInstruction {
     to: AddressOrNamespace,
     amount: Option<crate::U256>,
     ids: Vec<crate::U256>
+}
+
+
+impl Default for TransferInstruction {
+    fn default() -> Self {
+        TransferInstruction { 
+            token: Address::from([0; 20]), 
+            from: AddressOrNamespace::This, 
+            to: AddressOrNamespace::Address(Address::from([0; 20])), 
+            amount: Some(crate::U256::from(0)), 
+            ids: vec![crate::U256::from(0)] 
+        }
+    }
 }
 
 impl TransferInstruction {
@@ -403,6 +473,19 @@ pub struct BurnInstruction {
     from: AddressOrNamespace,
     amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>
+}
+
+impl Default for BurnInstruction {
+    fn default() -> Self {
+        BurnInstruction { 
+            caller: Address::from([0; 20]),
+            program_id: AddressOrNamespace::This,
+            token: Address::from([0; 20]),
+            from: AddressOrNamespace::Address(Address::from([0; 20])),
+            amount: Some(crate::U256::from(0)),
+            token_ids: vec![crate::U256::from(0)] 
+        }
+    }
 }
 
 impl BurnInstruction {

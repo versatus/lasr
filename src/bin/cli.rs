@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAc
 
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
-use lasr::Transaction;
+use lasr::{Transaction, Instruction, CreateInstruction, TransferInstruction, UpdateInstruction, BurnInstruction};
 use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo, Namespace};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
@@ -622,6 +622,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{:?}", serde_json::to_string(&hex).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?);
             println!("{:?}", serde_json::to_string(&bytes).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?);
 
+        }, 
+        Some(("instruction", children)) => {
+            let create = Instruction::Create(
+                CreateInstruction::default()
+            );
+            let update = Instruction::Update(
+                UpdateInstruction::default()
+            );
+            let transfer = Instruction::Transfer(
+                TransferInstruction::default()
+            );
+            let burn = Instruction::Burn(
+                BurnInstruction::default()
+            );
+
+            let create_json = serde_json::to_string(&create).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let update_json = serde_json::to_string(&update).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let transfer_json = serde_json::to_string(&transfer).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let burn_json = serde_json::to_string(&burn).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+            println!("{:?}", create_json);
+            println!("{:?}", update_json);
+            println!("{:?}", transfer_json);
+            println!("{:?}", burn_json);
         }
         _ => {}
 
