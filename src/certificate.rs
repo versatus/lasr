@@ -61,12 +61,12 @@ impl RecoverableSignature {
         bytes
     }
 
-    pub fn serialize(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
-        bincode::serialize(&self)
+    pub fn serialize(&self) -> Result<Vec<u8>, serde_json::Error> {
+        Ok(serde_json::to_string(&self)?.as_bytes().to_vec())
     }
 
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
-        bincode::deserialize(bytes)
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
     }
 
     pub fn get_r(&self) -> [u8; 32] {
@@ -146,11 +146,11 @@ impl Certificate {
         bytes
     }
 
-    pub fn serialize(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
-        bincode::serialize(&self)
+    pub fn serialize(&self) -> Result<Vec<u8>, serde_json::Error> {
+        Ok(serde_json::to_string(&self)?.as_bytes().to_vec())
     }
 
-    pub fn deserialize(bytes: &[u8]) -> Result<Self, Box<bincode::ErrorKind>> {
-        bincode::deserialize(bytes)
+    pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
     }
 }

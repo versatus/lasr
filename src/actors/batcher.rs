@@ -80,14 +80,14 @@ impl Batch {
     }
 
     pub(super) fn serialize_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        Ok(bincode::serialize(&self).map_err(|e| {
+        Ok(serde_json::to_string(&self).map_err(|e| {
             BatcherError::Custom(format!("ERROR: batcher.rs in serialized_batch method: {}", e.to_string()))
-        })?)
+        })?.as_bytes().to_vec())
     }
 
     pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
         let decompressed = Batch::decompress_batch(bytes)?;
-        Ok(bincode::deserialize(&decompressed).map_err(|e| {
+        Ok(serde_json::from_str(&String::from_utf8_lossy(&decompressed).to_owned()).map_err(|e| {
                 BatcherError::Custom(format!("ERROR: batcher.rs 89 {}", e.to_string()))
             }
         )?)
