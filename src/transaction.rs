@@ -1,4 +1,3 @@
-
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use sha3::{Sha3_256, Digest};
@@ -176,7 +175,6 @@ where
             E: serde::de::Error,
         {
             // Handle hex string
-            println!("{:?}", value);
             if value.starts_with("0x") {
                 let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
                 bytes.try_into().map_err(|_| E::custom("Hex string does not represent a valid 20-byte array"))
