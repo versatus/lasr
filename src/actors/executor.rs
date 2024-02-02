@@ -536,26 +536,23 @@ impl Actor for ExecutorActor {
                     let metadata = account.program_account_metadata();
                     if let Some(cid) = metadata.inner().get("cid") {
                         if let Ok(json_inputs) = serde_json::to_string(&inputs) {
-                            match state.compute_rpc_client.request::<String, (&str, ServiceJobType, String)>(
-                                "queue_job", 
-                                (cid, ServiceJobType::Compute(ComputeJobExecutionType::SmartContract), json_inputs)
+                            match state.compute_rpc_client.queue_job(
+                                cid, 
+                                ServiceJobType::Compute(
+                                    ComputeJobExecutionType::SmartContract
+                                ), 
+                                json_inputs
                             ).await {
                                 // Spin a thread to periodically poll for the result
-                                Ok(job_id_string) => {
-                                    let job_id_res = uuid::Uuid::from_str(&job_id_string);
-                                    match job_id_res {
-                                        Ok(job_id) => {
-                                            let (tx, rx) = tokio::sync::mpsc::channel(1); 
-                                            let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
-                                            match poll_spawn_result {
-                                                Ok(handle) => {
-                                                // Stash the job_id
-                                                let pending_job = PendingJob::new(handle, tx, transaction.hash_string());
-                                                state.pending.insert(job_id.clone(), pending_job);
-                                                }
-                                                Err(_e) => {}
-                                            }
-                                        },
+                                Ok(job_id) => {
+                                    let (tx, rx) = tokio::sync::mpsc::channel(1); 
+                                    let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
+                                    match poll_spawn_result {
+                                        Ok(handle) => {
+                                        // Stash the job_id
+                                        let pending_job = PendingJob::new(handle, tx, transaction.hash_string());
+                                        state.pending.insert(job_id.clone(), pending_job);
+                                        }
                                         Err(_e) => {}
                                     }
                                 }
