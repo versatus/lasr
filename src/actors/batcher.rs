@@ -3,7 +3,7 @@ use std::{collections::{HashMap, VecDeque, BTreeMap, BTreeSet, HashSet}, fmt::Di
 
 use sha3::{Digest, Keccak256};
 use async_trait::async_trait;
-use eigenda_client::{response::BlobResponse, proof::BlobVerificationProof};
+use eigenda_client::{batch, proof::BlobVerificationProof, response::BlobResponse};
 use ethereum_types::H256;
 use futures::stream::{FuturesUnordered, StreamExt};
 use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::{oneshot, OneshotReceiver}, ActorCell};
@@ -17,7 +17,7 @@ use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
 use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs, CreateInstruction, MetadataValue, create_program_id};
 
-const BATCH_INTERVAL: u64 = 180;
+// const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
 
 #[derive(Clone, Debug, Error)]
@@ -1341,9 +1341,13 @@ pub async fn batch_requestor(mut stopper: tokio::sync::mpsc::Receiver<u8>) -> Re
         ActorType::Batcher.to_string()
     ).unwrap().into(); 
 
+    let batch_interval_secs = std::env::var("BATCH_INTERVAL")
+            .unwrap_or_else(|_| "180".to_string())
+            .parse::<u64>()
+            .unwrap_or(180);
     loop {
         log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
-        tokio::time::sleep(tokio::time::Duration::from_secs(BATCH_INTERVAL)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
         let message = BatcherMessage::GetNextBatch;
         log::warn!("requesting next batch");
         batcher.cast(message).map_err(|e| {
