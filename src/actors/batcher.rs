@@ -15,7 +15,7 @@ use web3::types::BlockNumber;
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
-use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs, CreateInstruction, MetadataValue};
+use crate::{Transaction, Account, BatcherMessage, get_account, AccountBuilder, AccountCacheMessage, ActorType, SchedulerMessage, DaClientMessage, handle_actor_response, EoMessage, Address, Namespace, ProgramAccount, Metadata, ArbitraryData, program, Instruction, AddressOrNamespace, AccountType, TokenOrProgramUpdate, ContractLogType, TransferInstruction, BurnInstruction, U256, TokenDistribution, TokenUpdate, ProgramUpdate, UpdateInstruction, PendingTransactionMessage, TransactionType, Outputs, CreateInstruction, MetadataValue, create_program_id};
 
 const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
@@ -978,29 +978,14 @@ impl Batcher {
                 }
             }
         };
-        
 
         #[cfg(feature = "remote")]
-        let program_id = {
-            let pubkey = transaction.sig().map_err(|e| {
-                BatcherError::Custom(
-                    "signature unable to be reconstructed".to_string()
-                )
-            })?.recover(&transaction.hash()).map_err(|e| {
-                BatcherError::Custom(
-                    "pubkey unable to be recovered from signature".to_string()
-                )
-            })?;
+        let program_id = create_program_id(content_id.clone(), transaction).map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
 
-            let mut hasher = Keccak256::new();
-            hasher.update(content_id.clone());
-            hasher.update(pubkey.to_string());
-            let hash = hasher.finalize();
-            let mut addr_bytes = [0u8; 20];
-            addr_bytes.copy_from_slice(&hash[..20]);
-            Address::from(addr_bytes)
-        };
-
+        let mut metadata = Metadata::new();
+        metadata.inner_mut().insert("content_id".to_string(), content_id);
         let mut program_account = AccountBuilder::default()
             .account_type(AccountType::Program(program_id.clone()))
             .owner_address(transaction.from())
@@ -1009,7 +994,7 @@ impl Batcher {
             .program_namespace(None)
             .program_account_linked_programs(BTreeSet::new())
             .program_account_data(ArbitraryData::new())
-            .program_account_metadata(Metadata::new())
+            .program_account_metadata(metadata)
             .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
         self.cache_account(&program_account).await.map_err(|e| {
@@ -1017,6 +1002,15 @@ impl Batcher {
         })?;
 
         self.add_account_to_batch(program_account).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            BatcherError::Custom("unable to acquire Scheduler".to_string())
+        )?.into();
+
+        let message = SchedulerMessage::RegistrationSuccess { program_id, transaction: transaction.clone() };
+        actor.cast(message).map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;
 
@@ -1048,11 +1042,11 @@ impl Batcher {
         } else {
             let mut metadata = Metadata::new();
             metadata.inner_mut().insert(
-                "max_supply".to_string(),
+                "total_supply".to_string(),
                 format!("0x{:064x}", instruction.total_supply())
             );
             metadata.inner_mut().insert(
-                "init_supply".to_string(),
+                "initialized_supply".to_string(),
                 format!("0x{:064x}", instruction.initialized_supply())
             );
             let mut account = AccountBuilder::default()

@@ -432,6 +432,10 @@ fn hex_or_bytes() -> Command {
     Command::new("hex-or-bytes")
 }
 
+fn instruction() -> Command {
+    Command::new("instruction")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
@@ -454,6 +458,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .subcommand(
             hex_or_bytes()
+        )
+        .subcommand(
+            instruction()
         )
         .get_matches();
 
