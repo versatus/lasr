@@ -506,7 +506,20 @@ impl Actor for ExecutorActor {
                             }
                         }
                     }
-                    Err(e) => log::error!("Error in state.storage_rpc_client.is_pinned: {e}")
+                    Err(e) => {
+                        log::error!("Error in state.storage_rpc_client.is_pinned: {e}");
+                        match state.storage_rpc_client.pin_object(&content_id, true).await {
+                            Ok(results) => {
+                                if let Err(e) = self.registration_success(content_id, program_id, transaction) {
+                                    log::error!("Error in state.handle_registration_success: {e}");
+                                }
+                                log::info!("Pinned Object to Storage Agent: {:?}", results);
+                            }
+                            Err(e) => {
+                                log::error!("Error pinning object to storage agent: {e}");
+                            }
+                        }
+                    }
                 }
             },
             ExecutorMessage::Exec { transaction } => {
