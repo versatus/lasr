@@ -222,7 +222,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         Ok(account)
     }
 
-    pub async fn register_program(&mut self, inputs: &String) -> WalletResult<()> {
+    pub async fn register_program(&mut self, inputs: &String) -> WalletResult<String> {
         let account = self.account();
         let address = self.address();
 
@@ -253,11 +253,14 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        self.get_account(&self.address()).await?;
+        println!("{}", &program_id);
 
-        println!("{}", program_id);
+        if let Err(e) = self.get_account(&self.address()).await {
+            println!("Error getting account: {e}");
+        }
 
-        Ok(())
+
+        Ok(program_id)
     }
 
     pub async fn get_account(&mut self, address: &Address) -> WalletResult<()> {

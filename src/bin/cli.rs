@@ -585,7 +585,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let inputs = json!({"contentId": cid});
                     dbg!("Inputs obtained: {:?}", inputs.to_string());
                     dbg!("Registering program");
-                    let _ = wallet.register_program(&inputs.to_string()).await;
+                    let program_id = wallet.register_program(&inputs.to_string()).await.map_err(|e| {
+                        Box::new(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        ) as Box<dyn std::error::Error>
+                    })?;
+
+                    dbg!(&program_id);
+                    println!("{}", program_id);
                     dbg!("Program registered");
                     dbg!("Getting account again");
                     wallet.get_account(&address).await;
