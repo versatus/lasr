@@ -22,7 +22,7 @@ pub trait LasrRpc {
     async fn register_program(
         &self,
         transaction: Transaction 
-    ) -> Result<(), Error>;
+    ) -> Result<String, Error>;
 
     #[method(name = "getAccount")]
     async fn get_account(

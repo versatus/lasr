@@ -11,6 +11,7 @@ use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClien
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
+use serde_json::json;
 use std::io::Read;
 
 #[derive(Clone, Debug, ValueEnum)]
@@ -308,6 +309,15 @@ fn inputs_arg() -> Arg {
         .help("a json string that represents the inputs to the function, i.e. function parameters/arguments for the function in the contract that will be called")
 }
 
+fn cid_arg() -> Arg {
+    Arg::new("content-id")
+        .short('c')
+        .long("cid")
+        .aliases(["content-id", "contentid", "content_id", "contentId", "ipfs-id"])
+        .required(true)
+        .help("a Base58btc encoded string representing the hash of a web3 package payload")
+}
+
 fn register_program_command() -> Command {
     Command::new("register-program")
         .aliases(["deploy", "rp", "register", "reg-prog", "prog", "deploy-prog", "register-contract", "deploy-contract", "rc", "dc"])
@@ -318,7 +328,7 @@ fn register_program_command() -> Command {
         .arg(mnemonic_arg())
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
-        .arg(inputs_arg())
+        .arg(cid_arg())
 }
 
 fn call_command() -> Command {
@@ -571,10 +581,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     wallet.get_account(&address).await;
                     dbg!("Account obtained");
                     dbg!("Getting inputs");
-                    let inputs = children.get_one::<String>("inputs").expect("required");
-                    dbg!("Inputs obtained: {:?}", inputs);
+                    let cid = children.get_one::<String>("content-id").expect("required");
+                    let inputs = json!({"conentId": cid});
+                    dbg!("Inputs obtained: {:?}", inputs.to_string());
                     dbg!("Registering program");
-                    let _ = wallet.register_program(inputs).await;
+                    let _ = wallet.register_program(&inputs.to_string()).await;
                     dbg!("Program registered");
                     dbg!("Getting account again");
                     wallet.get_account(&address).await;
