@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAc
 
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
+use lasr::Transaction;
 use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo, Namespace};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
@@ -416,6 +417,20 @@ fn parse_outputs() -> Command {
         .arg(json_arg())
 }
 
+fn parse_transaction() -> Command {
+    Command::new("parse-transaction")
+        .aliases(["parse-tx", "parse-tx-json"])
+        .arg(json_arg())
+}
+
+fn get_default_transaction() -> Command {
+    Command::new("default-transaction")
+        .aliases(["default-tx", "tx"])
+}
+
+fn hex_or_bytes() -> Command {
+    Command::new("hex-or-bytes")
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -430,6 +445,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .subcommand(
             parse_outputs()
+        )
+        .subcommand(
+            parse_transaction()
+        )
+        .subcommand(
+            get_default_transaction()
+        )
+        .subcommand(
+            hex_or_bytes()
         )
         .get_matches();
 
@@ -582,6 +606,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let outputs: lasr::Outputs = serde_json::from_str(&json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
                 println!("{:#?}", outputs);
             }
+        }
+        Some(("parse-transaction", children)) => {
+            let value = children.ids();
+            let json_str = children.get_one::<String>("json").expect("unable to acquire json from command line");
+            let transaction: lasr::Transaction = serde_json::from_str(&json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            println!("{:#?}", transaction);
+        }
+        Some(("default-transaction", children)) => {
+            println!("{:?}", serde_json::to_string(&Transaction::default()).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?);
+        }
+        Some(("hex-or-bytes", children)) => {
+            let hex = lasr::HexOr20Bytes::Hex(hex::encode(&[2; 20]));
+            let bytes = lasr::HexOr20Bytes::Bytes([2; 20]);
+            println!("{:?}", serde_json::to_string(&hex).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?);
+            println!("{:?}", serde_json::to_string(&bytes).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?);
+
         }
         _ => {}
 

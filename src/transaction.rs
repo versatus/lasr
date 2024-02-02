@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Deserializer};
 use sha3::{Sha3_256, Digest};
 use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
@@ -156,173 +156,91 @@ impl Payload {
     }
 }
 
-// Custom deserialization function
-fn deserialize_address_bytes<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error>
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HexOr20Bytes {
+    Hex(String),
+    Bytes([u8; 20])
+}
+
+fn deserialize_address_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error> 
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>
 {
-    struct Bytes20Visitor;
-
-    impl<'de> serde::de::Visitor<'de> for Bytes20Visitor {
-        type Value = [u8; 20];
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a hex string or a byte array representing 20 bytes")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<[u8; 20], E>
-        where
-            E: serde::de::Error,
-        {
-            // Handle hex string
+    let input = HexOr20Bytes::deserialize(deserializer)?;
+    match input {
+        HexOr20Bytes::Hex(value) => {
             if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
-                bytes.try_into().map_err(|_| E::custom("Hex string does not represent a valid 20-byte array"))
-            } 
-            // Handle byte array
-            else if value.starts_with("[") && value.ends_with("]") {
+                let bytes = hex::decode(&value[2..]).map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20-byte array")) 
+            } else if value.starts_with("[") && value.ends_with("]") {
                 let bytes_str = &value[1..value.len() - 1];
                 let bytes: Vec<u8> = bytes_str.split(',')
                     .map(str::trim)
-                    .map(|s| s.parse::<u8>().map_err(E::custom))
-                    .collect::<Result<Vec<u8>, E>>()?;
-                
-                bytes.try_into().map_err(|_| E::custom("Invalid length for 20-byte array"))
-            } 
-            else {
-                Err(E::custom("Invalid format"))
-            }
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> 
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut array = [0u8; 20];
-            let mut idx = 0;
-            while let Some(byte) = seq.next_element()? {
-                if idx < 20 {
-                    array[idx] = byte;
-                    idx += 1
-                } else {
-                    return Err(serde::de::Error::invalid_length(idx + 1, &self));
-                }
-            }
-
-            if idx == 20 {
-                let hex_str = hex::encode(array);
-                self.visit_str(&hex_str)
+                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom)).collect::<Result<Vec<u8>, D::Error>>()?;
+                bytes.try_into().map_err(|_| serde::de::Error::custom("Bytes string does not represent a value 20-byte array"))
             } else {
-                return Err(serde::de::Error::invalid_length(idx, &self));
+                let bytes = hex::decode(&value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20 byte array"))
             }
         }
-
-        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> 
-        where
-            E: serde::de::Error
-        {
-            let bytes_str = hex::encode(value);
-            self.visit_str(&bytes_str)
+        HexOr20Bytes::Bytes(v) => {
+            Ok(v)
         }
     }
-
-    deserializer.deserialize_str(Bytes20Visitor)
 }
 
-// Custom deserialization function
-fn deserialize_signature_bytes<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HexOr32Bytes {
+    Hex(String),
+    Bytes([u8; 32])
+}
+
+fn deserialize_sig_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error> 
 where
-    D: serde::Deserializer<'de>,
+    D: Deserializer<'de>
 {
-    struct Bytes32Visitor;
-
-    impl<'de> serde::de::Visitor<'de> for Bytes32Visitor {
-        type Value = [u8; 32];
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a hex string or a byte array representing 32 bytes")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<[u8; 32], E>
-        where
-            E: serde::de::Error,
-        {
-            // Handle hex string
+    let input = HexOr32Bytes::deserialize(deserializer)?;
+    match input {
+        HexOr32Bytes::Hex(value) => {
             if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
-                bytes.try_into().map_err(|_| E::custom("Hex string does not represent a valid 32-byte array"))
-            } 
-            // Handle byte array
-            else if value.starts_with("[") && value.ends_with("]") {
+                let bytes = hex::decode(&value[2..]).map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20-byte array")) 
+            } else if value.starts_with("[") && value.ends_with("]") {
                 let bytes_str = &value[1..value.len() - 1];
                 let bytes: Vec<u8> = bytes_str.split(',')
                     .map(str::trim)
-                    .map(|s| s.parse::<u8>().map_err(E::custom))
-                    .collect::<Result<Vec<u8>, E>>()?;
-                
-                bytes.try_into().map_err(|_| E::custom("Invalid length for 32-byte array"))
-            } 
-            else {
-                Err(E::custom("Invalid format"))
-            }
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> 
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut array = [0u8; 32];
-            let mut idx = 0;
-            while let Some(byte) = seq.next_element()? {
-                if idx < 32 {
-                    array[idx] = byte;
-                    idx += 1
-                } else {
-                    return Err(serde::de::Error::invalid_length(idx + 1, &self));
-                }
-            }
-
-            if idx == 32 {
-                let hex_str = hex::encode(array);
-                self.visit_str(&hex_str)
+                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom)).collect::<Result<Vec<u8>, D::Error>>()?;
+                bytes.try_into().map_err(|_| serde::de::Error::custom("Bytes string does not represent a value 20-byte array"))
             } else {
-                return Err(serde::de::Error::invalid_length(idx, &self));
+                Err(serde::de::Error::custom("unable to deserialize as a string"))
             }
         }
-
-        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> 
-        where
-            E: serde::de::Error
-        {
-            let bytes_str = hex::encode(value);
-            self.visit_str(&bytes_str)
+        HexOr32Bytes::Bytes(v) => {
+            Ok(v)
         }
     }
-
-    deserializer.deserialize_str(Bytes32Visitor)
 }
-
-
-
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
-    #[serde(deserialize_with = "deserialize_address_bytes")]
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     from: [u8; 20],
-    #[serde(deserialize_with = "deserialize_address_bytes")]
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     to: [u8; 20],
-    #[serde(deserialize_with = "deserialize_address_bytes")]
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     program_id: [u8; 20],
     op: String,
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,
     v: i32,
-    #[serde(deserialize_with = "deserialize_signature_bytes")]
+    #[serde(deserialize_with = "deserialize_sig_bytes_or_string")]
     r: [u8; 32],
-    #[serde(deserialize_with = "deserialize_signature_bytes")]
+    #[serde(deserialize_with = "deserialize_sig_bytes_or_string")]
     s: [u8; 32],
 }
 
