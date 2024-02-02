@@ -193,6 +193,37 @@ where
                 Err(E::custom("Invalid format"))
             }
         }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> 
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut array = [0u8; 20];
+            let mut idx = 0;
+            while let Some(byte) = seq.next_element()? {
+                if idx < 20 {
+                    array[idx] = byte;
+                    idx += 1
+                } else {
+                    return Err(serde::de::Error::invalid_length(idx + 1, &self));
+                }
+            }
+
+            if idx == 20 {
+                let hex_str = hex::encode(array);
+                self.visit_str(&hex_str)
+            } else {
+                return Err(serde::de::Error::invalid_length(idx, &self));
+            }
+        }
+
+        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> 
+        where
+            E: serde::de::Error
+        {
+            let bytes_str = hex::encode(value);
+            self.visit_str(&bytes_str)
+        }
     }
 
     deserializer.deserialize_str(Bytes20Visitor)
@@ -234,6 +265,37 @@ where
             else {
                 Err(E::custom("Invalid format"))
             }
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> 
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut array = [0u8; 32];
+            let mut idx = 0;
+            while let Some(byte) = seq.next_element()? {
+                if idx < 32 {
+                    array[idx] = byte;
+                    idx += 1
+                } else {
+                    return Err(serde::de::Error::invalid_length(idx + 1, &self));
+                }
+            }
+
+            if idx == 32 {
+                let hex_str = hex::encode(array);
+                self.visit_str(&hex_str)
+            } else {
+                return Err(serde::de::Error::invalid_length(idx, &self));
+            }
+        }
+
+        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E> 
+        where
+            E: serde::de::Error
+        {
+            let bytes_str = hex::encode(value);
+            self.visit_str(&bytes_str)
         }
     }
 
