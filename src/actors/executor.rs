@@ -176,12 +176,12 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "local")]
-    fn registration_success(&self, transaction_hash: String) -> std::io::Result<()> {
+    fn registration_success(&self, transaction: Transaction, program_id: Address) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
 
-        let message = SchedulerMessage::RegistrationSuccess { transaction_hash };
+        let message = SchedulerMessage::RegistrationSuccess { transaction, program_id };
         actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
@@ -268,7 +268,7 @@ impl Actor for ExecutorActor {
                 // Build container
             },
             ExecutorMessage::Create { 
-                transaction_hash,
+                transaction,
                 program_id, 
                 entrypoint, 
                 program_args,
@@ -282,7 +282,7 @@ impl Actor for ExecutorActor {
                     program_args
                 ).await {
                     Ok(()) => {
-                        match self.registration_success(transaction_hash) {
+                        match self.registration_success(transaction, program_id) {
                             Err(e) => {
                                 log::error!("Error: executor.rs: 225: {e}");
                             }
@@ -292,7 +292,7 @@ impl Actor for ExecutorActor {
                     }
                     Err(e) => {
                         log::error!("Error: executor.rs: 219: {e}");
-                        match self.registration_error(transaction_hash, e.to_string()) {
+                        match self.registration_error(transaction.hash_string(), e.to_string()) {
                             Err(e) => {
                                 log::error!("Error: executor.rs: 235: {e}");
                             }
@@ -379,7 +379,6 @@ impl Actor for ExecutorActor {
                                             Some(tx) => { 
                                                 match self.execution_success(
                                                     &tx, 
-                                                    &hash, 
                                                     &output
                                                 ) {
                                                     Ok(_) => {

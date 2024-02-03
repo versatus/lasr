@@ -956,27 +956,6 @@ impl Batcher {
             }
         }; 
 
-        #[cfg(feature = "local")]
-        let program_id = if &content_id.len() == &32 {
-            let mut hasher = sha3::Keccak256::new();
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&content_id[..]);
-            hasher.update(buf);
-            hasher.update(transaction.hash());
-            let address_hash = hasher.finalize();
-            let mut addr_buf = [0u8; 32];
-            addr_buf.copy_from_slice(&address_hash[..]);
-            Address::from(addr_buf) 
-        } else if &content_id.len() == &20 {
-            let mut buf = [0u8; 20];
-            buf.copy_from_slice(&content_id[..]);
-            Address::from(buf)
-        } else {
-            return Err(BatcherError::Custom("invalid length for content id".to_string()))
-        };
-
-
-        #[cfg(feature = "remote")]
         let content_id = {
             match json.get("contentId").ok_or(BatcherError::Custom("content id is required".to_string()))? { 
                 Value::String(cid) => cid.clone(),
@@ -986,7 +965,6 @@ impl Batcher {
             }
         };
 
-        #[cfg(feature = "remote")]
         let program_id = create_program_id(content_id.clone(), transaction).map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;

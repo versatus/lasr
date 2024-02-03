@@ -340,6 +340,16 @@ fn payload_arg() -> Arg {
         .help("a payload to hash, turn into a signable message, and sign")
 }
 
+fn verbose_arg() -> Arg {
+    Arg::new("verbose")
+        .short('v')
+        .long("verbose")
+        .aliases(["vbs", "verb", "verbosity", "print"])
+        .value_parser(value_parser!(bool))
+        .action(ArgAction::SetTrue)
+        .default_value("false")
+}
+
 fn sign_command() -> Command {
     Command::new("sign")
         .aliases(["sign-transaction", "stx"])
@@ -351,6 +361,7 @@ fn sign_command() -> Command {
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
         .arg(payload_arg())
+        .arg(verbose_arg())
 }
 
 fn register_program_command() -> Command {
@@ -364,6 +375,7 @@ fn register_program_command() -> Command {
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
         .arg(cid_arg())
+        .arg(verbose_arg())
 }
 
 fn call_command() -> Command {
@@ -382,6 +394,7 @@ fn call_command() -> Command {
         .arg(inputs_arg())
         .arg(value_arg().required(false))
         .arg(unit_arg().required(false))
+        .arg(verbose_arg())
 }
 
 fn send_command() -> Command {
@@ -398,6 +411,7 @@ fn send_command() -> Command {
         .arg(program_id_arg())
         .arg(value_arg())
         .arg(unit_arg())
+        .arg(verbose_arg())
 }
 
 fn get_account_command() -> Command {
@@ -410,6 +424,7 @@ fn get_account_command() -> Command {
         .arg(mnemonic_arg())
         .arg(from_secret_key_arg())
         .arg(secret_key_arg())
+        .arg(verbose_arg())
 }
 
 fn wallet_command() -> Command {
@@ -767,17 +782,19 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
                 let pubkey = master.public_key(&secp);
                 let address: Address = pubkey.into();
                 let eaddr: EthereumAddress = address.into();
-                println!("************************************************************");
-                println!("****************  DO NOT SHARE SECRET KEY  *****************");
-                println!("************************************************************\n");
-                println!("************************************************************");
-                println!("******************     SECRET KEY        *******************\n");
-                println!("{}\n", &sk);
-                println!("************************************************************\n");
-                println!("************************************************************");
-                println!("******************       ADDRESS         *******************");
-                println!("*******  0x{}  *******", &address.encode_hex::<String>());
-                println!("************************************************************\n");
+                let verbose = *children.get_one::<bool>("verbose").expect("required or default");
+                if verbose {
+                    println!("************************************************************");
+                    println!("************************************************************\n");
+                    println!("************************************************************");
+                    println!("******************     SECRET KEY        *******************\n");
+                    println!("{}\n", &sk);
+                    println!("************************************************************\n");
+                    println!("************************************************************");
+                    println!("******************       ADDRESS         *******************");
+                    println!("*******  0x{}  *******", &address.encode_hex::<String>());
+                    println!("************************************************************\n");
+                }
                 (master, pubkey)
             } 
         };
