@@ -89,7 +89,7 @@ pub struct Payload {
     #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     program_id: [u8; 20],
     op: String,
-//    #[serde(rename(serialize = "transactionInputs", deserialize = "transactionInputs"))]
+    #[serde(rename(serialize = "transactionInputs", deserialize = "transactionInputs"))]
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,
