@@ -226,14 +226,26 @@ impl ExecutorActor {
         Ok(())
     }
 
-    #[allow(unused)]
     fn execution_error(
         &self,
         transaction_hash: &String,
         err: impl std::error::Error
     ) -> std::io::Result<()> {
-        // Send stderr output to client via RPC return 
-        todo!()
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
+        )?.into();
+
+        let message = SchedulerMessage::CallTransactionFailure { 
+            transaction_hash: transaction_hash.to_string(),
+            outputs: String::new(),
+            error: err.to_string() 
+        };
+
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        Ok(())
     }
 }
 
@@ -548,6 +560,17 @@ impl Actor for ExecutorActor {
                             log::error!("Unable to serialize JSON inputs")
                         }
                     }
+                } else {
+                    log::error!("Program account does not exist, not a valid call");
+                    let _ = self.execution_error(
+                        &transaction.hash_string(), 
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other, 
+                            "Program account does not exist, not a valid call"
+                        )
+                    );
+
+                    log::error!("Returning error to scheduler to propagate to RPC");
                 }
             },
             ExecutorMessage::PollJobStatus { job_id } => {
@@ -555,9 +578,11 @@ impl Actor for ExecutorActor {
                     job_id
                 ).await {
                     Ok(outputs) => {
+                        log::info!("Received service job status response: {:?}", outputs);
                         let pending_job = state.pending.get(&job_id);
                         match pending_job {
                             Some(pj) => {
+                                log::info!("Acquired pending job: {:?}", &pj);
 //                                match self.execution_success(&pj.transaction, &outputs) {
 //                                    Ok(_) => {}
 //                                    Err(_) => {}

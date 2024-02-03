@@ -66,7 +66,9 @@ impl TaskScheduler {
             rpc_reply.send(
                 RpcMessage::Response { 
                     response: Err(
-                        RpcResponseError
+                        RpcResponseError {
+                            description: "unable to find accountt in DA or Protocol Cache".to_string()
+                        }
                     ), 
                     reply: None 
                 }
@@ -223,7 +225,9 @@ impl Actor for TaskScheduler {
                         //TODO(asmith): Add more verbose and descriptive error options for RPC Response
                         //Error
                         TransactionResponse::TransactionError(
-                            RpcResponseError
+                            RpcResponseError {
+                                description: format!("Transaction {} failed due to {}", transaction_hash, error)
+                            }
                         )
                     );
 

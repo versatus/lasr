@@ -18,7 +18,9 @@ use ractor::RpcReplyPort;
 
 /// An error type for RPC Responses
 #[derive(thiserror::Error, Debug, Clone)]
-pub struct RpcResponseError;
+pub struct RpcResponseError {
+    pub description: String
+}
 
 /// Required trait to be considered an `Error` type
 impl Display for RpcResponseError {
