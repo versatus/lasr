@@ -186,7 +186,14 @@ impl Batch {
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
         if !self.clone().account_would_exceed_capacity(account.clone())? {
             log::info!("inserting account into batch");
-            self.accounts.insert(account.owner_address().to_full_string(), account.clone());
+            match account.account_type() {
+                AccountType::Program(address) => {
+                    self.accounts.insert(address.clone().to_full_string(), account.clone());
+                }
+                AccountType::User => {
+                    self.accounts.insert(account.owner_address().to_full_string(), account.clone());
+                }
+            }
             log::info!("{:?}", &self);
             return Ok(())
         }
@@ -996,10 +1003,6 @@ impl Batcher {
             .program_account_data(ArbitraryData::new())
             .program_account_metadata(metadata)
             .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
-
-        self.cache_account(&program_account).await.map_err(|e| {
-            BatcherError::Custom(e.to_string())
-        })?;
 
         self.add_account_to_batch(program_account).await.map_err(|e| {
             BatcherError::Custom(e.to_string())

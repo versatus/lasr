@@ -214,6 +214,7 @@ impl EoClient {
                     let mut receipt = None;
 
                     while receipt.is_none() {
+                        tokio::time::sleep(std::time::Duration::from_secs(3));
                         receipt = web3.eth().transaction_receipt(hash.clone()).await.unwrap_or_else(|e| {
                             log::error!("{}", e);
                             None
