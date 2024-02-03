@@ -78,12 +78,15 @@ impl ToString for TransactionType {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema, PartialOrd, Ord, Hash)] 
 #[serde(rename_all = "camelCase")]
 pub struct Payload {
     transaction_type: TransactionType,
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     from: [u8; 20],
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     to: [u8; 20],
+    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     program_id: [u8; 20],
     op: String,
     inputs: String,
@@ -163,7 +166,16 @@ pub enum HexOr20Bytes {
     Bytes([u8; 20])
 }
 
-fn deserialize_address_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error> 
+// Custom serializer for byte arrays to hex strings
+fn serialize_as_hex<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let hex_string = hex::encode(bytes);
+    serializer.serialize_str(&format!("0x{}", hex_string))
+}
+
+pub fn deserialize_address_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error> 
 where
     D: Deserializer<'de>
 {
@@ -197,7 +209,7 @@ pub enum HexOr32Bytes {
     Bytes([u8; 32])
 }
 
-fn deserialize_sig_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error> 
+pub fn deserialize_sig_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error> 
 where
     D: Deserializer<'de>
 {
@@ -227,20 +239,20 @@ where
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
-    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
     from: [u8; 20],
-    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
     to: [u8; 20],
-    #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
     program_id: [u8; 20],
     op: String,
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,
     v: i32,
-    #[serde(deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
     r: [u8; 32],
-    #[serde(deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
     s: [u8; 32],
 }
 

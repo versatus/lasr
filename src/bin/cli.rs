@@ -331,6 +331,28 @@ fn cid_arg() -> Arg {
         .help("a Base58btc encoded string representing the hash of a web3 package payload")
 }
 
+fn payload_arg() -> Arg {
+    Arg::new("payload")
+        .short('p')
+        .long("payload")
+        .aliases(["sign-me", "john-hancock", "siggy", "curvy", "gettin-siggy-wit-it"])
+        .required(true)
+        .help("a payload to hash, turn into a signable message, and sign")
+}
+
+fn sign_command() -> Command {
+    Command::new("sign")
+        .aliases(["sign-transaction", "stx"])
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(payload_arg())
+}
+
 fn register_program_command() -> Command {
     Command::new("register-program")
         .aliases(["deploy", "rp", "register", "reg-prog", "prog", "deploy-prog", "register-contract", "deploy-contract", "rc", "dc"])
@@ -416,6 +438,9 @@ fn wallet_command() -> Command {
         )
         .subcommand(
             get_account_command()
+        )
+        .subcommand(
+            sign_command()
         )
 }
 
@@ -549,6 +574,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(("secret-key", children)) => {
                     println!("received `wallet secret-key` command");
                 },
+                Some(("sign", children)) => {
+                    let values = children.ids();
+                    let mut wallet = get_wallet(children).await?;
+                    let payload = children.get_one::<String>("payload").expect("required");
+                    let sig = wallet.sign_payload(payload).await.expect("unable to sign payload");
+                    println!("{}", serde_json::to_string_pretty(&sig).unwrap());
+                }
                 Some(("send", children)) => {
                     println!("received `wallet send` command");
                     let values = children.ids();
