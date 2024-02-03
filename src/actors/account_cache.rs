@@ -211,7 +211,9 @@ impl Actor for AccountCacheActor {
                 } else {
                     // Pass along to EO
                     // EO passes along to DA if Account Blob discovered
-                    let response = Err(RpcResponseError);
+                    let response = Err(RpcResponseError {
+                        description: "Unable to acquire account from DA or Protocol Cache".to_string()
+                    });
                     let _ = reply.send(RpcMessage::Response {
                         response,
                         reply: None,
