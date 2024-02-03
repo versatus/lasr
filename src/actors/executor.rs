@@ -69,7 +69,7 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
     pub(super) fn spawn_poll(&self, job_id: uuid::Uuid, mut rx: Receiver<()>) -> std::io::Result<JoinHandle<std::io::Result<()>>> {
         Ok(tokio::task::spawn(async move {
             let mut attempts = 0;
-            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::RemoteExecutor.to_string()).ok_or(
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
                 std::io::Error::new(std::io::ErrorKind::Other, "unable to locate remote executor")
             )?.into();
 
@@ -535,9 +535,10 @@ impl Actor for ExecutorActor {
                                     let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
                                     match poll_spawn_result {
                                         Ok(handle) => {
-                                        // Stash the job_id
-                                        let pending_job = PendingJob::new(handle, tx, transaction);
-                                        state.pending.insert(job_id.clone(), pending_job);
+                                            // Stash the job_id
+                                            log::info!("Received handle, stashing in PendingJob");
+                                            let pending_job = PendingJob::new(handle, tx, transaction);
+                                            state.pending.insert(job_id.clone(), pending_job);
                                         }
                                         Err(_e) => {}
                                     }
