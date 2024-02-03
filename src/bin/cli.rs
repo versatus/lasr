@@ -94,6 +94,10 @@ fn new_wallet_command() -> Command {
             overwrite_path_arg()
                 .required(false)
         )
+        .arg(
+            keypair_json_arg()
+                .required(false)
+        )
 }
 
 fn from_mnemonic_command() -> Command {
@@ -134,6 +138,15 @@ fn keyfile_path_arg() -> Arg {
         .long("path")
         .help("The path to the keypair file used to load the wallet")
         .default_value(".lasr/wallet/keypair.json")
+}
+
+fn keypair_json_arg() -> Arg {
+    Arg::new("keypair-json")
+        .aliases(["print-keypair", "ppk", "json-keypair", "kp-json"])
+        .long("keypair-json")
+        .short('k')
+        .action(ArgAction::SetTrue)
+        .required(false)
 }
 
 fn overwrite_path_arg() -> Arg {
@@ -318,6 +331,28 @@ fn cid_arg() -> Arg {
         .help("a Base58btc encoded string representing the hash of a web3 package payload")
 }
 
+fn payload_arg() -> Arg {
+    Arg::new("payload")
+        .short('p')
+        .long("payload")
+        .aliases(["sign-me", "john-hancock", "siggy", "curvy", "gettin-siggy-wit-it"])
+        .required(true)
+        .help("a payload to hash, turn into a signable message, and sign")
+}
+
+fn sign_command() -> Command {
+    Command::new("sign")
+        .aliases(["sign-transaction", "stx"])
+        .arg(from_file_arg())
+        .arg(keyfile_path_arg())
+        .arg(wallet_index_arg())
+        .arg(from_mnemonic_arg())
+        .arg(mnemonic_arg())
+        .arg(from_secret_key_arg())
+        .arg(secret_key_arg())
+        .arg(payload_arg())
+}
+
 fn register_program_command() -> Command {
     Command::new("register-program")
         .aliases(["deploy", "rp", "register", "reg-prog", "prog", "deploy-prog", "register-contract", "deploy-contract", "rc", "dc"])
@@ -404,6 +439,9 @@ fn wallet_command() -> Command {
         .subcommand(
             get_account_command()
         )
+        .subcommand(
+            sign_command()
+        )
 }
 
 fn from_json_file_arg() -> Arg {
@@ -484,7 +522,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let size = children.get_one::<usize>("mnemonic-size");
                     let wallet_info = Wallet::<HttpClient>::new(seed, passphrase, size)
                         .expect("Unable to acquire WalletInfo");
-                    pretty_print_wallet_info(&wallet_info);
+                    
+                    if let Some(flag) = children.get_one::<bool>("keypair-json") { 
+                        pretty_print_keypair_info(&wallet_info);
+                    } else {
+                        pretty_print_wallet_info(&wallet_info);
+                    }
 
                     let save = children.get_one::<bool>("save");
                     if let Some(true) = save {
@@ -531,6 +574,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(("secret-key", children)) => {
                     println!("received `wallet secret-key` command");
                 },
+                Some(("sign", children)) => {
+                    let values = children.ids();
+                    let mut wallet = get_wallet(children).await?;
+                    let payload = children.get_one::<String>("payload").expect("required");
+                    let sig = wallet.sign_payload(payload).await.expect("unable to sign payload");
+                    println!("{}", serde_json::to_string_pretty(&sig).unwrap());
+                }
                 Some(("send", children)) => {
                     println!("received `wallet send` command");
                     let values = children.ids();
@@ -756,6 +806,10 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
     };
 
     wallet
+}
+
+fn pretty_print_keypair_info(wallet_info: &WalletInfo) {
+    println!("{}", serde_json::to_string_pretty(wallet_info).unwrap())
 }
 
 fn pretty_print_wallet_info(wallet_info: &WalletInfo) {

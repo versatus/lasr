@@ -69,7 +69,7 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
     pub(super) fn spawn_poll(&self, job_id: uuid::Uuid, mut rx: Receiver<()>) -> std::io::Result<JoinHandle<std::io::Result<()>>> {
         Ok(tokio::task::spawn(async move {
             let mut attempts = 0;
-            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::RemoteExecutor.to_string()).ok_or(
+            let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
                 std::io::Error::new(std::io::ErrorKind::Other, "unable to locate remote executor")
             )?.into();
 
@@ -82,6 +82,7 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
                 actor.clone().cast(message).map_err(|e| {
                     std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
                 })?;
+                log::info!("attempt number {} polling job status", attempts + 1);
                 attempts += 1;
             }
 
@@ -515,8 +516,10 @@ impl Actor for ExecutorActor {
                 };
                 if let Some(account) = get_account(transaction.to()).await {
                     let metadata = account.program_account_metadata();
-                    if let Some(cid) = metadata.inner().get("cid") {
+                    if let Some(cid) = metadata.inner().get("content_id") {
+                        log::info!("found cid, converting inputs to json");
                         if let Ok(json_inputs) = serde_json::to_string(&inputs) {
+                            log::info!("successfully converted inputs to json, queueing job");
                             match state.compute_rpc_client.queue_job(
                                 cid, 
                                 ServiceJobType::Compute(
@@ -526,13 +529,16 @@ impl Actor for ExecutorActor {
                             ).await {
                                 // Spin a thread to periodically poll for the result
                                 Ok(job_id) => {
+
+                                    log::info!("successfully queued job, spawning thread to poll status");
                                     let (tx, rx) = tokio::sync::mpsc::channel(1); 
                                     let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
                                     match poll_spawn_result {
                                         Ok(handle) => {
-                                        // Stash the job_id
-                                        let pending_job = PendingJob::new(handle, tx, transaction);
-                                        state.pending.insert(job_id.clone(), pending_job);
+                                            // Stash the job_id
+                                            log::info!("Received handle, stashing in PendingJob");
+                                            let pending_job = PendingJob::new(handle, tx, transaction);
+                                            state.pending.insert(job_id.clone(), pending_job);
                                         }
                                         Err(_e) => {}
                                     }
@@ -546,18 +552,17 @@ impl Actor for ExecutorActor {
                 }
             },
             ExecutorMessage::PollJobStatus { job_id } => {
-                match state.compute_rpc_client.request::<String, &[u8]>(
-                    "job_status", 
-                    job_id.to_string().as_bytes()
+                match state.compute_rpc_client.job_status(
+                    job_id
                 ).await {
                     Ok(outputs) => {
                         let pending_job = state.pending.get(&job_id);
                         match pending_job {
                             Some(pj) => {
-                                match self.execution_success(&pj.transaction, &outputs) {
-                                    Ok(_) => {}
-                                    Err(_) => {}
-                                }
+//                                match self.execution_success(&pj.transaction, &outputs) {
+//                                    Ok(_) => {}
+//                                    Err(_) => {}
+//                                }
                             }
                             None => {}
                         }

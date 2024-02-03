@@ -3,6 +3,17 @@ use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
 use std::collections::BTreeSet;
 use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId}, Message};
+use crate::deserialize_sig_bytes_or_string;
+
+
+// Custom serializer for byte arrays to hex strings
+fn serialize_as_hex<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let hex_string = hex::encode(bytes);
+    serializer.serialize_str(&format!("0x{}", hex_string))
+}
 
 /// Represents a recoverable ECDSA signature.
 ///
@@ -12,7 +23,9 @@ use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId
 /// from the signature and the original message.
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
 pub struct RecoverableSignature {
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
     r: [u8; 32],
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
     s: [u8; 32],
     v: i32
 }
