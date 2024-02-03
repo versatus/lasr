@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 /// has the flexibility to do with the `Inputs`, represented by JSON as they
 /// choose. 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename(serialize = "computeInputs", deserialize="computeInputs"), rename_all = "camelCase")]
 pub struct Inputs {
     /// The compute agent version
     pub version: i32,
@@ -34,6 +34,7 @@ pub struct Inputs {
     /// The operation in the program being called
     pub op: String,
     /// The inputs to the contract operation being called
+    #[serde(rename(serialize = "contractInputs", deserialize = "contractInputs"))]
     pub inputs: String,
 }
 
