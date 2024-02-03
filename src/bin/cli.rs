@@ -94,6 +94,10 @@ fn new_wallet_command() -> Command {
             overwrite_path_arg()
                 .required(false)
         )
+        .arg(
+            keypair_json_arg()
+                .required(false)
+        )
 }
 
 fn from_mnemonic_command() -> Command {
@@ -134,6 +138,15 @@ fn keyfile_path_arg() -> Arg {
         .long("path")
         .help("The path to the keypair file used to load the wallet")
         .default_value(".lasr/wallet/keypair.json")
+}
+
+fn keypair_json_arg() -> Arg {
+    Arg::new("keypair-json")
+        .aliases(["print-keypair", "ppk", "json-keypair", "kp-json"])
+        .long("keypair-json")
+        .short('k')
+        .action(ArgAction::SetTrue)
+        .required(false)
 }
 
 fn overwrite_path_arg() -> Arg {
@@ -484,7 +497,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let size = children.get_one::<usize>("mnemonic-size");
                     let wallet_info = Wallet::<HttpClient>::new(seed, passphrase, size)
                         .expect("Unable to acquire WalletInfo");
-                    pretty_print_wallet_info(&wallet_info);
+                    
+                    if let Some(flag) = children.get_one::<bool>("keypair-json") { 
+                        pretty_print_keypair_info(&wallet_info);
+                    } else {
+                        pretty_print_wallet_info(&wallet_info);
+                    }
 
                     let save = children.get_one::<bool>("save");
                     if let Some(true) = save {
@@ -756,6 +774,10 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
     };
 
     wallet
+}
+
+fn pretty_print_keypair_info(wallet_info: &WalletInfo) {
+    println!("{}", serde_json::to_string_pretty(wallet_info).unwrap())
 }
 
 fn pretty_print_wallet_info(wallet_info: &WalletInfo) {
