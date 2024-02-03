@@ -432,7 +432,7 @@ pub enum ExecutorMessage {
         program_id: Address,
     },
     Create {
-        transaction_hash: String,
+        transaction: Transaction,
         program_id: Address,
         entrypoint: String, 
         program_args: Option<Vec<String>>,

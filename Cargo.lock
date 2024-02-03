@@ -1835,6 +1835,7 @@ dependencies = [
 [[package]]
 name = "internal_rpc"
 version = "0.1.0"
+source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -2661,6 +2662,7 @@ checksum = "2900ede94e305130c13ddd391e0ab7cbaeb783945ae07a279c268cb05109c6cb"
 [[package]]
 name = "platform"
 version = "0.1.0"
+source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
 dependencies = [
  "anyhow",
  "bitmask-enum",
@@ -3481,6 +3483,7 @@ dependencies = [
 [[package]]
 name = "service_config"
 version = "0.1.0"
+source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
 dependencies = [
  "anyhow",
  "serde",
@@ -4430,6 +4433,7 @@ dependencies = [
 [[package]]
 name = "web3_pkg"
 version = "0.1.0"
+source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
 dependencies = [
  "anyhow",
  "clap 3.2.25",

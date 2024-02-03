@@ -263,7 +263,6 @@ impl Engine {
             return Err(EngineError::Custom("invalid length for content id".to_string()))
         };
 
-        #[cfg(feature = "remote")]
         let content_id = {
             match json.get("contentId").ok_or(EngineError::Custom("content id is required".to_string()))? { 
                 Value::String(cid) => cid.clone(),
@@ -274,7 +273,6 @@ impl Engine {
         };
         
 
-        #[cfg(feature = "remote")]
         let program_id = {
             let pubkey = transaction.sig().map_err(|e| {
                 EngineError::Custom(
@@ -349,7 +347,7 @@ impl Engine {
 
         #[cfg(feature = "local")]
         let message = ExecutorMessage::Create {
-            transaction_hash: transaction.hash_string(),
+            transaction,
             program_id, 
             entrypoint, 
             program_args,
