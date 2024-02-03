@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 /// has the flexibility to do with the `Inputs`, represented by JSON as they
 /// choose. 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename(serialize = "computeInputs", deserialize="computeInputs"), rename_all = "camelCase")]
+#[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), rename_all = "camelCase")]
 pub struct Inputs {
     /// The compute agent version
     pub version: i32,
@@ -62,6 +62,7 @@ pub struct ParamPreRequisite {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Outputs {
+    #[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"))]
     inputs: Inputs,
     instructions: Vec<Instruction>,
 }
