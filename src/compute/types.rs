@@ -745,7 +745,7 @@ impl ProgramSchema {
         self.ops().get(name)
     }
 
-    pub(crate) fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
+    pub fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
         let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
         )?;

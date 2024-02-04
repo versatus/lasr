@@ -150,9 +150,6 @@ impl OciManager {
             let output = child.wait_with_output().await?;
             let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
 
-            //.map_err(|e| {
-            //    std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-            //})?;
             log::info!("result from container: {container_id} = {:#?}", res);
 
             let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
