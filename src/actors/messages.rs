@@ -8,7 +8,7 @@ use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
 use eigenda_client::response::BlobResponse;
 use eo_listener::EventType;
-use ethereum_types::{H256};
+use ethereum_types::H256;
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use web3::types::TransactionReceipt;
