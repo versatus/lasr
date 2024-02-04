@@ -1050,12 +1050,14 @@ checksum = "545b22097d44f8a9581187cdf93de7a71e4722bf51200cfaba810865b49a495d"
 [[package]]
 name = "eigenda_client"
 version = "0.1.0"
-source = "git+https://github.com/versatus/eigenda_client#1a4b34c47a17aa2604bced094153cc502a64426f"
+source = "git+https://github.com/versatus/eigenda_client#d25500f0040efc06da9e2aadec794325b2631bbb"
 dependencies = [
  "base64 0.13.1",
+ "clap 4.4.18",
  "derive_builder",
  "log",
  "prost 0.9.0",
+ "regex",
  "ritelinked",
  "serde",
  "serde_json",
@@ -1835,7 +1837,7 @@ dependencies = [
 [[package]]
 name = "internal_rpc"
 version = "0.1.0"
-source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
+source = "git+https://github.com/versatus/versatus.git#2c3686bc02cce29ab052d2262fc445bf5001a189"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -2668,7 +2670,7 @@ checksum = "2900ede94e305130c13ddd391e0ab7cbaeb783945ae07a279c268cb05109c6cb"
 [[package]]
 name = "platform"
 version = "0.1.0"
-source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
+source = "git+https://github.com/versatus/versatus.git#2c3686bc02cce29ab052d2262fc445bf5001a189"
 dependencies = [
  "anyhow",
  "bitmask-enum",
@@ -3491,7 +3493,7 @@ dependencies = [
 [[package]]
 name = "service_config"
 version = "0.1.0"
-source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
+source = "git+https://github.com/versatus/versatus.git#2c3686bc02cce29ab052d2262fc445bf5001a189"
 dependencies = [
  "anyhow",
  "serde",
@@ -4443,7 +4445,7 @@ dependencies = [
 [[package]]
 name = "web3_pkg"
 version = "0.1.0"
-source = "git+https://github.com/versatus/versatus.git#aa1eec0773a41e81654c29b2777cdbff2098c0a0"
+source = "git+https://github.com/versatus/versatus.git#2c3686bc02cce29ab052d2262fc445bf5001a189"
 dependencies = [
  "anyhow",
  "clap 3.2.25",

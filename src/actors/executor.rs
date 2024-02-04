@@ -1,8 +1,8 @@
-use std::{collections::HashMap, path::Path, time::Duration, str::FromStr, fs::metadata};
-use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
+use std::{collections::HashMap, time::Duration};
+use jsonrpsee::{ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, Address, BatcherMessage, Outputs};
+use crate::{ExecutorMessage, Inputs, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, BatcherMessage};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
@@ -173,7 +173,7 @@ impl<C: ClientT> ExecutionEngine<C> {
 pub struct ExecutorActor;
 
 impl ExecutorActor {
-    fn registration_error(&self, transaction_hash: String, error_string: String) -> std::io::Result<()> {
+    pub fn registration_error(&self, transaction_hash: String, error_string: String) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
@@ -237,13 +237,12 @@ impl ExecutorActor {
         Ok(())
     }
 
-    fn execution_error(
+    pub fn execution_error(
         &self,
         transaction_hash: &String,
         err: impl std::error::Error
     ) -> std::io::Result<()> {
-        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or( std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
         let message = SchedulerMessage::CallTransactionFailure { 
@@ -499,7 +498,7 @@ impl Actor for ExecutorActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ExecutorMessage::Retrieve { content_id, program_id, transaction } => {
+            ExecutorMessage::Retrieve { content_id, program_id: _, transaction } => {
                 // Used to retrieve Schema under this model
                 //    #[method(name = "pin_object")]
                 match state.storage_rpc_client.pinned_status(&content_id).await {
@@ -589,40 +588,53 @@ impl Actor for ExecutorActor {
                     job_id.clone()
                 ).await {
                     Ok(Some(status_response)) => {
-//                        match status_response.status() {
-//                            ServiceJobState::Complete => {
-//                                if let Some(pending_job) = state.pending.remove(&job_id) {
-//                                    let transaction = pending_job.transaction();
-//                                    if let Err(e) = pending_job.kill_thread().await {
-//                                        log::error!("Error trying to kill job polling thread: {e}")
-//                                    }
-//                                    if let Err(e) = self.execution_success(
-//                                        transaction.clone()
-//                                    ) { 
-//
-//                                    }
-//                                }
-//                            }
-//                            ServiceJobState::Failed => {
-//                            }
-//                            _ => {}
-//                        }
-
-//                        log::info!("Received service job status response: {:?}", outputs);
-                        let pending_job = state.pending.get(&job_id);
-                        match pending_job {
-                            Some(pj) => {
-                                log::info!("Acquired pending job: {:?}", &pj);
-//                                match self.execution_success(&pj.transaction, &outputs) {
-//                                    Ok(_) => {}
-//                                    Err(_) => {}
-//                                }
+                        match status_response.status() {
+                            ServiceJobState::Complete(outputs) => {
+                                log::info!("Received service job status response: {:?}", outputs);
+                                if let Some(pending_job) = state.pending.remove(&job_id) {
+                                    let transaction = pending_job.transaction();
+                                    if let Err(e) = pending_job.kill_thread().await {
+                                        log::error!("Error trying to kill job polling thread: {e}")
+                                    }
+                                    if let Err(e) = self.execution_success(
+                                        transaction,
+                                        outputs
+                                    ) { 
+                                        log::error!("Error attempting to handle a successful execution result: {e}");
+                                    }
+                                }
                             }
-                            None => {}
+                            ServiceJobState::Failed(err) => {
+                                log::error!("Execution of job {job_id} failed: {err}");
+                                if let Some(pending_job) = state.pending.remove(&job_id) {
+                                    let transaction = pending_job.transaction();
+                                    if let Err(e) = pending_job.kill_thread().await {
+                                        log::error!("Error trying to kill job polling thread: {e}")
+                                    }
+                                    if let Err(e) = self.execution_error(
+                                        &transaction.hash_string(),
+                                        std::io::Error::new(std::io::ErrorKind::Other, err.to_string())
+                                    ) {
+                                        log::error!("Unable to inform RPC client of execution failure: {e}");
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
-                    },
-                    Ok(None) => {}
-                    Err(_e) => {
+                    }
+                    Ok(None) => {
+                        log::error!("Unable to acquire status response from compute agent");
+                    }
+                    Err(e) => {
+                        if let Some(pending_job) = state.pending.remove(&job_id) {
+                            let transaction = pending_job.transaction();
+                            if let Err(e) = pending_job.kill_thread().await {
+                                log::error!("Error trying to kill job polling thread: {e}")
+                            }
+                            if let Err(e) = self.execution_error(&transaction.hash_string(), e) {
+                                log::error!("Unable to inform RPC client of execution failure: {e}");
+                            }
+                        }
                     }
                 }
             }
