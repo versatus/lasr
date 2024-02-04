@@ -2,10 +2,10 @@ use std::{collections::HashMap, path::Path, time::Duration, str::FromStr, fs::me
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, Address, BatcherMessage};
+use crate::{OciManager, ExecutorMessage, ProgramSchema, Inputs, Required, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, Address, BatcherMessage, Outputs};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
-use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType};
+use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
 use internal_rpc::api::InternalRpcApiClient;
 
 #[derive(Debug)]
@@ -26,6 +26,17 @@ impl PendingJob {
 
     pub async fn join_handle(self) {
         let _ = self.handle.await;
+    }
+
+    pub fn transaction(&self) -> &Transaction {
+        &self.transaction
+    }
+
+    pub async fn kill_thread(&self) -> std::io::Result<()> {
+        self.sender.send(()).await.map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+        Ok(())
     }
 }
 
@@ -575,10 +586,29 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::PollJobStatus { job_id } => {
                 match state.compute_rpc_client.job_status(
-                    job_id
+                    job_id.clone()
                 ).await {
-                    Ok(outputs) => {
-                        log::info!("Received service job status response: {:?}", outputs);
+                    Ok(Some(status_response)) => {
+//                        match status_response.status() {
+//                            ServiceJobState::Complete => {
+//                                if let Some(pending_job) = state.pending.remove(&job_id) {
+//                                    let transaction = pending_job.transaction();
+//                                    if let Err(e) = pending_job.kill_thread().await {
+//                                        log::error!("Error trying to kill job polling thread: {e}")
+//                                    }
+//                                    if let Err(e) = self.execution_success(
+//                                        transaction.clone()
+//                                    ) { 
+//
+//                                    }
+//                                }
+//                            }
+//                            ServiceJobState::Failed => {
+//                            }
+//                            _ => {}
+//                        }
+
+//                        log::info!("Received service job status response: {:?}", outputs);
                         let pending_job = state.pending.get(&job_id);
                         match pending_job {
                             Some(pj) => {
@@ -591,6 +621,7 @@ impl Actor for ExecutorActor {
                             None => {}
                         }
                     },
+                    Ok(None) => {}
                     Err(_e) => {
                     }
                 }
