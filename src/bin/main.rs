@@ -1,4 +1,4 @@
-#![allow(unreachable_code)]
+# ![allow(unreachable_code)]
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -24,7 +24,10 @@ use lasr::EoServerWrapper;
 use lasr::ExecutionEngine;
 use lasr::ExecutorActor;
 use lasr::LasrRpcServerActor;
-
+use lasr::OciManager;
+use lasr::OciBundlerBuilder;
+use lasr::OciBundler;
+use web3_pkg::web3_store::Web3Store;
 
 
 use lasr::PendingTransactionActor;
@@ -79,11 +82,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
+    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+        Web3Store::from_multiaddr(&addr)?
+    } else {
+        Web3Store::local()?
+    };
     #[cfg(feature = "local")]
-    let oci_manager = OciManager::new(bundler);
+    let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager, ipfs_api::IpfsClient::default());
+    let execution_engine = ExecutionEngine::new(oci_manager);
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");

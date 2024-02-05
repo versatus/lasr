@@ -1,10 +1,18 @@
-use std::{collections::HashMap, time::Duration};
-use jsonrpsee::{ws_client::WsClient};
+use std::{collections::HashMap, path::Path};
+#[cfg(feature = "remote")]
+use std::time::Duration;
+use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{ExecutorMessage, Inputs, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, BatcherMessage};
+#[cfg(feature = "local")]
+use crate::{Address, ExecutorMessage, Inputs, Required, ProgramSchema, SchedulerMessage, ActorType, EngineMessage, Transaction, OciManager};
+#[cfg(feature = "remote")]
+use crate::{get_account, BatcherMessage};
 use serde::{Serialize, Deserialize};
-use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
+use tokio::{task::JoinHandle, sync::mpsc::Sender};
+#[cfg(feature = "remote")]
+use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
 use internal_rpc::api::InternalRpcApiClient;
 
@@ -55,8 +63,6 @@ pub struct ExecutionEngine<C: InternalRpcApiClient> {
     storage_rpc_client: C,
     #[cfg(feature = "remote")]
     pending: HashMap<uuid::Uuid, PendingJob>,
-    #[cfg(feature = "local")]
-    ipfs_client: ipfs_api::IpfsClient,
     handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
     cache: DynCache,
     #[cfg(feature = "local")]
@@ -106,9 +112,8 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
 impl<C: ClientT> ExecutionEngine<C> {
     pub fn new(
         manager: OciManager,  
-        ipfs_client: ipfs_api::IpfsClient,
     ) -> Self  {
-        Self { manager, ipfs_client, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
+        Self { manager, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
     }
 
     pub(super) async fn create_bundle(
@@ -527,7 +532,7 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::Exec { transaction } => {
                 // Fire off RPC call to compute runtime
-                // program_id, op, inputs, transaction_hash
+                // program_address, op, inputs, transaction_hash
                 let inputs = Inputs {
                     version: 1,
                     account_info: None,

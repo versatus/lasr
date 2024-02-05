@@ -2207,7 +2207,9 @@ dependencies = [
  "typetag",
  "uint",
  "uuid",
+ "walkdir",
  "web3",
+ "web3_pkg",
 ]
 
 [[package]]

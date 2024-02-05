@@ -1,6 +1,7 @@
 use lasr::{OciBundler, OciManager, ensure_dir_exists, Inputs};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
+use web3_pkg::web3_store::Web3Store;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
@@ -24,12 +25,29 @@ async fn main() -> Result<(), std::io::Error> {
         base_image_path.to_string(),
         payload_path.to_string()
     );
+    
+    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+        Web3Store::from_multiaddr(&addr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+    } else {
+        Web3Store::local().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+    };
 
     let manager = OciManager::new(
-        bundler
+        bundler.clone(),
+        store
     );
 
-    let task_manager_1 = manager.clone();
+    let task_manager_1 = manager;
     let py_handle = tokio::task::spawn(async move {
         task_manager_1.bundle("testContainerPy", lasr::BaseImage::Bin).await?;
         task_manager_1.add_payload("testContainerPy").await?;
@@ -57,7 +75,28 @@ async fn main() -> Result<(), std::io::Error> {
 
     results.push(py_handle);
 
-    let task_manager_2 = manager.clone();
+    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+        Web3Store::from_multiaddr(&addr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+    } else {
+        Web3Store::local().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+    };
+
+    let manager = OciManager::new(
+        bundler,
+        store
+    );
+
+    let task_manager_2 = manager;
     
     let rs_handle = tokio::task::spawn(async move {
         task_manager_2.bundle("testContainerRs", lasr::BaseImage::Bin).await?;

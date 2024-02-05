@@ -4,6 +4,7 @@ use ractor::ActorRef;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
+use web3_pkg::web3_store::Web3Store;
 use std::process::Stdio;
 use std::io::Read;
 use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction};
@@ -44,23 +45,20 @@ pub struct IpfsManager {
     client: IpfsClient
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OciManager {
     bundler: OciBundler<String, String>,
-}
-
-impl Display for OciManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    store: Web3Store,
 }
 
 impl OciManager {
     pub fn new(
         bundler: OciBundler<String, String>,
+        store: Web3Store,
     ) -> Self {
         Self {
             bundler,
+            store
         }
     }
 
@@ -69,7 +67,14 @@ impl OciManager {
         content_id: impl AsRef<Path>,
         base_image: BaseImage
     ) -> Result<(), std::io::Error> {
-        self.bundler.bundle(content_id, base_image).await
+        let cid = content_id.as_ref().to_string_lossy().to_owned().to_string();
+        let res = self.store.read_object(&cid).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+        self.bundler.bundle(cid, base_image).await
     }
 
 
