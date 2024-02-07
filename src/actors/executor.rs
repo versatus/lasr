@@ -15,6 +15,7 @@ use tokio::sync::mpsc::Receiver;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
 use internal_rpc::api::InternalRpcApiClient;
+use crate::create_program_id;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -119,13 +120,8 @@ impl<C: ClientT> ExecutionEngine<C> {
     pub(super) async fn create_bundle(
         &self,
         content_id: impl AsRef<Path>,
-        entrypoint: String,
-        program_args: Option<Vec<String>>
     ) -> std::io::Result<()> {
-        self.manager.bundle(&content_id, crate::BaseImage::Bin).await?;
-        self.manager.add_payload(&content_id).await?;
-        self.manager.base_spec(&content_id).await?;
-        self.manager.customize_spec(&content_id, &entrypoint, program_args)?;
+        self.manager.bundle(&content_id).await?;
         Ok(())
     }
 
@@ -140,21 +136,27 @@ impl<C: ClientT> ExecutionEngine<C> {
         Ok(handle)
     }
 
-    pub(super) fn get_program_schema(
+    pub fn get_program_schema(
         &self,
         content_id: impl AsRef<Path> + Send,
     ) -> std::io::Result<ProgramSchema> {
         self.manager.get_program_schema(content_id)
     }
 
-    pub(super) fn parse_inputs(&self, _schema: &ProgramSchema, transaction: &Transaction, op: String, inputs: String) -> std::io::Result<Inputs> {
+    pub fn parse_inputs(
+        &self, 
+        /*_schema: &ProgramSchema,*/ 
+        transaction: &Transaction, 
+        op: String, 
+        inputs: String
+    ) -> std::io::Result<Inputs> {
         return Ok(Inputs { version: 1, account_info: None, transaction: transaction.clone(), op, inputs } )
     }
 
-    pub(super) fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
+    pub fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
         for req in pre_requisites {
             match req {
-                Required::Call(call_map) => { 
+                Required::Call(_call_map) => { 
                     // CallMap consists of:
                     //  - calling_program: TransactionFields,
                     //  - original_caller: TransactionFields,
@@ -163,7 +165,6 @@ impl<C: ClientT> ExecutionEngine<C> {
                     //  this should stand up an unsigned execution of the 
                     //  program id, the op tell us the operation to call
                     //  and the inputs tell us what to pass in
-                    dbg!(call_map); 
                 },
                 Required::Read(read_params) => { dbg!(read_params); },
                 Required::Lock(lock_pair) => { dbg!(lock_pair); },
@@ -296,24 +297,30 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::Create { 
                 transaction,
-                program_id, 
-                entrypoint, 
-                program_args,
-                ..
+                content_id,
             } => {
                 // Build the container spec and create the container image 
                 log::info!("Receieved request to create container image");
                 match state.create_bundle(
-                    program_id.to_full_string(),
-                    entrypoint, 
-                    program_args
+                    content_id.clone()
                 ).await {
                     Ok(()) => {
-                        match self.registration_success(transaction, program_id) {
-                            Err(e) => {
-                                log::error!("Error: executor.rs: 225: {e}");
+                        let program_id_result = create_program_id(content_id, &transaction);
+
+                        match program_id_result {
+                            Ok(program_id) => {
+                                match self.registration_success(transaction, program_id) {
+                                    Err(e) => {
+                                        log::error!("Error: executor.rs: 225: {e}");
+                                    }
+                                    _ => {
+                                    }
+                                }
                             }
-                            _ => {
+                            Err(e) => {
+                                if let Err(e) = self.registration_error(transaction.hash_string(), e.to_string()){
+                                    log::error!("Error: executor.rs: 315: {e}")
+                                }
                             }
                         }
                     }
@@ -328,10 +335,6 @@ impl Actor for ExecutorActor {
                         }
                     }
                 }
-                // If payload has a constructor method/function should be executed
-                // to return a Create instruction.
-                //
-
             },
             ExecutorMessage::Exec {
                 transaction
@@ -344,51 +347,58 @@ impl Actor for ExecutorActor {
                 let op = transaction.op();
                 let inputs = transaction.inputs();
                 let transaction_hash = transaction.hash_string();
-                match state.get_program_schema(program_id.to_full_string()) {
-                    Ok(schema) => {
-                        match schema.get_prerequisites(&op) {
-                            Ok(pre_requisites) => {
-                                let _ = state.handle_prerequisites(&pre_requisites);
-                                match state.parse_inputs(&schema, &transaction, op, inputs) {
-                                    Ok(inputs) => {
-                                        match state.execute(
-                                            program_id.to_full_string(),
-                                            transaction,
-                                            inputs,
-                                            &transaction_hash
-                                        ).await {
-                                            Ok(handle) => {
-                                                log::info!("result successful, placing handle in handles");
-                                                state.handles.insert(
-                                                    (program_id.to_full_string(), transaction_hash), 
-                                                    handle
-                                               );
-                                            },
-                                            Err(e) => {
-                                                log::error!(
-                                                    "Error calling state.execute: executor.rs: 265: {}", e
-                                                );
-                                            } 
-                                        }
-                                    },
-                                    Err(e) => {
-                                        log::error!(
-                                            "Error calling state.parse_inputs: executor.rs: 263: {}", e
-                                        );
-                                    }
-                                }
+                
+                //match state.get_program_schema(program_id.to_full_string()) {
+                //    Ok(schema) => {
+                //        match schema.get_prerequisites(&op) {
+                //            Ok(pre_requisites) => {
+                //                let _ = state.handle_prerequisites(&pre_requisites);
+                match state.parse_inputs(
+                    /*&schema,*/
+                    &transaction, 
+                    op, 
+                    inputs
+                ) {
+                    Ok(inputs) => {
+                        match state.execute(
+                            program_id.to_full_string(),
+                            transaction,
+                            inputs,
+                            &transaction_hash
+                        ).await {
+                            Ok(handle) => {
+                                log::info!("result successful, placing handle in handles");
+                                state.handles.insert(
+                                    (program_id.to_full_string(), transaction_hash), 
+                                    handle
+                               );
                             },
                             Err(e) => {
                                 log::error!(
-                                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
+                                    "Error calling state.execute: executor.rs: 265: {}", e
                                 );
-                            }
+                            } 
                         }
                     },
                     Err(e) => {
-                        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
+                        log::error!(
+                            "Error calling state.parse_inputs: executor.rs: 263: {}", e
+                        );
                     }
                 }
+                //    }
+                //},
+                //            Err(e) => {
+                //                log::error!(
+                //                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
+                //                );
+                //            }
+                //        }
+                //    },
+                //    Err(e) => {
+                //        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
+                //    }
+                //}
             },
             ExecutorMessage::Results { content_id, transaction_hash, transaction } => {
                 // Handle the results of an execution

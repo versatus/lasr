@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, fmt::Display};
 use secp256k1::{SecretKey, Secp256k1, Message};
 use serde::{Serialize, Deserialize};
 use derive_builder::Builder;
@@ -58,6 +58,23 @@ pub enum DocumentFormat {
     TarGzip
 }
 
+impl Display for DocumentFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pdf => write!(f, "{}", "pdf"),
+            Self::Word => write!(f, "{}", "doc"),
+            Self::Excel => write!(f, "{}", "xlsx"),
+            Self::Powerpoint => write!(f, "{}", "ppt"),
+            Self::Zip => write!(f, "{}", "zip"),
+            Self::Rar => write!(f, "{}", "rar"),
+            Self::SevenZ => write!(f, "{}", "7z"),
+            Self::Tar => write!(f, "{}", "tar"),
+            Self::Gzip => write!(f, "{}", "gz"),
+            Self::TarGzip => write!(f, "{}", "tar.gz"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FileFormat {
@@ -65,6 +82,8 @@ pub enum FileFormat {
     Html,
     Xml,
     Json,
+    Toml,
+    Yaml,
     Csv,
     Markdown,
     Sql,
@@ -81,6 +100,33 @@ pub enum FileFormat {
     Document(DocumentFormat)
 }
 
+impl Display for FileFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileFormat::Document(document_format) => write!(f, "{}", document_format.to_string()),
+            FileFormat::PlainText => write!(f, "{}", "txt"), 
+            FileFormat::Html => write!(f, "{}", "html"),
+            FileFormat::Xml => write!(f, "{}", "xml"),
+            FileFormat::Json => write!(f, "{}", "json"), 
+            FileFormat::Toml => write!(f, "{}", "toml"),
+            FileFormat::Yaml => write!(f, "{}", "yaml"), 
+            FileFormat::Csv => write!(f, "{}", "csv"),
+            FileFormat::Markdown => write!(f, "{}", "md"),
+            FileFormat::Sql => write!(f, "{}", "sql"),
+            FileFormat::Cad => write!(f, "{}", "dwg"),
+            FileFormat::Stl => write!(f, "{}", "stl"),
+            FileFormat::Blender => write!(f, "{}", "blend"),
+            FileFormat::Obj => write!(f, "{}", "obj"),
+            FileFormat::Fbx => write!(f, "{}", "fbx"), 
+            FileFormat::Collada => write!(f, "{}", "dae"),
+            FileFormat::Ply => write!(f, "{}", "ply"),
+            FileFormat::ThreeDS => write!(f, "{}", "3ds"),
+            FileFormat::Gltf => write!(f, "{}", ".gltf"),
+            FileFormat::Glb => write!(f, "{}", ".glb"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ImageFormat {
@@ -90,6 +136,19 @@ pub enum ImageFormat {
     Bmp,
     Svg,
     Other(String)
+}
+
+impl Display for ImageFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Jpeg => write!(f, "{}", "jpeg"),
+            Self::Png => write!(f, "{}", "png"),
+            Self::Gif => write!(f, "{}", "gif"),
+            Self::Bmp => write!(f, "{}", "bmp"),
+            Self::Svg => write!(f, "{}", "svg"),
+            Self::Other(ext) => write!(f, "{}", ext),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,6 +161,18 @@ pub enum AudioFormat {
     Other(String)
 }
 
+impl Display for AudioFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mp3 => write!(f, "{}", "mp3"),
+            Self::Wav => write!(f, "{}", "wav"),
+            Self::Aac => write!(f, "{}", "aac"),
+            Self::Flac => write!(f, "{}", "flac"),
+            Self::Other(ext) => write!(f, "{}", ext),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum VideoFormat {
@@ -111,11 +182,23 @@ pub enum VideoFormat {
     Wmv,
 }
 
+impl Display for VideoFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mp4 => write!(f, "{}", "mp4"),
+            Self::Avi => write!(f, "{}", "avi"),
+            Self::Mov => write!(f, "{}", "mov"),
+            Self::Wmv => write!(f, "{}", "wmv")
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProgramFormat {
     Executable,
-    Script,
+    Script(String),
+    Lib(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -162,7 +245,7 @@ impl From<&str> for LasrContentType {
             "mov" => LasrContentType::Video(VideoFormat::Mov),
             "wmv" => LasrContentType::Video(VideoFormat::Wmv),
             "" => LasrContentType::Program(ProgramFormat::Executable),
-            _ => LasrContentType::Program(ProgramFormat::Script)
+            _ => LasrContentType::Program(ProgramFormat::Script(value.to_string()))
         }
     }
 }
@@ -206,7 +289,7 @@ impl From<PathBuf> for LasrContentType {
             "mov" => LasrContentType::Video(VideoFormat::Mov),
             "wmv" => LasrContentType::Video(VideoFormat::Wmv),
             "" => LasrContentType::Program(ProgramFormat::Executable),
-            _ => LasrContentType::Program(ProgramFormat::Script)
+            _ => LasrContentType::Program(ProgramFormat::Script(extension)),
         }
     }
 }
@@ -246,6 +329,24 @@ pub struct LasrObject {
     pub object_sig: RecoverableSignature,
 }
 
+impl LasrObject {
+    pub fn object_cid(&self) -> &String {
+        &self.object_payload.object_cid.0
+    }
+
+    pub fn object_content_type(&self) -> &LasrContentType {
+        &self.object_payload.object_content_type
+    }
+
+    pub fn object_path(&self) -> &String {
+        &self.object_payload.object_path
+    }
+
+    pub fn object_annotations(&self) -> &BTreeMap<String, String> {
+        &self.object_payload.object_annotations
+    }
+}
+
 impl SignableObject for LasrObjectPayload {}
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize)]
@@ -258,6 +359,8 @@ pub struct LasrPackagePayload {
     pub package_type: LasrPackageType,
     pub package_objects: Vec<LasrObject>,
     pub package_replaces: Vec<LasrObjectCid>,
+    pub package_entrypoint: String,
+    pub package_program_args: Vec<String>,
     pub package_annotations: BTreeMap<String, String>,
 }
 

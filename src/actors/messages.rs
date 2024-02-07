@@ -435,11 +435,7 @@ pub enum ExecutorMessage {
     },
     Create {
         transaction: Transaction,
-        program_id: Address,
-        entrypoint: String, 
-        program_args: Option<Vec<String>>,
-        constructor_op: Option<String>,
-        constructor_inputs: Option<String>,
+        content_id: String,
     },
     Start(String /*ContentId*/),
     Exec {

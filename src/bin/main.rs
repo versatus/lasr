@@ -105,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect strorage agent");
+    #[cfg(feature = "remote")]
     let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()

@@ -234,11 +234,7 @@ impl Engine {
             if let Some(id) = json.get("contentId") {
                 match id {
                     Value::String(h) => {
-                        if h.starts_with("0x") {
-                            hex::decode(&h[2..]).map_err(|e| EngineError::Custom(e.to_string()))?
-                        } else {
-                            hex::decode(&h).map_err(|e| EngineError::Custom(e.to_string()))?
-                        }
+                        h
                     },
                     _ => {
                         //TODO(asmith): Allow arrays but validate the items in the array
@@ -248,111 +244,12 @@ impl Engine {
             } else {
                 return Err(EngineError::Custom("contentId is required".to_string()));
             }
-        }; 
-
-        #[cfg(feature = "local")]
-        let program_id = if &content_id.len() == &32 {
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&content_id[..]);
-            Address::from(buf)
-        } else if &content_id.len() == &20 {
-            let mut buf = [0u8; 20];
-            buf.copy_from_slice(&content_id[..]);
-            Address::from(buf)
-        } else {
-            return Err(EngineError::Custom("invalid length for content id".to_string()))
-        };
-
-        let content_id = {
-            match json.get("contentId").ok_or(EngineError::Custom("content id is required".to_string()))? { 
-                Value::String(cid) => cid.clone(),
-                _ => {
-                    return Err(EngineError::Custom("contentId is incorrect type: Must be String".to_string()))
-                }
-            }
-        };
-        
-
-        let program_id = {
-            let pubkey = transaction.sig().map_err(|e| {
-                EngineError::Custom(
-                    "signature unable to be reconstructed".to_string()
-                )
-            })?.recover(&transaction.hash()).map_err(|e| {
-                EngineError::Custom(
-                    "pubkey unable to be recovered from signature".to_string()
-                )
-            })?;
-
-            let mut hasher = Keccak256::new();
-            hasher.update(content_id.clone());
-            hasher.update(pubkey.to_string());
-            let hash = hasher.finalize();
-            let mut addr_bytes = [0u8; 20];
-            addr_bytes.copy_from_slice(&hash[..20]);
-            Address::from(addr_bytes)
-        };
-
-        #[cfg(feature = "local")]
-        let entrypoint = format!("{}", program_id.to_full_string());
-        #[cfg(feature = "local")]
-        let program_args = if let Some(v) = json.get("programArgs") {
-            match v {
-                Value::Array(arr) => {
-                    let args: Vec<String> = arr.iter().filter_map(|val| {
-                        match val {
-                           Value::String(arg) => {
-                               Some(arg.clone())
-                           },
-                           _ => None
-                        }
-                    }).collect();
-
-                    if args.len() != arr.len() {
-                        None
-                    } else {
-                        Some(args)
-                    }
-                },
-                _ => None
-            }
-        } else {
-            None
-        };
-
-        #[cfg(feature = "local")]
-        let constructor_op = if let Some(op) = json.get("constructorOp") {
-            match op {
-                Value::String(o) => {
-                    Some(o.clone())
-                },
-                _ => None
-            }
-
-        } else {
-            None
-        };
-
-        #[cfg(feature = "local")]
-        let constructor_inputs = if let Some(inputs) = json.get("constructorInputs") {
-            match inputs {
-                Value::String(i) => {
-                    Some(i.clone())
-                },
-                _ => None
-            }
-        } else {
-            None
-        };
+        }.to_string(); 
 
         #[cfg(feature = "local")]
         let message = ExecutorMessage::Create {
             transaction,
-            program_id, 
-            entrypoint, 
-            program_args,
-            constructor_op,
-            constructor_inputs,
+            content_id
         };
 
         #[cfg(feature = "remote")]

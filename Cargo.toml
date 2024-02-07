@@ -18,9 +18,9 @@ path = "src/bin/main.rs"
 name = "cli"
 path = "src/bin/cli.rs"
 
-[[bin]]
-name = "compute"
-path = "src/bin/compute.rs"
+#[[bin]]
+#name = "compute"
+#path = "src/bin/compute.rs"
 
 [[bin]]
 name = "json_schema"

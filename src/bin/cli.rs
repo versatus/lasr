@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::{str::FromStr, path::Path};
 use std::io::Write;
 use async_recursion::async_recursion;
+use clap::ValueHint;
 use clap::{Parser, Subcommand, ValueEnum, command, Arg, ArgGroup, Command, ArgAction, value_parser, error::{ErrorKind, ContextKind, ContextValue}, ArgMatches};
 use secp256k1::PublicKey;
 use walkdir::WalkDir;
@@ -449,7 +450,6 @@ fn ignore_file_arg() -> Arg {
 fn wizard_arg() -> Arg {
     Arg::new("wizard")
         .long("wizard")
-        .short('w')
         .aliases(["wiz", "guided", "pick"])
         .required(false)
         .action(ArgAction::SetTrue)
@@ -518,7 +518,6 @@ fn author_arg() -> Arg {
 
 fn package_version_arg() -> Arg {
     Arg::new("package-version")
-        .short('v')
         .long("package-version")
         .help("the version number of the package")
         .default_value("1")
@@ -548,6 +547,26 @@ fn local_node_arg() -> Arg {
         .required(false)
         .default_value("false")
         .value_parser(value_parser!(bool))
+}
+
+fn entrypoint_arg() -> Arg {
+    Arg::new("entrypoint")
+        .short('e')
+        .long("entrypoint")
+        .aliases(["ep", "entrypoint", "entry-point", "exectuable"])
+        .required(false)
+        .default_value("")
+}
+
+fn program_args() -> Arg {
+    Arg::new("program-args")
+        .long("program-args")
+        .aliases(["args", "commands", "at-start"])
+        .required(false)
+        .value_delimiter(',')
+        .action(ArgAction::Append)
+        .num_args(0..)
+        .default_value("")
 }
 
 fn remote_node_arg() -> Arg {
@@ -622,6 +641,9 @@ fn publish_command() -> Command {
         .arg(local_node_arg())
         .arg(remote_node_arg())
         .arg(replaces_arg())
+        .arg(entrypoint_arg())
+        .arg(program_args())
+        .arg(verbose_arg())
 }
 
 async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
@@ -629,6 +651,7 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
     let wizard = children.get_one::<bool>("wizard").expect("required or default");
     if *wizard {
         // build wizard struct and run it
+        println!("The Wizard has not yet discovered his powers... Give him time to mature");
     } else {
         let (sk, _) = get_keypair(children)?;
         let wallet = get_wallet(children).await?;
@@ -647,6 +670,10 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
         let remote = children.get_one::<String>("remote");
         let runtime = children.get_one::<String>("runtime").expect("required or default");
         let replaces = children.get_one::<String>("replaces");
+        let entrypoint = children.get_one::<String>("entrypoint");
+        let program_args = children.get_many::<String>("program-args");
+        let verbose = children.get_one::<bool>("verbose").expect("required or default");
+        if *verbose { println!("gathered all items") };
         let store = if *is_local { 
             Web3Store::local()?
         } else { 
@@ -655,6 +682,7 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
             ).to_string();
             let socket_addr: Result<SocketAddr, AddrParseError>  = addr.parse();
             if let Ok(qualified_addr) = socket_addr {
+                if *verbose { println!("parsed ip address into SocketAddr") };
                 let (ip_protocol, ip) = match qualified_addr.ip() {
                     std::net::IpAddr::V4(ip) => ("ip4".to_string(), ip.to_string()),
                     std::net::IpAddr::V6(ip) => ("ip6".to_string(), ip.to_string()),
@@ -663,11 +691,14 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
                 
                 let multiaddr_string = format!("/{ip_protocol}/{ip}/tcp/{port}");
 
+                if *verbose { println!("built multiaddr: {} out of SocketAddr", &multiaddr_string) };
                 Web3Store::from_multiaddr(&multiaddr_string)?
             } else {
                 Web3Store::from_hostname(&addr, true)?
             }
         }; 
+
+        if *verbose { println!("built Web3Store") };
 
         let annots: BTreeMap<String, String> = if let Some(annotations_file) = annotations_file {
             let mut map_string = String::new();
@@ -679,6 +710,7 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
                 .create(false)
                 .open(annotations_file)?.read_to_string(&mut map_string);
             if let Ok(map) = serde_json::from_str(&map_string) {
+                if *verbose { println!("acquired annotations {:?}", &map) };
                 map
             } else {
                 BTreeMap::new()
@@ -693,12 +725,12 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
             let mut cids = Vec::new();
             let mut lasr_objects = Vec::new();
             recursively_publish_objects(
-                package_path, &mut cids, &mut lasr_objects, &store, annots.clone(), sk 
+                package_path, &mut cids, &mut lasr_objects, &store, annots.clone(), sk, verbose 
             ).await?;
 
             (cids, lasr_objects)
         } else {
-            let cids =cids.expect(
+            let cids = cids.expect(
                "cids should not be None at this point"
             ).to_vec();
             (cids.clone(), get_lasr_objects(cids.clone()).await)
@@ -721,6 +753,19 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
         } else {
             package_builder.package_replaces(vec![]);
         }
+
+        if let Some(entrypoint) = entrypoint {
+            package_builder.package_entrypoint(entrypoint.clone().to_string());
+        } else {
+            package_builder.package_entrypoint("/".to_string());
+        }
+
+        if let Some(program_args) = program_args {
+            package_builder.package_program_args(program_args.into_iter().cloned().collect());
+        } else {
+            package_builder.package_program_args(vec![]);
+        }
+
 
         package_builder.package_annotations(annots);
         let package_payload = package_builder.build().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
@@ -748,15 +793,18 @@ async fn recursively_publish_objects(
     store: &Web3Store,
     annotations: BTreeMap<String, String>,
     sk: SecretKey,
+    verbose: &bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for entry in WalkDir::new(package_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file() {
+            if *verbose { println!("writing {} to Web3Store", path.to_string_lossy().to_string()); }
             let cid = store.write_object(std::fs::read(path)?).await?;
             cid_buffer.push(cid.clone());
             
+            if *verbose { println!("published {} to Web3Store, CID: {}", path.to_string_lossy().to_string(), &cid); }
             let mut payload_builder = LasrObjectPayloadBuilder::default()
-                .object_cid(LasrObjectCid::from(cid))
+                .object_cid(LasrObjectCid::from(cid.clone()))
                 .object_path(path.clone().to_string_lossy().to_string())
                 .object_content_type(LasrContentType::from(PathBuf::from(path.clone()))).clone();
 
@@ -765,9 +813,11 @@ async fn recursively_publish_objects(
                     payload_builder.object_annotations(annots);
                 }
             }
+
             let object_payload = payload_builder.build()?;
             let object_sig = object_payload.sign(&sk)?;
             let object = LasrObject { object_payload, object_sig };
+            if *verbose { println!("Successfully published: {}, CID: {}", path.clone().to_string_lossy().to_string(), &cid) };
             objects.push(object); 
         }
     }
@@ -1121,6 +1171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_instruction_command(children)?;
         }
         Some(("publish", children)) => {
+            handle_publish_command(children).await?;
         }
         _ => {}
 
