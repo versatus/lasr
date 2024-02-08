@@ -13,6 +13,7 @@ use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction, Lasr
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
 
+#[derive(Debug)]
 pub enum BaseImage {
     Wasm,
     Bin,
@@ -58,6 +59,7 @@ impl BaseImage {
     }
 }
 
+#[derive(Debug)]
 pub struct PackageContainerMetadata {
     base_image: BaseImage,
     cid: String,
@@ -122,6 +124,7 @@ impl OciManager {
 
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
+        log::info!("creating all directories in path: {}", &package_dir);
         std::fs::create_dir_all(&package_dir)?;
 
         let package: LasrPackage = serde_json::from_slice(&package_data)?;
@@ -149,6 +152,7 @@ impl OciManager {
 
         let package_metadata_filepath = format!("{}/metadata.json", &package_dir);
 
+        log::info!("creating package metadata file: {}", &package_metadata_filepath);
         let mut f = std::fs::File::create(&package_metadata_filepath)?;
 
         f.write_all(&package_data)?;
@@ -157,6 +161,7 @@ impl OciManager {
 
         //TODO(asmith) convert into a parallel iterator
         while let Some(obj) = package_object_iter.next() {
+            log::info!("getting object: {} from Web3Store", &obj.object_cid());
             let object_data = self.store.read_object(obj.object_cid()).await.map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -164,6 +169,7 @@ impl OciManager {
                 )
             })?;
 
+            log::info!("creating all directories for object path: {}", &obj.object_path());
             std::fs::create_dir_all(&obj.object_path())?;
 
             let object_filepath = match obj.object_content_type() {
@@ -228,6 +234,7 @@ impl OciManager {
                 }
             };
 
+            log::info!("writing object to: {}", &object_filepath);
 
             let mut f = std::fs::OpenOptions::new()
                 .read(true)
@@ -248,8 +255,11 @@ impl OciManager {
         content_id: impl AsRef<Path>,
     ) -> Result<(), std::io::Error> {
         let cid = content_id.as_ref().to_string_lossy().to_owned().to_string();
+        log::info!("attempting to create bundle for {}", cid);
         let container_metadata = self.create_payload_package(content_id).await?;
         if let Some(metadata) = container_metadata {
+            log::info!("received container metadata: {:?}", &metadata);
+            log::info!("building container bundle");
             self.bundler.bundle(&cid, &metadata).await?;
             self.add_payload(&cid).await?;
             self.base_spec(&cid).await?;
@@ -403,10 +413,12 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let base_path = self.get_base_path(container_metadata.base_image());
         let container_path = self.get_container_path(&content_id);
         if !container_path.as_ref().exists() {
+            log::info!("container path: {} doesn't exist, creating...", container_path.as_ref().to_string_lossy().to_string());
             std::fs::create_dir_all(container_path.as_ref())?;
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
+            log::info!("container root path: {} doesn't exist, creating...", container_root_path.as_ref().to_string_lossy().to_string());
             link_dir(&base_path.as_ref().join(Self::CONTAINER_ROOT), &container_root_path.as_ref()).await?;
         }
 
