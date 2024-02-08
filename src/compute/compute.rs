@@ -242,6 +242,7 @@ impl OciManager {
                 .write(true)
                 .truncate(true)
                 .append(false)
+                .create(true)
                 .open(object_filepath)?;
 
             f.write_all(&object_data)?;
