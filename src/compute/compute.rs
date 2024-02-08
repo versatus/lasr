@@ -273,6 +273,7 @@ impl OciManager {
                 }
             };
             self.customize_spec(cid, metadata.entrypoint(), program_args)?;
+            return Ok(())
         }
 
         return Err(
@@ -480,7 +481,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 })?
         };
         
-        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint)];
+        let mut args = vec![format!("/{}/{}/{}/", content_id.as_ref().display(), content_id.as_ref().display(), entrypoint)];
         if let Some(pargs) = program_args {
             args.extend(pargs);
         }
