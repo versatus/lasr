@@ -169,8 +169,10 @@ impl OciManager {
                 )
             })?;
 
-            log::info!("creating all directories for object path: {}", &obj.object_path());
-            std::fs::create_dir_all(&obj.object_path())?;
+            let mut object_path = obj.object_path().strip_prefix("./payload/").unwrap_or(obj.object_path());
+            if object_path == obj.object_path() {
+                object_path = obj.object_path().strip_prefix("./").unwrap_or(obj.object_path());
+            }
 
             let object_filepath = match obj.object_content_type() {
                 LasrContentType::Program(program_format) => {
@@ -179,57 +181,51 @@ impl OciManager {
                             format!(
                                 "{}/{}", 
                                 &package_dir, 
-                                obj.object_path(),
+                                object_path,
                             )
                         }
-                        ProgramFormat::Script(ext) => {
+                        ProgramFormat::Script(_) => {
                             format!(
-                                "{}/{}.{}", 
+                                "{}/{}", 
                                 &package_dir, 
-                                &obj.object_path(),
-                                &ext
+                                object_path,
                             )
                         }
-                        ProgramFormat::Lib(ext) => {
+                        ProgramFormat::Lib(_) => {
                             format!(
-                                "{}/{}.{}",
+                                "{}/{}",
                                 &package_dir,
-                                &obj.object_path(),
-                                &ext
+                                object_path
                             )
                         }
                     }
                 }
-                LasrContentType::Document(doc_format) => {
+                LasrContentType::Document(_) => {
                     format!(
-                        "{}/{}.{}",
+                        "{}/{}",
                         &package_dir,
-                        &obj.object_cid(),
-                        &doc_format.to_string()
+                        object_path
                     )
                 }
-                LasrContentType::Image(img_format) => {
+                LasrContentType::Image(_) => {
                     format!(
-                        "{}/{}.{}",
+                        "{}/{}",
                         &package_dir,
-                        &obj.object_cid(),
-                        &img_format.to_string()
+                        object_path
                     )
                 }
-                LasrContentType::Audio(audio_format) => {
+                LasrContentType::Audio(_) => {
                     format!(
-                        "{}/{}.{}",
+                        "{}/{}",
                         &package_dir,
-                        &obj.object_cid(),
-                        &audio_format.to_string()
+                        object_path
                     )
                 }
-                LasrContentType::Video(video_format) => {
+                LasrContentType::Video(_) => {
                     format!(
-                        "{}/{}.{}",
+                        "{}/{}",
                         &package_dir,
-                        &obj.object_cid(),
-                        &video_format.to_string()
+                        object_path
                     )
                 }
             };
