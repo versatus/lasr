@@ -105,6 +105,18 @@ impl OciManager {
         }
     }
 
+    pub async fn pin_object(&self, content_id: &str, recursive: bool) -> Result<(), std::io::Error> {
+        let cids = self.store.pin_object(content_id, recursive).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+        log::info!("Pinned object: {:?}", cids);
+        Ok(())
+    }
+
     pub async fn create_payload_package(&self, content_id: impl AsRef<Path>) -> Result<Option<PackageContainerMetadata>, std::io::Error> {
         let cid = content_id.as_ref().to_string_lossy().to_string();
         let payload_path_string = self.bundler.get_payload_path(

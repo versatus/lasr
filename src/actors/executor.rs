@@ -117,6 +117,10 @@ impl<C: ClientT> ExecutionEngine<C> {
         Self { manager, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
     }
 
+    pub(super) async fn pin_object(&self, content_id: &str, recursive: bool) -> std::io::Result<()> {
+        self.manager.pin_object(content_id, recursive).await
+    }
+
     pub(super) async fn create_bundle(
         &self,
         content_id: impl AsRef<Path>,
@@ -300,6 +304,15 @@ impl Actor for ExecutorActor {
                 content_id,
             } => {
                 // Build the container spec and create the container image 
+                match state.pin_object(&content_id.clone(), true).await {
+                    Ok(()) => {
+                        log::info!("Successfully pinned objects");
+                    }
+                    Err(e) => {
+                        log::error!("Error pinning objects: {e}");
+                    }
+                }
+
                 log::info!("Receieved request to create container image");
                 match state.create_bundle(
                     content_id.clone()
