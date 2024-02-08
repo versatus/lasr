@@ -113,6 +113,7 @@ impl OciManager {
             .to_string_lossy()
             .to_string();
 
+        log::info!("Attempting to read DAG for {} from Web3Store...", &cid);
         let package_data = self.store.read_dag(
             &cid
         ).await.map_err(|e| {
