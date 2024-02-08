@@ -230,6 +230,11 @@ impl OciManager {
                 }
             };
 
+            log::info!("creating missing directories in: {}", &object_filepath);
+            let object_path = Path::new(&object_filepath);
+            if let Some(parent) = object_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
             log::info!("writing object to: {}", &object_filepath);
 
             let mut f = std::fs::OpenOptions::new()
