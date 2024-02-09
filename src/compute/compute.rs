@@ -292,7 +292,7 @@ impl OciManager {
                     Some(metadata.program_args().clone())
                 }
             };
-            self.customize_spec(cid, metadata.entrypoint(), program_args)?;
+            self.customize_spec(cid, &metadata, metadata.entrypoint(), program_args)?;
             return Ok(())
         }
 
@@ -307,14 +307,14 @@ impl OciManager {
 
     pub async fn add_payload(
         &self,
-        content_id: impl AsRef<Path>
+        content_id: impl AsRef<Path>,
     ) -> Result<(), std::io::Error> {
         self.bundler.add_payload(content_id).await
     }
 
     pub async fn base_spec(
         &self,
-        content_id: impl AsRef<Path>
+        content_id: impl AsRef<Path>,
     ) -> Result<(), std::io::Error> {
         self.bundler.base_spec(content_id).await
     }
@@ -322,10 +322,11 @@ impl OciManager {
     pub fn customize_spec(
         &self,
         content_id: impl AsRef<Path>,
+        container_metadata: &PackageContainerMetadata,
         entrypoint: &str,
         program_args: Option<Vec<String>>
     ) -> Result<(), std::io::Error> {
-        self.bundler.customize_spec(content_id, entrypoint, program_args)
+        self.bundler.customize_spec(content_id, container_metadata, entrypoint, program_args)
     }
 
     pub fn get_program_schema(
@@ -452,7 +453,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 
     pub async fn add_payload(
         &self,
-        content_id: impl AsRef<Path>
+        content_id: impl AsRef<Path>,
     ) -> Result<(), std::io::Error> {
         let container_path = self.get_container_path(&content_id);
         let container_root = self.container_root_path(&container_path);
@@ -467,7 +468,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 
     pub async fn base_spec(
         &self,
-        content_id: impl AsRef<Path>
+        content_id: impl AsRef<Path>,
     ) -> Result<(), std::io::Error> {
         let container_path = self.get_container_path(&content_id);
         Command::new(&self.runtime)
@@ -481,6 +482,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
     pub fn customize_spec(
         &self,
         content_id: impl AsRef<Path>,
+        container_metadata: &PackageContainerMetadata,
         entrypoint: &str,
         program_args: Option<Vec<String>>
     ) -> Result<(), std::io::Error> {
@@ -503,34 +505,64 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 })?
         };
         
-        let mut args = vec![format!("/{}/{}/{}/", content_id.as_ref().display(), content_id.as_ref().display(), entrypoint)];
-        if let Some(pargs) = program_args {
-            args.extend(pargs);
+        match container_metadata.base_image() {
+            BaseImage::Node => {
+                let mut args = Vec::new();
+                args.push(format!("node"));
+                args.push(format!("/{}/{}/{}", content_id.as_ref().display(), content_id.as_ref().display(), entrypoint));
+
+                let guest_env = vec!["PATH=/usr/local/bin".to_string(), "TERM=xterm".to_string()];
+                proc.set_env(Some(guest_env));
+                proc.set_args(Some(args));
+                spec.set_process(Some(proc));
+
+                let mut rootfs = if let Some(genroot) = spec.root() {
+                    genroot.to_owned()
+                } else {
+                    RootBuilder::default()
+                        .build()
+                        .map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::Other, e)
+                        })?
+                };
+
+                rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
+                rootfs.set_readonly(Some(false));
+                spec.set_root(Some(rootfs));
+
+                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+            }
+            _ => {
+                let mut args = vec![format!("/{}/{}/{}/", content_id.as_ref().display(), content_id.as_ref().display(), entrypoint)];
+                if let Some(pargs) = program_args {
+                    args.extend(pargs);
+                }
+
+                let guest_env = vec!["PATH=/bin".to_string(), "TERM=xterm".to_string()];
+                proc.set_env(Some(guest_env));
+                proc.set_args(Some(args));
+                spec.set_process(Some(proc));
+
+                let mut rootfs = if let Some(genroot) = spec.root() {
+                    genroot.to_owned()
+                } else {
+                    RootBuilder::default()
+                        .build()
+                        .map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::Other, e)
+                        })?
+                };
+
+                rootfs.set_path(
+                    std::path::PathBuf::from(Self::CONTAINER_ROOT)
+                );
+
+                rootfs.set_readonly(Some(false));
+                spec.set_root(Some(rootfs));
+
+                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+            }
         }
-
-        let guest_env = vec!["PATH=/bin".to_string(), "TERM=xterm".to_string()];
-        proc.set_env(Some(guest_env));
-        proc.set_args(Some(args));
-        spec.set_process(Some(proc));
-
-        let mut rootfs = if let Some(genroot) = spec.root() {
-            genroot.to_owned()
-        } else {
-            RootBuilder::default()
-                .build()
-                .map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, e)
-                })?
-        };
-
-        rootfs.set_path(
-            std::path::PathBuf::from(Self::CONTAINER_ROOT)
-        );
-
-        rootfs.set_readonly(Some(false));
-        spec.set_root(Some(rootfs));
-
-        std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
         Ok(())
     }
 
