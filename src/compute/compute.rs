@@ -106,6 +106,15 @@ impl OciManager {
         }
     }
 
+    pub async fn check_pinned_status(&self, content_id: &str) -> Result<(), std::io::Error> {
+        self.store.is_pinned(content_id).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })
+    }
+
     pub async fn pin_object(&self, content_id: &str, recursive: bool) -> Result<(), std::io::Error> {
         let cids = self.store.pin_object(content_id, recursive).await.map_err(|e| {
             std::io::Error::new(
