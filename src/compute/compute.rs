@@ -1,3 +1,4 @@
+use std::os::unix::prelude::PermissionsExt;
 use std::{ffi::OsStr, fmt::Display};
 use std::path::Path;
 use ractor::ActorRef;
@@ -187,59 +188,59 @@ impl OciManager {
                 object_path = obj.object_path().strip_prefix("./").unwrap_or(obj.object_path());
             }
 
-            let object_filepath = match obj.object_content_type() {
+            let (object_filepath, exec) = match obj.object_content_type() {
                 LasrContentType::Program(program_format) => {
                     match program_format {
                         ProgramFormat::Executable => {
-                            format!(
+                            (format!(
                                 "{}/{}", 
                                 &package_dir, 
                                 object_path,
-                            )
+                            ), true)
                         }
                         ProgramFormat::Script(_) => {
-                            format!(
+                            (format!(
                                 "{}/{}", 
                                 &package_dir, 
                                 object_path,
-                            )
+                            ), true)
                         }
                         ProgramFormat::Lib(_) => {
-                            format!(
+                            (format!(
                                 "{}/{}",
                                 &package_dir,
                                 object_path
-                            )
+                            ), false)
                         }
                     }
                 }
                 LasrContentType::Document(_) => {
-                    format!(
+                    (format!(
                         "{}/{}",
                         &package_dir,
                         object_path
-                    )
+                    ), false) 
                 }
                 LasrContentType::Image(_) => {
-                    format!(
+                    (format!(
                         "{}/{}",
                         &package_dir,
                         object_path
-                    )
+                    ), false)
                 }
                 LasrContentType::Audio(_) => {
-                    format!(
+                    (format!(
                         "{}/{}",
                         &package_dir,
                         object_path
-                    )
+                    ), false)
                 }
                 LasrContentType::Video(_) => {
-                    format!(
+                    (format!(
                         "{}/{}",
                         &package_dir,
                         object_path
-                    )
+                    ), false)
                 }
             };
 
@@ -256,9 +257,15 @@ impl OciManager {
                 .truncate(true)
                 .append(false)
                 .create(true)
-                .open(object_filepath)?;
+                .open(&object_filepath)?;
 
             f.write_all(&object_data)?;
+            
+            if exec {
+                let mut permissions = std::fs::metadata(&object_path)?.permissions();
+                permissions.set_mode(0o755);
+                std::fs::set_permissions(object_path, permissions)?;
+            }
         }
 
         Ok(container_metadata)
