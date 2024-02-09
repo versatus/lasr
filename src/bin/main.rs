@@ -1,4 +1,4 @@
-# ![allow(unreachable_code)]
+#![allow(unreachable_code)]
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -258,15 +258,15 @@ fn setup_eo_server(
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
+        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
+        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
         .build();
