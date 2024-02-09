@@ -331,6 +331,7 @@ impl OciManager {
     pub async fn run_container(
         &self,
         content_id: impl AsRef<Path> + Send + 'static, 
+        program_id: String,
         transaction: Option<Transaction>,
         inputs: Inputs,
         transaction_hash: Option<String>,
@@ -388,6 +389,7 @@ impl OciManager {
 
             let message = ExecutorMessage::Results {
                 content_id: content_id.as_ref().to_string_lossy().into_owned(), 
+                program_id,
                 transaction_hash,
                 transaction,
             };

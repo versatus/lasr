@@ -446,6 +446,7 @@ pub enum ExecutorMessage {
     Results {
         transaction: Option<Transaction>,
         content_id: String, 
+        program_id: String,
         transaction_hash: Option<String>,
     },
     PollJobStatus { job_id: uuid::Uuid },

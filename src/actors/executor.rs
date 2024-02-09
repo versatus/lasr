@@ -134,11 +134,12 @@ impl<C: ClientT> ExecutionEngine<C> {
     pub(super) async fn execute(
         &self,
         content_id: impl AsRef<Path> + Send + 'static,
+        program_id: String,
         transaction: Transaction,
         inputs: Inputs,
         transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self.manager.run_container(content_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
+        let handle = self.manager.run_container(content_id, program_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
         Ok(handle)
     }
 
@@ -324,7 +325,7 @@ impl Actor for ExecutorActor {
                         let program_id_result = create_program_id(content_id, &transaction);
 
                         match program_id_result {
-                            Ok(program_id) => {
+                            Ok(_program_id) => {
                                 match self.registration_success(transaction) {
                                     Err(e) => {
                                         log::error!("Error: executor.rs: 225: {e}");
@@ -386,6 +387,7 @@ impl Actor for ExecutorActor {
                             Ok(inputs) => {
                                 match state.execute(
                                     content_id,
+                                    program_id.to_full_string(),
                                     transaction,
                                     inputs,
                                     &transaction_hash
@@ -431,14 +433,14 @@ impl Actor for ExecutorActor {
                 //    }
                 //}
             },
-            ExecutorMessage::Results { content_id, transaction_hash, transaction } => {
+            ExecutorMessage::Results { content_id, program_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
                 log::info!("Received results for execution of container:"); 
                 log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 dbg!(&state.handles);
                 match transaction_hash {
                     Some(hash) => {
-                        match state.handles.remove(&(content_id.clone(), hash.clone())) {
+                        match state.handles.remove(&(program_id.clone(), hash.clone())) {
                             Some(handle) => {
                                 match handle.await {
                                     Ok(Ok(output)) => {
