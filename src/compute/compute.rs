@@ -662,7 +662,10 @@ async fn link_dir(
     src: impl AsRef<Path>,
     dst: impl AsRef<Path>,
 ) -> std::io::Result<()> {
+    log::info!("src: {}", src.as_ref().display());
+    log::info!("dst: {}", src.as_ref().display());
     let link_path = src.as_ref().canonicalize()?;
+    log::info!("canonicalized src path: {}", &link_path.display());
     std::os::unix::fs::symlink(link_path, dst)?;
 
     Ok(())
