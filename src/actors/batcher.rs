@@ -935,27 +935,6 @@ impl Batcher {
             BatcherError::Custom(e.to_string())
         })?;
 
-        #[cfg(feature = "local")]
-        let content_id = {
-            if let Some(id) = json.get("contentId") {
-                match id {
-                    Value::String(h) => {
-                        if h.starts_with("0x") {
-                            hex::decode(&h[2..]).map_err(|e| BatcherError::Custom(e.to_string()))?
-                        } else {
-                            hex::decode(&h).map_err(|e| BatcherError::Custom(e.to_string()))?
-                        }
-                    },
-                    _ => {
-                        //TODO(asmith): Allow arrays but validate the items in the array
-                        return Err(BatcherError::Custom("contentId is incorrect type".to_string()))
-                    }
-                }
-            } else {
-                return Err(BatcherError::Custom("contentId is required".to_string()));
-            }
-        }; 
-
         let content_id = {
             match json.get("contentId").ok_or(BatcherError::Custom("content id is required".to_string()))? { 
                 Value::String(cid) => cid.clone(),
