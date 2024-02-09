@@ -16,6 +16,7 @@ use tokio::sync::mpsc::Receiver;
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
 use internal_rpc::api::InternalRpcApiClient;
 use crate::create_program_id;
+use crate::BatcherMessage;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -197,12 +198,13 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "local")]
-    fn registration_success(&self, transaction: Transaction, program_id: Address) -> std::io::Result<()> {
-        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+    fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
+
+        let actor: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
 
-        let message = SchedulerMessage::RegistrationSuccess { transaction, program_id };
+        let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
         actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
@@ -322,7 +324,7 @@ impl Actor for ExecutorActor {
 
                         match program_id_result {
                             Ok(program_id) => {
-                                match self.registration_success(transaction, program_id) {
+                                match self.registration_success(transaction) {
                                     Err(e) => {
                                         log::error!("Error: executor.rs: 225: {e}");
                                     }
