@@ -259,14 +259,12 @@ fn setup_eo_server(
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
         .from_block(BlockNumber::Number(75127.into()))
-        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
         .from_block(BlockNumber::Number(75127.into()))
-        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
         .build();
