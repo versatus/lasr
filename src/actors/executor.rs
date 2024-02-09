@@ -4,6 +4,7 @@ use std::time::Duration;
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
+use crate::get_account;
 #[cfg(feature = "local")]
 use crate::{Address, ExecutorMessage, Inputs, Required, ProgramSchema, SchedulerMessage, ActorType, EngineMessage, Transaction, OciManager};
 #[cfg(feature = "remote")]
@@ -368,37 +369,52 @@ impl Actor for ExecutorActor {
                 //        match schema.get_prerequisites(&op) {
                 //            Ok(pre_requisites) => {
                 //                let _ = state.handle_prerequisites(&pre_requisites);
-                match state.parse_inputs(
-                    /*&schema,*/
-                    &transaction, 
-                    op, 
-                    inputs
-                ) {
-                    Ok(inputs) => {
-                        match state.execute(
-                            program_id.to_full_string(),
-                            transaction,
-                            inputs,
-                            &transaction_hash
-                        ).await {
-                            Ok(handle) => {
-                                log::info!("result successful, placing handle in handles");
-                                state.handles.insert(
-                                    (program_id.to_full_string(), transaction_hash), 
-                                    handle
-                               );
+
+                match get_account(program_id).await {
+                    Some(account) => {
+                        let content_id = account.program_account_metadata()
+                            .inner()
+                            .get("content_id")
+                            .unwrap_or(&program_id.to_full_string())
+                            .to_owned();
+                        match state.parse_inputs(
+                            /*&schema,*/
+                            &transaction, 
+                            op, 
+                            inputs
+                        ) {
+                            Ok(inputs) => {
+                                match state.execute(
+                                    content_id,
+                                    transaction,
+                                    inputs,
+                                    &transaction_hash
+                                ).await {
+                                    Ok(handle) => {
+                                        log::info!("result successful, placing handle in handles");
+                                        state.handles.insert(
+                                            (program_id.to_full_string(), transaction_hash), 
+                                            handle
+                                       );
+                                    },
+                                    Err(e) => {
+                                        log::error!(
+                                            "Error calling state.execute: executor.rs: 265: {}", e
+                                        );
+                                    } 
+                                }
                             },
                             Err(e) => {
                                 log::error!(
-                                    "Error calling state.execute: executor.rs: 265: {}", e
+                                    "Error calling state.parse_inputs: executor.rs: 263: {}", e
                                 );
-                            } 
+                            }
                         }
-                    },
-                    Err(e) => {
+                    }
+                    None => {
                         log::error!(
-                            "Error calling state.parse_inputs: executor.rs: 263: {}", e
-                        );
+                            "program account does not exist, unable to execute"
+                        )
                     }
                 }
                 //    }
