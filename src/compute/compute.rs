@@ -45,9 +45,9 @@ impl Display for BaseImage {
             BaseImage::Bin => write!(f, "{}", "bin"),
             BaseImage::Wasm => write!(f, "{}", "wasm"),
             BaseImage::Python => write!(f, "{}", "python"),
-            BaseImage::Node => write!(f, "{}", "nodejs"),
+            BaseImage::Node => write!(f, "{}", "node"),
             BaseImage::Java => write!(f, "{}", "java"),
-            BaseImage::Bun => write!(f, "{}", "bunjs")
+            BaseImage::Bun => write!(f, "{}", "bun")
         }
     }
 }
