@@ -435,11 +435,7 @@ pub enum ExecutorMessage {
     },
     Create {
         transaction: Transaction,
-        program_id: Address,
-        entrypoint: String, 
-        program_args: Option<Vec<String>>,
-        constructor_op: Option<String>,
-        constructor_inputs: Option<String>,
+        content_id: String,
     },
     Start(String /*ContentId*/),
     Exec {
@@ -450,6 +446,7 @@ pub enum ExecutorMessage {
     Results {
         transaction: Option<Transaction>,
         content_id: String, 
+        program_id: String,
         transaction_hash: Option<String>,
     },
     PollJobStatus { job_id: uuid::Uuid },

@@ -24,7 +24,10 @@ use lasr::EoServerWrapper;
 use lasr::ExecutionEngine;
 use lasr::ExecutorActor;
 use lasr::LasrRpcServerActor;
-
+use lasr::OciManager;
+use lasr::OciBundlerBuilder;
+use lasr::OciBundler;
+use web3_pkg::web3_store::Web3Store;
 
 
 use lasr::PendingTransactionActor;
@@ -79,11 +82,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
+    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+        Web3Store::from_multiaddr(&addr)?
+    } else {
+        Web3Store::local()?
+    };
     #[cfg(feature = "local")]
-    let oci_manager = OciManager::new(bundler);
+    let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager, ipfs_api::IpfsClient::default());
+    let execution_engine = ExecutionEngine::new(oci_manager);
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");
@@ -97,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect strorage agent");
+    #[cfg(feature = "remote")]
     let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
@@ -249,15 +258,13 @@ fn setup_eo_server(
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
         .build();

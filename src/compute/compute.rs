@@ -1,22 +1,42 @@
+use std::os::unix::prelude::PermissionsExt;
 use std::{ffi::OsStr, fmt::Display};
 use std::path::Path;
 use ractor::ActorRef;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
+use web3_pkg::web3_store::Web3Store;
 use std::process::Stdio;
 use std::io::Read;
-use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction};
+use std::io::Write;
+use crate::{Inputs, ProgramSchema, ExecutorMessage, ActorType, Transaction, LasrPackage, LasrContentType, ProgramFormat, LasrPackageType, LasrObjectRuntime};
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
 
+#[derive(Debug)]
 pub enum BaseImage {
     Wasm,
     Bin,
     Python,
     Node,
+    Bun,
     Java
+}
+
+impl From<LasrObjectRuntime> for BaseImage {
+    fn from(value: LasrObjectRuntime) -> Self {
+        match value {
+            LasrObjectRuntime::Bin => BaseImage::Bin,
+            LasrObjectRuntime::Wasm => BaseImage::Wasm,
+            LasrObjectRuntime::Node => BaseImage::Node,
+            LasrObjectRuntime::Python => BaseImage::Python,
+            LasrObjectRuntime::Bun => BaseImage::Bun,
+            LasrObjectRuntime::Java => BaseImage::Java,
+            LasrObjectRuntime::Other(_) => BaseImage::Bin,
+            LasrObjectRuntime::None => BaseImage::Bin,
+        }
+    }
 }
 
 impl Display for BaseImage {
@@ -25,8 +45,9 @@ impl Display for BaseImage {
             BaseImage::Bin => write!(f, "{}", "bin"),
             BaseImage::Wasm => write!(f, "{}", "wasm"),
             BaseImage::Python => write!(f, "{}", "python"),
-            BaseImage::Node => write!(f, "{}", "node"),
-            BaseImage::Java => write!(f, "{}", "java")
+            BaseImage::Node => write!(f, "{}", "nodejs"),
+            BaseImage::Java => write!(f, "{}", "java"),
+            BaseImage::Bun => write!(f, "{}", "bunjs")
         }
     }
 }
@@ -39,37 +60,248 @@ impl BaseImage {
     }
 }
 
-#[allow(unused)]
-pub struct IpfsManager {
-    client: IpfsClient
+#[derive(Debug)]
+pub struct PackageContainerMetadata {
+    base_image: BaseImage,
+    cid: String,
+    entrypoint: String, 
+    program_args: Vec<String>
 }
 
-#[derive(Debug, Clone)]
+impl PackageContainerMetadata {
+    pub fn new(base_image: BaseImage, cid: String, entrypoint: String, program_args: Vec<String>) -> Self {
+        Self { base_image, cid, entrypoint, program_args } 
+    }
+
+    pub fn base_image(&self) -> &BaseImage {
+        &self.base_image
+    }
+
+    pub fn cid(&self) -> &String {
+        &self.cid
+    }
+
+    pub fn entrypoint(&self) -> &String {
+        &self.entrypoint
+    }
+    
+    pub fn program_args(&self) -> &Vec<String> {
+        &self.program_args
+    }
+}
+
 pub struct OciManager {
     bundler: OciBundler<String, String>,
-}
-
-impl Display for OciManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    store: Web3Store,
 }
 
 impl OciManager {
     pub fn new(
         bundler: OciBundler<String, String>,
+        store: Web3Store,
     ) -> Self {
         Self {
             bundler,
+            store
         }
+    }
+
+    pub async fn pin_object(&self, content_id: &str, recursive: bool) -> Result<(), std::io::Error> {
+        let cids = self.store.pin_object(content_id, recursive).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+        log::info!("Pinned object: {:?}", cids);
+        Ok(())
+    }
+
+    pub async fn create_payload_package(&self, content_id: impl AsRef<Path>) -> Result<Option<PackageContainerMetadata>, std::io::Error> {
+        let cid = content_id.as_ref().to_string_lossy().to_string();
+        let payload_path_string = self.bundler.get_payload_path(
+            content_id.as_ref()
+        ).as_ref()
+            .to_string_lossy()
+            .to_string();
+
+        log::info!("Attempting to read DAG for {} from Web3Store...", &cid);
+        let package_data = self.store.read_dag(
+            &cid
+        ).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+        let package_dir = format!("{}/{}", &payload_path_string, &cid);
+
+        log::info!("creating all directories in path: {}", &package_dir);
+        std::fs::create_dir_all(&package_dir)?;
+
+        let package: LasrPackage = serde_json::from_slice(&package_data)?;
+        log::info!(
+            "Package '{}' version {} from '{}' is type {:?}",
+            &package.package_payload.package_name,
+            &package.package_payload.package_version, 
+            &package.package_payload.package_author,
+            &package.package_payload.package_type,
+        );
+
+        let container_metadata = match package.package_payload.package_type {
+            LasrPackageType::Program(runtime) => {
+                Some(
+                    PackageContainerMetadata::new(
+                        BaseImage::from(runtime),
+                        cid.to_string(),
+                        package.package_payload.package_entrypoint,
+                        package.package_payload.package_program_args,
+                    )
+                )
+            }
+            _ => None
+        };
+
+        let package_metadata_filepath = format!("{}/metadata.json", &package_dir);
+
+        log::info!("creating package metadata file: {}", &package_metadata_filepath);
+        let mut f = std::fs::File::create(&package_metadata_filepath)?;
+
+        f.write_all(&package_data)?;
+
+        let mut package_object_iter = package.package_payload.package_objects.into_iter();
+
+        //TODO(asmith) convert into a parallel iterator
+        while let Some(obj) = package_object_iter.next() {
+            log::info!("getting object: {} from Web3Store", &obj.object_cid());
+            let object_data = self.store.read_object(obj.object_cid()).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string()
+                )
+            })?;
+
+            let mut object_path = obj.object_path().strip_prefix("./payload/").unwrap_or(obj.object_path());
+            if object_path == obj.object_path() {
+                object_path = obj.object_path().strip_prefix("./").unwrap_or(obj.object_path());
+            }
+
+            let (object_filepath, exec) = match obj.object_content_type() {
+                LasrContentType::Program(program_format) => {
+                    match program_format {
+                        ProgramFormat::Executable => {
+                            (format!(
+                                "{}/{}", 
+                                &package_dir, 
+                                object_path,
+                            ), true)
+                        }
+                        ProgramFormat::Script(_) => {
+                            (format!(
+                                "{}/{}", 
+                                &package_dir, 
+                                object_path,
+                            ), true)
+                        }
+                        ProgramFormat::Lib(_) => {
+                            (format!(
+                                "{}/{}",
+                                &package_dir,
+                                object_path
+                            ), false)
+                        }
+                    }
+                }
+                LasrContentType::Document(_) => {
+                    (format!(
+                        "{}/{}",
+                        &package_dir,
+                        object_path
+                    ), false) 
+                }
+                LasrContentType::Image(_) => {
+                    (format!(
+                        "{}/{}",
+                        &package_dir,
+                        object_path
+                    ), false)
+                }
+                LasrContentType::Audio(_) => {
+                    (format!(
+                        "{}/{}",
+                        &package_dir,
+                        object_path
+                    ), false)
+                }
+                LasrContentType::Video(_) => {
+                    (format!(
+                        "{}/{}",
+                        &package_dir,
+                        object_path
+                    ), false)
+                }
+            };
+
+            log::info!("creating missing directories in: {}", &object_filepath);
+            let object_path = Path::new(&object_filepath);
+            if let Some(parent) = object_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            log::info!("writing object to: {}", &object_filepath);
+
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .truncate(true)
+                .append(false)
+                .create(true)
+                .open(&object_filepath)?;
+
+            f.write_all(&object_data)?;
+            
+            if exec {
+                let mut permissions = std::fs::metadata(&object_path)?.permissions();
+                permissions.set_mode(0o755);
+                std::fs::set_permissions(object_path, permissions)?;
+            }
+        }
+
+        Ok(container_metadata)
+
     }
 
     pub async fn bundle(
         &self,
         content_id: impl AsRef<Path>,
-        base_image: BaseImage
     ) -> Result<(), std::io::Error> {
-        self.bundler.bundle(content_id, base_image).await
+        let cid = content_id.as_ref().to_string_lossy().to_owned().to_string();
+        log::info!("attempting to create bundle for {}", cid);
+        let container_metadata = self.create_payload_package(content_id).await?;
+        if let Some(metadata) = container_metadata {
+            log::info!("received container metadata: {:?}", &metadata);
+            log::info!("building container bundle");
+            self.bundler.bundle(&cid, &metadata).await?;
+            self.add_payload(&cid).await?;
+            self.base_spec(&cid).await?;
+            let program_args = {
+                if metadata.program_args().is_empty() {
+                    None
+                } else {
+                    Some(metadata.program_args().clone())
+                }
+            };
+            self.customize_spec(cid, metadata.entrypoint(), program_args)?;
+            return Ok(())
+        }
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "BaseImage not found, unsuported runtime or content type"
+            )
+        )
     }
 
 
@@ -106,6 +338,7 @@ impl OciManager {
     pub async fn run_container(
         &self,
         content_id: impl AsRef<Path> + Send + 'static, 
+        program_id: String,
         transaction: Option<Transaction>,
         inputs: Inputs,
         transaction_hash: Option<String>,
@@ -163,6 +396,7 @@ impl OciManager {
 
             let message = ExecutorMessage::Results {
                 content_id: content_id.as_ref().to_string_lossy().into_owned(), 
+                program_id,
                 transaction_hash,
                 transaction,
             };
@@ -199,15 +433,17 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
     pub async fn bundle(
         &self,
         content_id: impl AsRef<Path>,
-        base_image: BaseImage
+        container_metadata: &PackageContainerMetadata
     ) -> Result<(), std::io::Error> {
-        let base_path = self.get_base_path(base_image);
+        let base_path = self.get_base_path(container_metadata.base_image());
         let container_path = self.get_container_path(&content_id);
         if !container_path.as_ref().exists() {
+            log::info!("container path: {} doesn't exist, creating...", container_path.as_ref().to_string_lossy().to_string());
             std::fs::create_dir_all(container_path.as_ref())?;
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
+            log::info!("container root path: {} doesn't exist, creating...", container_root_path.as_ref().to_string_lossy().to_string());
             link_dir(&base_path.as_ref().join(Self::CONTAINER_ROOT), &container_root_path.as_ref()).await?;
         }
 
@@ -267,7 +503,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 })?
         };
         
-        let mut args = vec![format!("/{}/{}", content_id.as_ref().display(), entrypoint)];
+        let mut args = vec![format!("/{}/{}/{}/", content_id.as_ref().display(), content_id.as_ref().display(), entrypoint)];
         if let Some(pargs) = program_args {
             args.extend(pargs);
         }
@@ -306,7 +542,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         container_path
     }
 
-    pub fn get_base_path(&self, base_image: BaseImage) -> impl AsRef<Path> {
+    pub fn get_base_path(&self, base_image: &BaseImage) -> impl AsRef<Path> {
         base_image.path()
     }
 

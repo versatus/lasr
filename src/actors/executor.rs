@@ -1,12 +1,23 @@
-use std::{collections::HashMap, time::Duration};
-use jsonrpsee::{ws_client::WsClient};
+use std::{collections::HashMap, path::Path};
+#[cfg(feature = "remote")]
+use std::time::Duration;
+use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::{ExecutorMessage, Inputs, SchedulerMessage, ActorType, EngineMessage, Transaction, get_account, BatcherMessage};
+use crate::get_account;
+#[cfg(feature = "local")]
+use crate::{Address, ExecutorMessage, Inputs, Required, ProgramSchema, SchedulerMessage, ActorType, EngineMessage, Transaction, OciManager};
+#[cfg(feature = "remote")]
+use crate::{get_account, BatcherMessage};
 use serde::{Serialize, Deserialize};
-use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
+use tokio::{task::JoinHandle, sync::mpsc::Sender};
+#[cfg(feature = "remote")]
+use tokio::sync::mpsc::Receiver;
+#[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobType, ServiceJobState};
 use internal_rpc::api::InternalRpcApiClient;
+use crate::create_program_id;
+use crate::BatcherMessage;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -55,8 +66,6 @@ pub struct ExecutionEngine<C: InternalRpcApiClient> {
     storage_rpc_client: C,
     #[cfg(feature = "remote")]
     pending: HashMap<uuid::Uuid, PendingJob>,
-    #[cfg(feature = "local")]
-    ipfs_client: ipfs_api::IpfsClient,
     handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
     cache: DynCache,
     #[cfg(feature = "local")]
@@ -106,50 +115,55 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
 impl<C: ClientT> ExecutionEngine<C> {
     pub fn new(
         manager: OciManager,  
-        ipfs_client: ipfs_api::IpfsClient,
     ) -> Self  {
-        Self { manager, ipfs_client, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
+        Self { manager, handles: HashMap::new(), cache: DynCache, phantom: std::marker::PhantomData }
+    }
+
+    pub(super) async fn pin_object(&self, content_id: &str, recursive: bool) -> std::io::Result<()> {
+        self.manager.pin_object(content_id, recursive).await
     }
 
     pub(super) async fn create_bundle(
         &self,
         content_id: impl AsRef<Path>,
-        entrypoint: String,
-        program_args: Option<Vec<String>>
     ) -> std::io::Result<()> {
-        self.manager.bundle(&content_id, crate::BaseImage::Bin).await?;
-        self.manager.add_payload(&content_id).await?;
-        self.manager.base_spec(&content_id).await?;
-        self.manager.customize_spec(&content_id, &entrypoint, program_args)?;
+        self.manager.bundle(&content_id).await?;
         Ok(())
     }
 
     pub(super) async fn execute(
         &self,
         content_id: impl AsRef<Path> + Send + 'static,
+        program_id: String,
         transaction: Transaction,
         inputs: Inputs,
         transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self.manager.run_container(content_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
+        let handle = self.manager.run_container(content_id, program_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
         Ok(handle)
     }
 
-    pub(super) fn get_program_schema(
+    pub fn get_program_schema(
         &self,
         content_id: impl AsRef<Path> + Send,
     ) -> std::io::Result<ProgramSchema> {
         self.manager.get_program_schema(content_id)
     }
 
-    pub(super) fn parse_inputs(&self, _schema: &ProgramSchema, transaction: &Transaction, op: String, inputs: String) -> std::io::Result<Inputs> {
+    pub fn parse_inputs(
+        &self, 
+        /*_schema: &ProgramSchema,*/ 
+        transaction: &Transaction, 
+        op: String, 
+        inputs: String
+    ) -> std::io::Result<Inputs> {
         return Ok(Inputs { version: 1, account_info: None, transaction: transaction.clone(), op, inputs } )
     }
 
-    pub(super) fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
+    pub fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
         for req in pre_requisites {
             match req {
-                Required::Call(call_map) => { 
+                Required::Call(_call_map) => { 
                     // CallMap consists of:
                     //  - calling_program: TransactionFields,
                     //  - original_caller: TransactionFields,
@@ -158,7 +172,6 @@ impl<C: ClientT> ExecutionEngine<C> {
                     //  this should stand up an unsigned execution of the 
                     //  program id, the op tell us the operation to call
                     //  and the inputs tell us what to pass in
-                    dbg!(call_map); 
                 },
                 Required::Read(read_params) => { dbg!(read_params); },
                 Required::Lock(lock_pair) => { dbg!(lock_pair); },
@@ -187,12 +200,13 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "local")]
-    fn registration_success(&self, transaction: Transaction, program_id: Address) -> std::io::Result<()> {
-        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+    fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
+
+        let actor: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
         )?.into();
 
-        let message = SchedulerMessage::RegistrationSuccess { transaction, program_id };
+        let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
         actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
@@ -291,24 +305,39 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::Create { 
                 transaction,
-                program_id, 
-                entrypoint, 
-                program_args,
-                ..
+                content_id,
             } => {
                 // Build the container spec and create the container image 
+                match state.pin_object(&content_id.clone(), true).await {
+                    Ok(()) => {
+                        log::info!("Successfully pinned objects");
+                    }
+                    Err(e) => {
+                        log::error!("Error pinning objects: {e}");
+                    }
+                }
+
                 log::info!("Receieved request to create container image");
                 match state.create_bundle(
-                    program_id.to_full_string(),
-                    entrypoint, 
-                    program_args
+                    content_id.clone()
                 ).await {
                     Ok(()) => {
-                        match self.registration_success(transaction, program_id) {
-                            Err(e) => {
-                                log::error!("Error: executor.rs: 225: {e}");
+                        let program_id_result = create_program_id(content_id, &transaction);
+
+                        match program_id_result {
+                            Ok(_program_id) => {
+                                match self.registration_success(transaction) {
+                                    Err(e) => {
+                                        log::error!("Error: executor.rs: 225: {e}");
+                                    }
+                                    _ => {
+                                    }
+                                }
                             }
-                            _ => {
+                            Err(e) => {
+                                if let Err(e) = self.registration_error(transaction.hash_string(), e.to_string()){
+                                    log::error!("Error: executor.rs: 315: {e}")
+                                }
                             }
                         }
                     }
@@ -323,10 +352,6 @@ impl Actor for ExecutorActor {
                         }
                     }
                 }
-                // If payload has a constructor method/function should be executed
-                // to return a Create instruction.
-                //
-
             },
             ExecutorMessage::Exec {
                 transaction
@@ -339,60 +364,83 @@ impl Actor for ExecutorActor {
                 let op = transaction.op();
                 let inputs = transaction.inputs();
                 let transaction_hash = transaction.hash_string();
-                match state.get_program_schema(program_id.to_full_string()) {
-                    Ok(schema) => {
-                        match schema.get_prerequisites(&op) {
-                            Ok(pre_requisites) => {
-                                let _ = state.handle_prerequisites(&pre_requisites);
-                                match state.parse_inputs(&schema, &transaction, op, inputs) {
-                                    Ok(inputs) => {
-                                        match state.execute(
-                                            program_id.to_full_string(),
-                                            transaction,
-                                            inputs,
-                                            &transaction_hash
-                                        ).await {
-                                            Ok(handle) => {
-                                                log::info!("result successful, placing handle in handles");
-                                                state.handles.insert(
-                                                    (program_id.to_full_string(), transaction_hash), 
-                                                    handle
-                                               );
-                                            },
-                                            Err(e) => {
-                                                log::error!(
-                                                    "Error calling state.execute: executor.rs: 265: {}", e
-                                                );
-                                            } 
-                                        }
+                
+                //match state.get_program_schema(program_id.to_full_string()) {
+                //    Ok(schema) => {
+                //        match schema.get_prerequisites(&op) {
+                //            Ok(pre_requisites) => {
+                //                let _ = state.handle_prerequisites(&pre_requisites);
+
+                match get_account(program_id).await {
+                    Some(account) => {
+                        let content_id = account.program_account_metadata()
+                            .inner()
+                            .get("content_id")
+                            .unwrap_or(&program_id.to_full_string())
+                            .to_owned();
+                        match state.parse_inputs(
+                            /*&schema,*/
+                            &transaction, 
+                            op, 
+                            inputs
+                        ) {
+                            Ok(inputs) => {
+                                match state.execute(
+                                    content_id,
+                                    program_id.to_full_string(),
+                                    transaction,
+                                    inputs,
+                                    &transaction_hash
+                                ).await {
+                                    Ok(handle) => {
+                                        log::info!("result successful, placing handle in handles");
+                                        state.handles.insert(
+                                            (program_id.to_full_string(), transaction_hash), 
+                                            handle
+                                       );
                                     },
                                     Err(e) => {
                                         log::error!(
-                                            "Error calling state.parse_inputs: executor.rs: 263: {}", e
+                                            "Error calling state.execute: executor.rs: 265: {}", e
                                         );
-                                    }
+                                    } 
                                 }
                             },
                             Err(e) => {
                                 log::error!(
-                                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
+                                    "Error calling state.parse_inputs: executor.rs: 263: {}", e
                                 );
                             }
                         }
-                    },
-                    Err(e) => {
-                        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
+                    }
+                    None => {
+                        log::error!(
+                            "program account does not exist, unable to execute"
+                        )
                     }
                 }
+                //    }
+                //},
+                //            Err(e) => {
+                //                log::error!(
+                //                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
+                //                );
+                //            }
+                //        }
+                //    },
+                //    Err(e) => {
+                //        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
+                //    }
+                //}
             },
-            ExecutorMessage::Results { content_id, transaction_hash, transaction } => {
+            ExecutorMessage::Results { content_id, program_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
                 log::info!("Received results for execution of container:"); 
                 log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 dbg!(&state.handles);
                 match transaction_hash {
                     Some(hash) => {
-                        match state.handles.remove(&(content_id.clone(), hash.clone())) {
+                        match state.handles.remove(&(program_id.clone(), hash.clone())) {
                             Some(handle) => {
                                 match handle.await {
                                     Ok(Ok(output)) => {
@@ -527,7 +575,7 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::Exec { transaction } => {
                 // Fire off RPC call to compute runtime
-                // program_id, op, inputs, transaction_hash
+                // program_address, op, inputs, transaction_hash
                 let inputs = Inputs {
                     version: 1,
                     account_info: None,

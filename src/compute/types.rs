@@ -62,7 +62,7 @@ pub struct ParamPreRequisite {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Outputs {
-    #[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"))]
+    #[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), alias="inputs")]
     inputs: Inputs,
     instructions: Vec<Instruction>,
 }
