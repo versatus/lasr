@@ -307,7 +307,9 @@ impl Actor for ExecutorActor {
                 transaction,
                 content_id,
             } => {
+                log::info!("Received create program bundle request");
                 // Build the container spec and create the container image 
+                log::info!("attempting to pin object from IPFS");
                 match state.pin_object(&content_id.clone(), true).await {
                     Ok(()) => {
                         log::info!("Successfully pinned objects");

@@ -223,6 +223,7 @@ impl Engine {
     }
 
     async fn handle_register_program(&self, transaction: Transaction) -> Result<(), EngineError> {
+        log::info!("Creating program address");
         let mut transaction_id = [0u8; 32];
         transaction_id.copy_from_slice(&transaction.hash()[..]);
         let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs()).map_err(|e| {
@@ -254,6 +255,8 @@ impl Engine {
 
         #[cfg(feature = "remote")]
         let message = ExecutorMessage::Retrieve { content_id, program_id, transaction };
+
+        log::info!("informing executor");
         self.inform_executor(message).await?;
         Ok(())
     }
@@ -355,6 +358,7 @@ impl Actor for Engine {
                 self.handle_send(transaction).await;
             },
             EngineMessage::RegisterProgram { transaction } => {
+                log::info!("Received register program transaction: {}", transaction.hash_string());
                 self.handle_register_program(transaction).await;
             },
             EngineMessage::CallSuccess { transaction, transaction_hash, outputs } => {
