@@ -6,6 +6,7 @@ use std::str::FromStr;
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
+use lasr::AccountCacheSupervisor;
 use lasr::actors::LasrRpcServerImpl;
 use lasr::rpc::LasrRpcServer;
 use lasr::AccountCacheActor;
@@ -126,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
+    let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor;
     let executor_actor = ExecutorActor;
@@ -138,6 +140,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
+        .await
+        .map_err(|e| Box::new(e))?;
+
+    let (account_cache_supervisor, _) = Actor::spawn(Some("account_cache_supervisor".to_string()), account_cache_supervisor, ())
         .await
         .map_err(|e| Box::new(e))?;
 
@@ -204,10 +210,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(|e| Box::new(e))?;
 
-    let (_account_cache_actor_ref, _) = Actor::spawn(
+    let (_account_cache_actor_ref, _) = Actor::spawn_linked(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
         (),
+        account_cache_supervisor.get_cell(),
     )
     .await
     .map_err(|e| Box::new(e))?;
