@@ -363,7 +363,7 @@ impl OciManager {
             .into_owned();
 
         let inner_inputs = inputs.clone();
-        log::info!("Calling: runsc --rootless --network=none run -bundle {}{}", &container_path, &container_id);
+        log::info!("Calling: runsc --rootless --network=none run -bundle {} {}", &container_path, &container_id);
         Ok(tokio::spawn(async move {
             let mut child = Command::new("runsc")
                 .arg("--rootless")

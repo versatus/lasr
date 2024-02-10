@@ -1034,16 +1034,21 @@ impl Batcher {
         for instruction in outputs.instructions().into_iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
+                    log::info!("Applying transfer instruction: {:?}", transfer);
                     let (from_account, to_account) = self.apply_transfer_instruction(&transaction, &transfer, &mut batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, from_account);
                     self.add_account_to_batch_buffer(&mut batch_buffer, to_account);
                 }
                 Instruction::Burn(burn) => {
+                    log::info!("Applying burn instruction: {:?}", burn);
                     let account = self.apply_burn_instruction(&transaction, &burn, &mut batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, account);
                 }
                 Instruction::Create(create) => {
+                    log::info!("Applying create instruction: {:?}", create);
+                    log::info!("Create instruction has {} distributions", &create.distribution().len());
                     for dist in create.distribution() {
+                        log::info!("Applying distribution: {:?}", create);
                         let account = self.apply_distribution(&transaction, dist, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
@@ -1052,7 +1057,10 @@ impl Batcher {
                     self.add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
+                    log::info!("Applying update instruction: {:?}", update);
+                    log::info!("Update instruction has {} updates", &update.updates().len());
                     for token_or_program_update in update.updates() {
+                        log::info!("Applying update: {:?}", &token_or_program_update);
                         let account = self.apply_update(&transaction, token_or_program_update, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
@@ -1069,22 +1077,15 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            self.cache_account(
-                &account
-            ).await.map_err(|e| {
-                BatcherError::Custom(
-                    e.to_string()
-                )
-            })?;
-
             self.add_account_to_batch(account).await.map_err(|e| {
                 BatcherError::Custom(e.to_string())
             })?;
         }
 
+        log::info!("Adding transaction to a batch");
         self.add_transaction_to_batch(transaction.clone()).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
-        });
+        })?;
 
         let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
             ActorType::Scheduler.to_string()
@@ -1108,11 +1109,12 @@ impl Batcher {
             cert: None 
         };
 
+        log::info!("Informing pending transactions that the transaction has been applied successfully");
         pending_transactions.cast(message);
 
-        log::warn!("attempting to get account: {:?} in batcher.rs 1003", transaction.from());
+        log::warn!("attempting to get account: {:?} in batcher.rs 1121", transaction.from());
         let account = get_account(transaction.from()).await.ok_or(
-            BatcherError::Custom("Error: batcher.rs: 821: unable to acquire caller account".to_string())
+            BatcherError::Custom("Error: batcher.rs: 1122: unable to acquire caller account".to_string())
         )?;
         
         let message = SchedulerMessage::CallTransactionApplied { 
@@ -1120,6 +1122,7 @@ impl Batcher {
             account 
         };
 
+        log::info!("Informing scheduler that the call transaction was applied");
         scheduler.cast(message);
 
         Ok(())
@@ -1165,7 +1168,6 @@ impl Batcher {
         }
 
         log::warn!("batch is currently empty, skipping");
-        dbg!(&self.parent);
 
         return Ok(())
     }
