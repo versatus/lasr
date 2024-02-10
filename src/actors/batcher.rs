@@ -284,6 +284,7 @@ impl Batcher {
         &self,
         account: &Account
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("Attempting to acquire account cache actor");
         let account_cache: ActorRef<AccountCacheMessage> = ractor::registry::where_is(
             ActorType::AccountCache.to_string()
         ).ok_or(
