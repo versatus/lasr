@@ -3,7 +3,17 @@ use std::{collections::HashMap, fmt::Display};
 use async_trait::async_trait;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort};
 use thiserror::*;
-use crate::{account::Address, create_handler, RecoverableSignature, AccountCacheMessage, check_account_cache, TransactionResponse, check_da_for_account, Transaction};
+use crate::{
+    account::Address, 
+    create_handler, 
+    RecoverableSignature, 
+    AccountCacheMessage, 
+    check_account_cache, 
+    TransactionResponse, 
+    check_da_for_account, 
+    Transaction,
+    interfaces::transactions::ProtocolTransaction
+};
 use super::{messages::{RpcMessage, ValidatorMessage, EngineMessage, SchedulerMessage, RpcResponseError, EoMessage, DaClientMessage}, types::ActorType, handle_actor_response, eo_server, da_client};
 use jsonrpsee::core::Error as RpcError;
 

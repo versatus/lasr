@@ -8,7 +8,9 @@ pub mod clients;
 pub mod token;
 pub mod transaction;
 pub mod compute;
+pub mod interfaces;
 
+pub use crate::interfaces::*;
 pub use crate::sequencer::*;
 pub use crate::account::*;
 pub use crate::program::*;

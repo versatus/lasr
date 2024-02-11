@@ -13,6 +13,10 @@ use crate::{
     Account, 
     RecoverableSignature, 
     Transaction, Token, Payload,
+    interfaces::{
+        accounts::ProtocolAccount,
+        transactions::TransactionPayload
+    }
 };
 
 pub type WalletError = Box<dyn std::error::Error + Send>;

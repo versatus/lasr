@@ -1,6 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer};
 use sha3::{Sha3_256, Digest};
+use crate::transactions::{ProtocolTransaction, TransactionPayload};
 use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
@@ -95,54 +96,54 @@ pub struct Payload {
     nonce: crate::U256,
 }
 
-impl Payload {
-    pub fn transaction_type(&self) -> TransactionType {
+impl TransactionPayload for Payload {
+    fn transaction_type(&self) -> TransactionType {
         self.transaction_type.clone()
     }
 
-    pub fn from(&self) -> [u8; 20] {
+    fn from(&self) -> [u8; 20] {
         self.from
     }
 
-    pub fn to(&self) -> [u8; 20] {
+    fn to(&self) -> [u8; 20] {
         self.to
     }
 
-    pub fn program_id(&self) -> [u8; 20] {
+    fn program_id(&self) -> [u8; 20] {
         self.program_id
     }
 
-    pub fn op(&self) -> String {
+    fn op(&self) -> String {
         self.op.clone()
     }
 
-    pub fn inputs(&self) -> String {
+    fn inputs(&self) -> String {
         self.inputs.clone()
     }
 
-    pub fn value(&self) -> crate::U256 {
+    fn value(&self) -> crate::U256 {
         self.value
     }
 
-    pub fn nonce(&self) -> crate::U256 {
+    fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
-    pub fn hash_string(&self) -> String {
+    fn hash_string(&self) -> String {
         let mut hasher = Sha3_256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         format!("0x{:x}", res)
     }
 
-    pub fn hash(&self) -> Vec<u8> {
+    fn hash(&self) -> Vec<u8> {
         let mut hasher = Sha3_256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         res.to_vec()
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
         bytes.extend_from_slice(&self.from().as_ref());
@@ -292,40 +293,40 @@ pub enum TransactionFields {
     S,
 }
 
-impl Transaction {
-    pub fn program_id(&self) -> Address {
+impl ProtocolTransaction for Transaction {
+    fn program_id(&self) -> Address {
         self.program_id.into()
     }
 
-    pub fn from(&self) -> Address {
+    fn from(&self) -> Address {
         self.from.into()
     }
 
-    pub fn to(&self) -> Address {
+    fn to(&self) -> Address {
         self.to.into()
     }
 
-    pub fn transaction_type(&self) -> TransactionType {
+    fn transaction_type(&self) -> TransactionType {
         self.transaction_type.clone()
     }
 
-    pub fn op(&self) -> String {
+    fn op(&self) -> String {
         self.op.to_string()
     }
 
-    pub fn inputs(&self) -> String {
+    fn inputs(&self) -> String {
         self.inputs.to_string()
     }
 
-    pub fn value(&self) -> crate::U256 {
+    fn value(&self) -> crate::U256 {
         self.value
     }
 
-    pub fn nonce(&self) -> crate::U256 {
+    fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
-    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
+    fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
         let sig = RecoverableSignatureBuilder::default()
             .r(self.r)
             .s(self.s)
@@ -335,30 +336,30 @@ impl Transaction {
         Ok(sig)
     }
 
-    pub fn recover(&self) -> Result<PublicKey, Box<dyn std::error::Error>> {
+    fn recover(&self) -> Result<PublicKey, Box<dyn std::error::Error>> {
         let pk = self.sig()?.recover(&self.as_bytes())?;
         Ok(pk)
     }
 
-    pub fn message(&self) -> String {
+    fn message(&self) -> String {
         format!("{:02x}", self)
     }
 
-    pub fn hash_string(&self) -> String {
+    fn hash_string(&self) -> String {
         let mut hasher = Sha3_256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         format!("0x{:x}", res)
     }
 
-    pub fn hash(&self) -> Vec<u8> {
+    fn hash(&self) -> Vec<u8> {
         let mut hasher = Sha3_256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         res.to_vec()
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
         bytes.extend_from_slice(&self.from().as_ref());
@@ -375,11 +376,11 @@ impl Transaction {
         bytes
     }
 
-    pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
+    fn verify_signature(&self) -> Result<(), secp256k1::Error> {
         self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.as_bytes())
     }
 
-    pub fn get_accounts_involved(&self) -> Vec<Address> {
+    fn get_accounts_involved(&self) -> Vec<Address> {
         vec![self.from(), self.to()]
     }
 }

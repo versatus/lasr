@@ -8,7 +8,38 @@ use serde_json::Value;
 use thiserror::Error;
 use sha3::{Digest, Keccak256};
 use futures::{stream::{iter, Then, StreamExt}, TryFutureExt};
-use crate::{Account, BridgeEvent, Metadata, Status, Address, create_handler, EoMessage, handle_actor_response, DaClientMessage, AccountCacheMessage, Token, TokenBuilder, ArbitraryData, TransactionBuilder, TransactionType, Transaction, PendingTransactionMessage, RecoverableSignature, check_da_for_account, check_account_cache, ExecutorMessage, Outputs, AddressOrNamespace, ValidatorMessage, AccountType, SchedulerMessage};
+use crate::{
+    Account, 
+    BridgeEvent, 
+    Metadata, 
+    Status, 
+    Address, 
+    create_handler, 
+    EoMessage, 
+    handle_actor_response, 
+    DaClientMessage, 
+    AccountCacheMessage, 
+    Token, 
+    TokenBuilder, 
+    ArbitraryData, 
+    TransactionBuilder, 
+    TransactionType, 
+    Transaction, 
+    PendingTransactionMessage, 
+    RecoverableSignature, 
+    check_da_for_account, 
+    check_account_cache, 
+    ExecutorMessage, 
+    Outputs,
+    AddressOrNamespace, 
+    ValidatorMessage, 
+    AccountType, 
+    SchedulerMessage,
+    interfaces::{
+        accounts::ProtocolAccount,
+        transactions::ProtocolTransaction
+    }
+};
 use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
 use tokio::sync::mpsc::Sender;
 

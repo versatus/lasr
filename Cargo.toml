@@ -1,3 +1,4 @@
+workspace = { members = ["payload/hello-rusty/rusty-coin"] }
 [package]
 name = "lasr"
 version = "0.1.0"

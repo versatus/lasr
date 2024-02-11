@@ -12,8 +12,33 @@ use secp256k1::PublicKey;
 use walkdir::WalkDir;
 use hex::ToHex;
 use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, core::client::ClientT};
-use lasr::{Transaction, Instruction, CreateInstruction, TransferInstruction, UpdateInstruction, BurnInstruction, LasrPackageType, LasrPackageBuilder, LasrObjectBuilder, LasrObjectPayloadBuilder, LasrContentType, LasrObjectCid, SignableObject, LasrObject, LasrPackagePayloadBuilder, LasrPackage};
-use lasr::{account::Address, WalletBuilder, Wallet, PayloadBuilder, LasrRpcClient, Account, WalletInfo, Namespace};
+use lasr::{
+    Transaction, 
+    Instruction, 
+    CreateInstruction, 
+    TransferInstruction, 
+    UpdateInstruction, 
+    BurnInstruction, 
+    LasrPackageType, 
+    LasrPackageBuilder, 
+    LasrObjectBuilder, 
+    LasrObjectPayloadBuilder, 
+    LasrContentType, 
+    LasrObjectCid, 
+    SignableObject, 
+    LasrObject, 
+    LasrPackagePayloadBuilder, 
+    LasrPackage,
+    interfaces::accounts::ProtocolAccount,
+    account::Address, 
+    WalletBuilder, 
+    Wallet, 
+    PayloadBuilder, 
+    LasrRpcClient, 
+    Account, 
+    WalletInfo, 
+    Namespace
+};
 use secp256k1::{SecretKey, Secp256k1, rand::rngs::OsRng, Keypair}; 
 use ethereum_types::{Address as EthereumAddress, U256};
 use bip39::{Mnemonic, Language};
@@ -805,8 +830,8 @@ async fn recursively_publish_objects(
             if *verbose { println!("published {} to Web3Store, CID: {}", path.to_string_lossy().to_string(), &cid); }
             let mut payload_builder = LasrObjectPayloadBuilder::default()
                 .object_cid(LasrObjectCid::from(cid.clone()))
-                .object_path(path.clone().to_string_lossy().to_string())
-                .object_content_type(LasrContentType::from(PathBuf::from(path.clone()))).clone();
+                .object_path(path.to_string_lossy().to_string())
+                .object_content_type(LasrContentType::from(PathBuf::from(path))).clone();
 
             if let Some(inner_annots) = annotations.get(&path.to_string_lossy().to_string()) {
                 if let Ok(annots) = serde_json::from_str(inner_annots) {
@@ -817,7 +842,7 @@ async fn recursively_publish_objects(
             let object_payload = payload_builder.build()?;
             let object_sig = object_payload.sign(&sk)?;
             let object = LasrObject { object_payload, object_sig };
-            if *verbose { println!("Successfully published: {}, CID: {}", path.clone().to_string_lossy().to_string(), &cid) };
+            if *verbose { println!("Successfully published: {}, CID: {}", path.to_string_lossy().to_string(), &cid) };
             objects.push(object); 
         }
     }

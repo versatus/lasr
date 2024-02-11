@@ -4,6 +4,7 @@ pub use contract::*;
 
 use sha3::{Digest, Keccak256};
 use crate::{Address, Transaction};
+use crate::interfaces::transactions::ProtocolTransaction;
 
 pub fn create_program_id(content_id: String, transaction: &Transaction) -> Result<Address, Box<dyn std::error::Error + Send>> {
     let pubkey = transaction.sig().map_err(|e| {

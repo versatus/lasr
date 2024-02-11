@@ -7,7 +7,7 @@ use std::ops::{AddAssign, SubAssign};
 use schemars::JsonSchema;
 use uint::construct_uint;
 
-use crate::{Address, RecoverableSignature, Transaction};
+use crate::{Address, RecoverableSignature, Transaction, program_objects::ProgramObject};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
@@ -248,8 +248,8 @@ pub struct Token {
     status: Status,
 }
 
-impl Token {
-    pub(crate) fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+impl ProgramObject for Token {
+    fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
         if amount > &self.balance {
             return Err(
                 Box::new(
@@ -265,12 +265,12 @@ impl Token {
         return Ok(())
     }
 
-    pub(crate) fn credit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn credit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.balance += *amount;
         return Ok(())
     }
 
-    pub(crate) fn remove_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn remove_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
         let positions: Vec<usize> = { 
             token_ids.iter().filter_map(|nft| {
                 self.token_ids.iter().position(|i| i == nft)
@@ -293,7 +293,7 @@ impl Token {
         Ok(())
     }
 
-    pub(crate) fn add_token_ids(
+    fn add_token_ids(
         &mut self, 
         token_ids: &Vec<U256>
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -301,7 +301,7 @@ impl Token {
         Ok(())
     }
 
-    pub(crate) fn apply_token_update_field_values(
+    fn apply_token_update_field_values(
         &mut self,
         token_update_value: &TokenFieldValue
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
@@ -456,6 +456,76 @@ impl Token {
         }
         Ok(())
     }
+
+    fn program_id(&self) -> Address {
+        self.program_id.clone()
+    }
+
+    fn owner_id(&self) -> Address {
+        self.owner_id.clone()
+    } 
+
+    fn balance(&self) -> U256 {
+        self.balance.clone()
+    }
+
+    fn balance_mut(&mut self) -> &mut U256 {
+        &mut self.balance
+    }
+
+    fn metadata(&self) -> Metadata {
+        self.metadata.clone()
+    }
+
+    fn metadata_mut(&mut self) -> &mut Metadata {
+        &mut self.metadata
+    }
+
+    fn token_ids(&self) -> Vec<U256> {
+        self.token_ids.clone()
+    }
+
+    fn token_ids_mut(&mut self) -> &mut Vec<U256> {
+        &mut self.token_ids
+    }
+
+    fn allowance(&self) -> BTreeMap<Address, U256> {
+        self.allowance.clone()
+    }
+
+    fn allowance_mut(&mut self) -> &mut BTreeMap<Address, U256> {
+        &mut self.allowance
+    }
+
+    fn approvals(&self) -> BTreeMap<Address, Vec<U256>> {
+        self.approvals.clone()
+    }
+
+    fn approvals_mut(&mut self) -> &mut BTreeMap<Address, Vec<U256>> {
+        &mut self.approvals
+    }
+
+    fn data(&self) -> ArbitraryData {
+        self.data.clone()
+    }
+
+    fn data_mut(&mut self) -> &mut ArbitraryData {
+        &mut self.data
+    }
+
+    fn status(&self) -> Status {
+        self.status.clone()
+    }
+
+    fn status_mut(&mut self) -> &mut Status {
+        &mut self.status
+    }
+
+    fn update_balance(&mut self, receive: U256, send: U256) {
+        self.balance += receive;
+        self.balance -= send;
+    }
+
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]

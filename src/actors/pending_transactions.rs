@@ -6,7 +6,9 @@ use crate::{
     ActorType,
     ValidatorMessage,
     Outputs,
-    AddressOrNamespace, TransactionType
+    AddressOrNamespace, 
+    TransactionType,
+    interfaces::transactions::ProtocolTransaction
 };
 use async_trait::async_trait;
 use ractor::{Actor, ActorRef, ActorProcessingErr};

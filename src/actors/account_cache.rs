@@ -1,5 +1,11 @@
 use crate::{
-    Account, AccountCacheMessage, Address, RpcMessage, RpcResponseError, TransactionResponse,
+    Account, 
+    AccountCacheMessage, 
+    Address, 
+    RpcMessage, 
+    RpcResponseError, 
+    TransactionResponse,
+    interfaces::accounts::ProtocolAccount
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;

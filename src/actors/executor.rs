@@ -4,11 +4,24 @@ use std::time::Duration;
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
-use crate::get_account;
 #[cfg(feature = "local")]
-use crate::{Address, ExecutorMessage, Inputs, Required, ProgramSchema, SchedulerMessage, ActorType, EngineMessage, Transaction, OciManager};
+use crate::{
+    ExecutorMessage, 
+    Inputs, Required, 
+    ProgramSchema, 
+    SchedulerMessage, 
+    ActorType, 
+    EngineMessage, 
+    Transaction, 
+    OciManager,
+    get_account,
+    interfaces::{
+        accounts::ProtocolAccount,
+        transactions::ProtocolTransaction
+    }
+};
 #[cfg(feature = "remote")]
-use crate::{get_account, BatcherMessage};
+use crate::{get_account, BatcherMessage, interfaces::accounts::ProtocolAccount};
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::Sender};
 #[cfg(feature = "remote")]

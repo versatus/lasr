@@ -7,9 +7,22 @@ use serde::de::Visitor;
 use secp256k1::PublicKey;
 use sha3::{Digest, Keccak256};
 use crate::{
-    Transaction, AccountCacheError, Token, ToTokenError, ArbitraryData, Metadata, 
-    MetadataValue, DataValue, AddressOrNamespace, ProgramUpdate, TokenBuilder, 
-    TokenUpdateField, Status
+    Transaction, 
+    AccountCacheError, 
+    Token, 
+    ToTokenError, 
+    ArbitraryData, 
+    Metadata, 
+    MetadataValue, 
+    DataValue, 
+    AddressOrNamespace, 
+    ProgramUpdate, 
+    TokenBuilder, 
+    TokenUpdateField, 
+    Status, 
+    program_objects::ProgramObject, 
+    accounts::ProtocolAccount,
+    transactions::ProtocolTransaction
 };
 
 pub type AccountResult<T> = Result<T, Box<dyn std::error::Error + Send>>;
@@ -266,12 +279,15 @@ pub struct Account {
     program_account_linked_programs: BTreeSet<AddressOrNamespace>,
 }
 
-impl Account {
+impl ProtocolAccount for Account {
+    type SendResult = AccountResult<Token>;
+    type ProgramUpdateResult = AccountResult<()>;
+    type Token = Token;
     /// Constructs a new `Account` with the given address and optional program data.
     ///
     /// This function initializes an account with the provided address and an optional
     /// map of programs. It updates the account hash before returning.
-    pub fn new(
+    fn new(
         account_type: AccountType,
         program_namespace: Option<AddressOrNamespace>,
         owner_address: Address,
@@ -291,55 +307,55 @@ impl Account {
         account
     }
     
-    pub fn account_type(&self) -> AccountType {
+    fn account_type(&self) -> AccountType {
         self.account_type.clone()
     }
 
-    pub fn program_namespace(&self) -> Option<AddressOrNamespace> {
+    fn program_namespace(&self) -> Option<AddressOrNamespace> {
         self.program_namespace.clone()
     }
 
-    pub fn owner_address(&self) -> Address {
+    fn owner_address(&self) -> Address {
         self.owner_address.clone()
     }
 
-    pub fn nonce(&self) -> crate::U256 {
+    fn nonce(&self) -> crate::U256 {
         self.nonce
     }
 
-    pub fn programs(&self) -> &BTreeMap<Address, Token> {
+    fn programs(&self) -> &BTreeMap<Address, Token> {
         &self.programs
     }
 
-    pub fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
+    fn programs_mut(&mut self) -> &mut BTreeMap<Address, Token> {
         &mut self.programs
     }
 
-    pub fn program_account_data(&self) -> &ArbitraryData {
+    fn program_account_data(&self) -> &ArbitraryData {
         &self.program_account_data
     }
 
-    pub fn program_account_data_mut(&mut self) -> &mut ArbitraryData {
+    fn program_account_data_mut(&mut self) -> &mut ArbitraryData {
         &mut self.program_account_data
     }
     
-    pub fn program_account_metadata(&self) -> &Metadata {
+    fn program_account_metadata(&self) -> &Metadata {
         &self.program_account_metadata
     }
 
-    pub fn program_account_metadat_mut(&mut self) -> &mut Metadata {
+    fn program_account_metadat_mut(&mut self) -> &mut Metadata {
         &mut self.program_account_metadata
     }
 
-    pub fn program_account_linked_programs(&self) -> &BTreeSet<AddressOrNamespace> {
+    fn program_account_linked_programs(&self) -> &BTreeSet<AddressOrNamespace> {
         &self.program_account_linked_programs
     }
 
-    pub fn program_account_linked_programs_mut(&mut self) -> &mut BTreeSet<AddressOrNamespace> {
+    fn program_account_linked_programs_mut(&mut self) -> &mut BTreeSet<AddressOrNamespace> {
         &mut self.program_account_linked_programs
     }
 
-    pub fn balance(&self, program_id: &Address) -> crate::U256 {
+    fn balance(&self, program_id: &Address) -> crate::U256 {
         if let Some(entry) = self.programs().get(program_id) {
             return entry.balance()
         }
@@ -347,7 +363,7 @@ impl Account {
         return crate::U256::from(0)
     }
 
-    pub(crate) fn apply_send_transaction(
+    fn apply_send_transaction(
         &mut self,
         transaction: Transaction
     ) -> AccountResult<Token> {
@@ -378,7 +394,7 @@ impl Account {
         )
     }
 
-    pub(crate) fn apply_transfer_to_instruction(
+    fn apply_transfer_to_instruction(
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
@@ -421,7 +437,7 @@ impl Account {
         }
     }
 
-    pub(crate) fn apply_transfer_from_instruction(
+    fn apply_transfer_from_instruction(
         &mut self,
         token_address: &Address, 
         amount: &Option<crate::U256>,
@@ -448,7 +464,7 @@ impl Account {
         )
     }
 
-    pub(crate) fn apply_burn_instruction(
+    fn apply_burn_instruction(
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
@@ -477,7 +493,7 @@ impl Account {
         )
     }
 
-    pub(crate) fn apply_token_distribution(
+    fn apply_token_distribution(
         &mut self,
         program_id: &Address,
         amount: &Option<crate::U256>,
@@ -551,7 +567,7 @@ impl Account {
         }
     }
 
-    pub(crate) fn apply_token_update(
+    fn apply_token_update(
         &mut self,
         program_id: &Address,
         updates: &Vec<TokenUpdateField>
@@ -673,7 +689,7 @@ impl Account {
         Ok(())
     }
 
-    pub(crate) fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
+    fn apply_program_update(&mut self, update: &ProgramUpdate) -> AccountResult<()> {
         let _program_addr = if let AccountType::Program(program_addr) = self.account_type() {
             program_addr
         } else {
@@ -694,11 +710,11 @@ impl Account {
         Ok(())
     }
 
-    pub(crate) fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
+    fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
         self.programs.insert(program_id.clone(), token)
     }
 
-    pub(crate) fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
+    fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
         if let Some(_token) = self.programs.get(program_id) {
             return Ok(())
         }
@@ -706,7 +722,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
+    fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if token.balance() >= amount {
                 return Ok(())
@@ -716,7 +732,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_token_ownership(&self, program_id: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+    fn validate_token_ownership(&self, program_id: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             for nft in token_ids {
                 if !token.token_ids().contains(&nft) {
@@ -729,7 +745,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
+    fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if let Some(entry) = token.allowance().get(spender) {
                 if entry > amount {
@@ -753,7 +769,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_approved_token_transfer(&self, program_id: &Address, spender: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
+    fn validate_approved_token_transfer(&self, program_id: &Address, spender: &Address, token_ids: &Vec<crate::U256>) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if let Some(entry) = token.approvals().get(spender) {
                 if entry.is_empty() {
@@ -777,7 +793,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
+    fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
         log::info!("checking nonce: {nonce} > {}", self.nonce);
         if self.nonce == crate::U256::from(0) && 
             nonce == crate::U256::from(0) {
@@ -789,7 +805,7 @@ impl Account {
         return Err(Box::new(AccountCacheError))
     }
 
-    pub(crate) fn increment_nonce(&mut self) {
+    fn increment_nonce(&mut self) {
         let new_nonce = U256::from(self.nonce) + U256::from(1);
         self.nonce = new_nonce.into();
     }

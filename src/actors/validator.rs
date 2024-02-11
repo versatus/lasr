@@ -10,7 +10,17 @@ use crate::{
     check_account_cache, 
     check_da_for_account, 
     ActorType, 
-    PendingTransactionMessage, AddressOrNamespace, Outputs, Instruction, TokenOrProgramUpdate, TokenFieldValue, BatcherMessage
+    PendingTransactionMessage, 
+    AddressOrNamespace, 
+    Outputs, 
+    Instruction, 
+    TokenOrProgramUpdate, 
+    TokenFieldValue, 
+    BatcherMessage,
+    interfaces::{
+        accounts::ProtocolAccount,
+        transactions::ProtocolTransaction
+    }
 };
 
 use super::messages::ValidatorMessage;

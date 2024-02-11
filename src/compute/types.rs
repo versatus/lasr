@@ -1,5 +1,19 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account, DataValue};
+use crate::{
+    Address, 
+    TokenField, 
+    Transaction, 
+    Certificate, 
+    TokenWitness, 
+    TokenFieldValue, 
+    TransactionFields, 
+    Namespace, 
+    ProgramField, 
+    ProgramFieldValue, 
+    Account, 
+    DataValue,
+    interfaces::transactions::ProtocolTransaction
+};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
