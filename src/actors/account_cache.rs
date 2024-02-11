@@ -3,7 +3,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef};
+use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -219,6 +219,51 @@ impl Actor for AccountCacheActor {
                         reply: None,
                     });
                 }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct AccountCacheSupervisor;
+
+#[async_trait]
+impl Actor for AccountCacheSupervisor {
+    type Msg = AccountCacheMessage;
+    type State = (); 
+    type Arguments = ();
+    
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        log::info!("Da Client running prestart routine");
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());
+            },
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            },
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
             }
         }
         Ok(())

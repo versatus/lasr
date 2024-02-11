@@ -363,6 +363,7 @@ impl OciManager {
             .into_owned();
 
         let inner_inputs = inputs.clone();
+        log::info!("Calling: runsc --rootless --network=none run -bundle {} {}", &container_path, &container_id);
         Ok(tokio::spawn(async move {
             let mut child = Command::new("runsc")
                 .arg("--rootless")
@@ -391,6 +392,7 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             }).await?;
             let output = child.wait_with_output().await?;
+            log::error!("{}", String::from_utf8_lossy(&output.stderr).into_owned());
             let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
 
             log::info!("result from container: {container_id} = {:#?}", res);
