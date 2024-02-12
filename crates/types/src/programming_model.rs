@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account, DataValue};
+use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account, DataValue, U256};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::{Map, Value};
@@ -132,9 +132,84 @@ pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
     program_id: AddressOrNamespace,
     program_owner: Address,
-    total_supply: crate::U256,
-    initialized_supply: crate::U256,
+    total_supply: U256,
+    initialized_supply: U256,
     distribution: Vec<TokenDistribution>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CreateInstructionBuilder {
+    pub program_namespace: Option<AddressOrNamespace>,
+    pub program_id: Option<AddressOrNamespace>,
+    pub program_owner: Option<Address>,
+    pub total_supply: Option<U256>,
+    pub initialized_supply: Option<U256>,
+    pub distribution: Vec<TokenDistribution>,
+}
+
+impl Default for CreateInstructionBuilder {
+    fn default() -> Self {
+        Self { 
+            program_namespace: None,
+            program_id: None, 
+            program_owner: None, 
+            total_supply: None, 
+            initialized_supply: None, 
+            distribution: vec![] 
+        }
+    }
+}
+
+impl CreateInstructionBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn program_namespace(mut self, program_namespace: AddressOrNamespace) -> Self {
+        self.program_namespace = Some(program_namespace);
+        self
+    }
+
+    pub fn program_id(mut self, program_id: AddressOrNamespace) -> Self {
+        self.program_id = Some(program_id);
+        self
+    }
+
+    pub fn program_owner(mut self, program_owner: Address) -> Self {
+        self.program_owner = Some(program_owner);
+        self
+    }
+
+    pub fn total_supply(mut self, total_supply: U256) -> Self {
+        self.total_supply = Some(total_supply);
+        self
+    }
+
+    pub fn initialized_supply(mut self, initialized_supply: U256) -> Self {
+        self.initialized_supply = Some(initialized_supply);
+        self
+    }
+
+    pub fn extend_token_distributions(mut self, distributions: Vec<TokenDistribution>) -> Self {
+        self.distribution.extend(distributions);
+        self
+    }
+
+    pub fn add_token_distribution(mut self, distribution: TokenDistribution) -> Self {
+        self.distribution.push(distribution);
+        self
+    }
+
+    pub fn build(&self) -> Result<CreateInstruction, std::io::Error> {
+        Ok(CreateInstruction {
+            program_namespace: self.program_namespace.clone().ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programNamespace is required"))?,
+            program_id: self.program_id.clone().ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programId is required"))?,
+            program_owner: self.program_owner.ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programOwner is required"))?,
+            total_supply: self.total_supply.ok_or_else(|| U256::MAX).map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "totalSupply default is U256::MAX"))?,
+            initialized_supply: self.initialized_supply.ok_or_else(|| U256::from(0)).map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "initSupply default is 0"))?,
+            distribution: self.distribution.clone()
+        })
+    }
 }
 
 impl Default for CreateInstruction {
@@ -195,9 +270,18 @@ impl CreateInstruction {
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
-    amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>,
+    amount: Option<U256>,
+    token_ids: Vec<U256>,
     update_fields: Vec<TokenUpdateField>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TokenDistributionBuilder {
+    pub program_id: AddressOrNamespace,
+    pub to: AddressOrNamespace,
+    pub amount: Option<U256>,
+    pub token_ids: Vec<U256>,
+    pub update_fields: Vec<TokenUpdateField>
 }
 
 impl Default for TokenDistribution {
