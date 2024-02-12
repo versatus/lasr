@@ -3,6 +3,7 @@ use std::{fmt::Display, collections::{BTreeMap, HashMap}};
 
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
+use lasr_contract::create_program_id;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::{oneshot, OneshotSender, OneshotReceiver}};
 use serde_json::Value;
 use thiserror::Error;
@@ -252,7 +253,6 @@ impl Engine {
             EngineError::Custom(e.to_string())
         })?;
 
-        #[cfg(feature = "local")]
         let content_id = {
             if let Some(id) = json.get("contentId") {
                 match id {
@@ -274,6 +274,10 @@ impl Engine {
             transaction,
             content_id
         };
+
+        let program_id = create_program_id(content_id.clone(), &transaction).map_err(|e| {
+            EngineError::Custom(e.to_string())
+        })?;
 
         #[cfg(feature = "remote")]
         let message = ExecutorMessage::Retrieve { content_id, program_id, transaction };

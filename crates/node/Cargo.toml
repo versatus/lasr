@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["local"]
+default = ["remote"]
 local = []
 remote = []
 
@@ -35,11 +35,11 @@ simple_logger = "4.3.0"
 dotenv = "0.15.0"
 rand = { version = "0.8.5", features = [ "std", "std_rng" ] }
 web3_pkg = { git = "https://github.com/versatus/versatus.git" } 
-lasr_actors = { path = "../actors" }
-lasr_compute = { path = "../compute" }
-lasr_types = { path = "../types" }
+lasr_actors = { path = "../actors", features = [ "remote" ] }
+lasr_compute = { path = "../compute", features = [ "remote" ]}
+lasr_types = { path = "../types"}
 lasr_messages = { path = "../messages" }
-lasr_clients = { path = "../clients" }
+lasr_clients = { path = "../clients", features = [ "remote" ]  }
 lasr_rpc = { path = "../rpc" }
 
 [dev-dependencies]

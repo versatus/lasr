@@ -5,13 +5,10 @@ use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr};
 use async_trait::async_trait;
 use crate::get_account;
-#[cfg(feature = "local")]
 use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage};
-#[cfg(feature = "local")]
 use lasr_types::{Inputs, Required, ProgramSchema, Transaction};
+#[cfg(feature = "local")]
 use lasr_compute::OciManager;
-#[cfg(feature = "remote")]
-use crate::get_account;
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::Sender};
 #[cfg(feature = "remote")]
