@@ -1,0 +1,41 @@
+[package]
+name = "lasr_cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["local"]
+local = []
+remote = []
+
+[[bin]]
+name = "lasr_cli"
+path = "src/cli.rs"
+
+[dependencies]
+secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }
+ethereum-types = "0.14.1"
+tokio = { version = "1.34.0", features = ["full"] }
+jsonrpsee = { version = "0.16.2", features = [
+    "macros",
+    "client-core",
+    "server-core",
+    "server",
+    "http-client",
+    "ws-client"
+] }
+serde = { version = "1.0.192", features = [ "derive" ] } 
+serde_json = "1.0.108"
+hex = "0.4.3"
+clap = { version = "4.4.11", features=[ "derive", "cargo", "env", "wrap_help", "string" ] }
+bip39 = "2.0.0"
+uint = "0.9.5"
+async-recursion = "1.0.5"
+web3_pkg = { git = "https://github.com/versatus/versatus.git" } 
+walkdir = "2.4.0"
+lasr_types = { path = "../types" }
+lasr_wallet = { path = "../wallet" }
+lasr_rpc = { path = "../rpc" }
+lasr_compute = { path = "../compute" }

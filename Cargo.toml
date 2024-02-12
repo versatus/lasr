@@ -1,107 +1,13 @@
-[package]
-name = "lasr"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-default = ["local"]
-local = []
-remote = []
-
-[[bin]]
-name = "main"
-path = "src/bin/main.rs"
-
-[[bin]]
-name = "cli"
-path = "src/bin/cli.rs"
-
-#[[bin]]
-#name = "compute"
-#path = "src/bin/compute.rs"
-
-[[bin]]
-name = "json_schema"
-path = "src/bin/json_schema.rs"
-
-[[bin]]
-name = "output_parser"
-path = "src/bin/output_parser.rs"
-
-[[example]]
-name = "fungible_token"
-path = "examples/contract/fungible_token/fungible_token.rs"
-
-[[example]]
-name = "escrow"
-path = "examples/contract/escrow/rust/escrow.rs"
-
-[[example]]
-name = "swap"
-path = "examples/contract/swap/swap.rs"
-
-[[example]]
-name = "blackjack"
-path = "examples/contract/blackjack/blackjack.rs"
-
-[dependencies]
-secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }
-ethereum-types = "0.14.1"
-web3 = { version = "0.19.0" }
-tokio = { version = "1.34.0", features = ["full"] }
-tokio-stream = "0.1.14"
-rustc-hex = "2.1.0"
-futures = "0.3.29"
-async-trait = "0.1.74"
-jsonrpsee = { version = "0.16.2", features = [
-    "macros",
-    "client-core",
-    "server-core",
-    "server",
-    "http-client",
-    "ws-client"
-] }
-serde = { version = "1.0.192", features = [ "derive" ] } 
-serde_json = "1.0.108"
-bincode = "1.3.3"
-derive_builder = "0.12.0"
-sha3 = "0.10.8"
-hex = "0.4.3"
-eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
-ractor = { version = "0.9.3", features = [ "async-std", "cluster" ]}
-ractor_cluster_derive = "0.9.3"
-ractor_cluster = "0.9.3"
-thiserror = "1.0.50"
-clap = { version = "4.4.11", features=[ "derive", "cargo", "env", "wrap_help", "string" ] }
-rayon = "1.8.0"
-eo_listener = { git = "https://github.com/versatus/eo_listener" }
-log = "0.4.20"
-simple_logger = "4.3.0"
-async-std = { version = "1", features = ["attributes", "tokio1"] }
-erased-serde = "0.4.1"
-typetag = "0.2.14"
-base64 = "0.13"
-bip39 = "2.0.0"
-uint = "0.9.5"
-flate2 = "1.0.28"
-async-recursion = "1.0.5"
-dotenv = "0.15.0"
-oci-spec = "0.6.4"
-fs_extra = "1.3.0"
-tokio-rayon = "2.1.0"
-ipfs-api = "0.17.0"
-ipfs-api-backend-hyper = "0.6"
-criterion = { version = "0.5.1", features = [ "async_tokio", "async_futures" ] }
-toml = { version = "0.8.8", features = [ "preserve_order" ] }
-rand = { version = "0.8.5", features = [ "std", "std_rng" ] }
-schemars = "0.8.16"
-uuid = { version = "1.3", features = [ "v4", "serde" ] }
-internal_rpc = { git = "https://github.com/versatus/versatus.git" }
-web3_pkg = { git = "https://github.com/versatus/versatus.git" } 
-walkdir = "2.4.0"
-
-[dev-dependencies]
-simple_logger = "4.3.0"
-
+[workspace] 
+members = [
+    "crates/actors",
+    "crates/cli", 
+    "crates/clients", 
+    "crates/compute", 
+    "crates/contract", 
+    "crates/messages",
+    "crates/node", 
+    "crates/rpc", 
+    "crates/types", 
+    "crates/wallet"
+] 

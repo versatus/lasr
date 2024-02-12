@@ -1,0 +1,15 @@
+[package]
+name = "lasr_rpc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jsonrpsee = { version = "0.16.2", features = [
+    "macros",
+    "client-core",
+    "server-core",
+    "server",
+    "http-client",
+    "ws-client"
+] }
+lasr_types = { path = "../types" }
