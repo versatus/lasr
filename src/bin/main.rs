@@ -6,6 +6,7 @@ use std::str::FromStr;
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
+use lasr::AccountCacheSupervisor;
 use lasr::actors::LasrRpcServerImpl;
 use lasr::rpc::LasrRpcServer;
 use lasr::AccountCacheActor;
@@ -24,12 +25,12 @@ use lasr::EoServerWrapper;
 use lasr::ExecutionEngine;
 use lasr::ExecutorActor;
 use lasr::LasrRpcServerActor;
-#[cfg(feature = "local")]
-use lasr::OciBundler;
-#[cfg(feature = "local")]
-use lasr::OciBundlerBuilder;
-#[cfg(feature = "local")]
 use lasr::OciManager;
+use lasr::OciBundlerBuilder;
+use lasr::OciBundler;
+use web3_pkg::web3_store::Web3Store;
+
+
 use lasr::PendingTransactionActor;
 use lasr::TaskScheduler;
 use lasr::Validator;
@@ -82,11 +83,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
+    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+        Web3Store::from_multiaddr(&addr)?
+    } else {
+        Web3Store::local()?
+    };
     #[cfg(feature = "local")]
-    let oci_manager = OciManager::new(bundler);
+    let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager, ipfs_api::IpfsClient::default());
+    let execution_engine = ExecutionEngine::new(oci_manager);
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");
@@ -100,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect strorage agent");
+    #[cfg(feature = "remote")]
     let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
@@ -120,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
+    let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor;
     let executor_actor = ExecutorActor;
@@ -132,6 +140,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
+        .await
+        .map_err(|e| Box::new(e))?;
+
+    let (account_cache_supervisor, _) = Actor::spawn(Some("account_cache_supervisor".to_string()), account_cache_supervisor, ())
         .await
         .map_err(|e| Box::new(e))?;
 
@@ -198,10 +210,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(|e| Box::new(e))?;
 
-    let (_account_cache_actor_ref, _) = Actor::spawn(
+    let (_account_cache_actor_ref, _) = Actor::spawn_linked(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
         (),
+        account_cache_supervisor.get_cell(),
     )
     .await
     .map_err(|e| Box::new(e))?;
@@ -252,15 +265,15 @@ fn setup_eo_server(
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
+        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
-        .to_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(75127.into()))
+        .to_block(BlockNumber::Number(75127.into()))
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
         .build();
@@ -294,7 +307,8 @@ fn setup_eo_server(
     let eo_server = eo_listener::EoServerBuilder::default()
         .web3(web3_instance)
         .eo_address(eo_address)
-        .processed_blocks(BTreeSet::new())
+        .bridge_processed_blocks(BTreeSet::new())
+        .settled_processed_blocks(BTreeSet::new())
         .contract(contract)
         .bridge_topic(bridge_topic)
         .blob_settled_topic(blob_settled_topic)

@@ -28,7 +28,7 @@ use std::{
 /// has the flexibility to do with the `Inputs`, represented by JSON as they
 /// choose.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), rename_all = "camelCase")]
 pub struct Inputs {
     /// The compute agent version
     pub version: i32,
@@ -39,6 +39,7 @@ pub struct Inputs {
     /// The operation in the program being called
     pub op: String,
     /// The inputs to the contract operation being called
+    #[serde(rename(serialize = "contractInputs", deserialize = "contractInputs"))]
     pub inputs: String,
 }
 
@@ -71,6 +72,7 @@ pub struct ParamPreRequisite {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Outputs {
+    #[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), alias="inputs")]
     inputs: Inputs,
     instructions: Vec<Instruction>,
 }
@@ -822,17 +824,11 @@ impl ProgramSchema {
         self.ops().get(name)
     }
 
-    #[allow(unused)]
-    pub(crate) fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
-        let (_key, value) = self
-            .contract
-            .ops
-            .get_key_value(op)
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Invalid `op`: Not defined in schema",
-            ))?;
-
+    pub fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
+        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
+        )?;
+        
         if let Some(reqs) = &value.required {
             return Ok(reqs.clone());
         }

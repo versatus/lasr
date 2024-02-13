@@ -8,7 +8,7 @@ use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
 use eigenda_client::response::BlobResponse;
 use eo_listener::EventType;
-use ethereum_types::{H256};
+use ethereum_types::H256;
 use ractor::concurrency::OneshotSender;
 use web3::ethabi::{FixedBytes, Address as EthereumAddress};
 use web3::types::TransactionReceipt;
@@ -18,7 +18,9 @@ use ractor::RpcReplyPort;
 
 /// An error type for RPC Responses
 #[derive(thiserror::Error, Debug, Clone)]
-pub struct RpcResponseError;
+pub struct RpcResponseError {
+    pub description: String
+}
 
 /// Required trait to be considered an `Error` type
 impl Display for RpcResponseError {
@@ -432,12 +434,8 @@ pub enum ExecutorMessage {
         program_id: Address,
     },
     Create {
-        transaction_hash: String,
-        program_id: Address,
-        entrypoint: String, 
-        program_args: Option<Vec<String>>,
-        constructor_op: Option<String>,
-        constructor_inputs: Option<String>,
+        transaction: Transaction,
+        content_id: String,
     },
     Start(String /*ContentId*/),
     Exec {
@@ -448,6 +446,7 @@ pub enum ExecutorMessage {
     Results {
         transaction: Option<Transaction>,
         content_id: String, 
+        program_id: String,
         transaction_hash: Option<String>,
     },
     PollJobStatus { job_id: uuid::Uuid },

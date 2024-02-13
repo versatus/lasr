@@ -48,6 +48,7 @@ impl EoServerWrapper {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
                 if log.len() > 0 {
+                    log::info!("non-empty log found: {:?}", log);
                     eo_actor.cast(
                         EoMessage::Log { 
                             log_type: logs.event_type, 
@@ -61,6 +62,7 @@ impl EoServerWrapper {
             } 
 
             if let ActorStatus::Stopped = eo_actor.get_status() {
+                log::error!("EO Actor stopped");
                 break
             }
         }
@@ -240,26 +242,42 @@ impl Actor for EoServer {
             EoMessage::Log { log, log_type } => {
                 match log_type {
                     EventType::Bridge(_) => {
-                        let res = self.handle_eo_event(
-                            self.parse_bridge_log(log)?.into()
-                        ).await;
+                        let parsed_bridge_log_res = self.parse_bridge_log(log);
+                        match parsed_bridge_log_res {
+                            Ok(parsed_bridge_log) => {
+                                let res = self.handle_eo_event(
+                                    parsed_bridge_log.into()
+                                ).await;
 
-                        if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {}", e);
-                        } else {
-                            log::info!("{:?}", res);
+                                if let Err(e) = &res {
+                                    log::error!("eo_server encountered an error: {}", e);
+                                } else {
+                                    log::info!("{:?}", res);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Error parsing bridge log: {e}");
+                            }
                         }
                     },
                     EventType::Settlement(_) => {
-                        log::warn!("eo_server discovered Settlement event");
-                        let res = self.handle_eo_event(
-                            self.parse_settlement_log(log)?.into()
-                        ).await;
+                        log::info!("eo_server discovered Settlement event");
+                        let parsed_settlement_log_res = self.parse_settlement_log(log);
+                        match parsed_settlement_log_res {
+                            Ok(parsed_settlement_log) => {
+                                let res = self.handle_eo_event(
+                                    parsed_settlement_log.into()
+                                ).await;
 
-                        if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {}", e);
-                        } else {
-                            log::info!("{:?}", res);
+                                if let Err(e) = &res {
+                                    log::error!("eo_server encountered an error: {}", e);
+                                } else {
+                                    log::info!("{:?}", res);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Error parsing settlement log: {e}");
+                            }
                         }
                     }
                 }

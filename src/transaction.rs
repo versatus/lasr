@@ -89,6 +89,7 @@ pub struct Payload {
     #[serde(deserialize_with = "deserialize_address_bytes_or_string")]
     program_id: [u8; 20],
     op: String,
+    #[serde(rename(serialize = "transactionInputs", deserialize = "transactionInputs"))]
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,
@@ -243,9 +244,10 @@ pub struct Transaction {
     from: [u8; 20],
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
     to: [u8; 20],
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string", alias= "token", alias="token_address", alias="program_address")]
     program_id: [u8; 20],
     op: String,
+    #[serde(rename(serialize = "transactionInputs", deserialize = "transactionInputs"))]
     inputs: String,
     value: crate::U256,
     nonce: crate::U256,

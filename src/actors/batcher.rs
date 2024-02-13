@@ -284,6 +284,7 @@ impl Batcher {
         &self,
         account: &Account
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("Attempting to acquire account cache actor");
         let account_cache: ActorRef<AccountCacheMessage> = ractor::registry::where_is(
             ActorType::AccountCache.to_string()
         ).ok_or(
@@ -935,48 +936,6 @@ impl Batcher {
             BatcherError::Custom(e.to_string())
         })?;
 
-        #[cfg(feature = "local")]
-        let content_id = {
-            if let Some(id) = json.get("contentId") {
-                match id {
-                    Value::String(h) => {
-                        if h.starts_with("0x") {
-                            hex::decode(&h[2..]).map_err(|e| BatcherError::Custom(e.to_string()))?
-                        } else {
-                            hex::decode(&h).map_err(|e| BatcherError::Custom(e.to_string()))?
-                        }
-                    },
-                    _ => {
-                        //TODO(asmith): Allow arrays but validate the items in the array
-                        return Err(BatcherError::Custom("contentId is incorrect type".to_string()))
-                    }
-                }
-            } else {
-                return Err(BatcherError::Custom("contentId is required".to_string()));
-            }
-        }; 
-
-        #[cfg(feature = "local")]
-        let program_id = if &content_id.len() == &32 {
-            let mut hasher = sha3::Keccak256::new();
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&content_id[..]);
-            hasher.update(buf);
-            hasher.update(transaction.hash());
-            let address_hash = hasher.finalize();
-            let mut addr_buf = [0u8; 32];
-            addr_buf.copy_from_slice(&address_hash[..]);
-            Address::from(addr_buf) 
-        } else if &content_id.len() == &20 {
-            let mut buf = [0u8; 20];
-            buf.copy_from_slice(&content_id[..]);
-            Address::from(buf)
-        } else {
-            return Err(BatcherError::Custom("invalid length for content id".to_string()))
-        };
-
-
-        #[cfg(feature = "remote")]
         let content_id = {
             match json.get("contentId").ok_or(BatcherError::Custom("content id is required".to_string()))? { 
                 Value::String(cid) => cid.clone(),
@@ -986,7 +945,6 @@ impl Batcher {
             }
         };
 
-        #[cfg(feature = "remote")]
         let program_id = create_program_id(content_id.clone(), transaction).map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;
@@ -1077,16 +1035,21 @@ impl Batcher {
         for instruction in outputs.instructions().into_iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
+                    log::info!("Applying transfer instruction: {:?}", transfer);
                     let (from_account, to_account) = self.apply_transfer_instruction(&transaction, &transfer, &mut batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, from_account);
                     self.add_account_to_batch_buffer(&mut batch_buffer, to_account);
                 }
                 Instruction::Burn(burn) => {
+                    log::info!("Applying burn instruction: {:?}", burn);
                     let account = self.apply_burn_instruction(&transaction, &burn, &mut batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, account);
                 }
                 Instruction::Create(create) => {
+                    log::info!("Applying create instruction: {:?}", create);
+                    log::info!("Create instruction has {} distributions", &create.distribution().len());
                     for dist in create.distribution() {
+                        log::info!("Applying distribution: {:?}", create);
                         let account = self.apply_distribution(&transaction, dist, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
@@ -1095,7 +1058,10 @@ impl Batcher {
                     self.add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
+                    log::info!("Applying update instruction: {:?}", update);
+                    log::info!("Update instruction has {} updates", &update.updates().len());
                     for token_or_program_update in update.updates() {
+                        log::info!("Applying update: {:?}", &token_or_program_update);
                         let account = self.apply_update(&transaction, token_or_program_update, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
@@ -1112,22 +1078,15 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            self.cache_account(
-                &account
-            ).await.map_err(|e| {
-                BatcherError::Custom(
-                    e.to_string()
-                )
-            })?;
-
             self.add_account_to_batch(account).await.map_err(|e| {
                 BatcherError::Custom(e.to_string())
             })?;
         }
 
+        log::info!("Adding transaction to a batch");
         self.add_transaction_to_batch(transaction.clone()).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
-        });
+        })?;
 
         let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
             ActorType::Scheduler.to_string()
@@ -1151,11 +1110,12 @@ impl Batcher {
             cert: None 
         };
 
+        log::info!("Informing pending transactions that the transaction has been applied successfully");
         pending_transactions.cast(message);
 
-        log::warn!("attempting to get account: {:?} in batcher.rs 1003", transaction.from());
+        log::warn!("attempting to get account: {:?} in batcher.rs 1121", transaction.from());
         let account = get_account(transaction.from()).await.ok_or(
-            BatcherError::Custom("Error: batcher.rs: 821: unable to acquire caller account".to_string())
+            BatcherError::Custom("Error: batcher.rs: 1122: unable to acquire caller account".to_string())
         )?;
         
         let message = SchedulerMessage::CallTransactionApplied { 
@@ -1163,6 +1123,7 @@ impl Batcher {
             account 
         };
 
+        log::info!("Informing scheduler that the call transaction was applied");
         scheduler.cast(message);
 
         Ok(())
@@ -1208,7 +1169,6 @@ impl Batcher {
         }
 
         log::warn!("batch is currently empty, skipping");
-        dbg!(&self.parent);
 
         return Ok(())
     }
