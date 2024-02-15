@@ -1,29 +1,37 @@
-use std::{collections::{HashMap, BTreeMap, hash_map::DefaultHasher}, hash::{Hash, Hasher}};
-use crate::{Address, TokenField, Transaction, Certificate, TokenWitness, TokenFieldValue, TransactionFields, Namespace, ProgramField, ProgramFieldValue, Account, DataValue, U256};
+//! This file contains types the protocol uses to prepare data, structure it
+//! and call out to a particular compute payload.
+use crate::{
+    Account, Address, Certificate, DataValue, Namespace, ProgramField, ProgramFieldValue,
+    TokenField, TokenFieldValue, TokenWitness, Transaction, TransactionFields, U256,
+};
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::{
+    collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
+    hash::{Hash, Hasher},
+};
 
-/// This file contains types the protocol uses to prepare data, structure it 
-/// and call out to a particular compute payload.
-
-/// The inputs type for a contract call, this is built from a combination of 
+/// The inputs type for a contract call. This is built from a combination of
 /// transaction data and pre-requisite data the protocol acquires in accordance
-/// with the developers program schema (WARNING: PROGRAM SCHEMAS ARE 
-/// EXPERIMENTAL AND NOT YET ENABLED) Inputs takes a protocol populated  
-/// compute agent `version` which is a 32 bit signed integer, an optional 
-/// `Account` for the contract's account under the field `account_info`, a 
-/// `Transaction` under the `transaction` field and then an `op`, i.e. an 
+/// with the developers program schema (WARNING: PROGRAM SCHEMAS ARE
+/// EXPERIMENTAL AND NOT YET ENABLED). Inputs takes a protocol populated  
+/// compute agent `version` which is a 32-bit signed integer, an optional
+/// [`Account`] for the contract's account under the field `account_info`, a
+/// [`Transaction`] under the `transaction` field and then an `op`, i.e. an
 /// operation that will be called from *within* the contract, and the `inputs`
-/// to that `op`. The `inputs` to an op are always a JSON string, it can be 
+/// to that `op`. The `inputs` to an op are always a JSON string, it can be
 /// an empty JSON string, and sometimes, developers may choose to use additional
-/// data that is provided in the `Transaction`. the `Inputs` struct is 
+/// data that is provided in the `Transaction`. The `Inputs` struct is
 /// serialized into JSON when passed into the contract, and can be deserialized
 /// with either JSON helper functions and/or custom JSON parsing. The developer
 /// has the flexibility to do with the `Inputs`, represented by JSON as they
-/// choose. 
+/// choose.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), rename_all = "camelCase")]
+#[serde(
+    rename(serialize = "computeInputs", deserialize = "computeInputs"),
+    rename_all = "camelCase"
+)]
 pub struct Inputs {
     /// The compute agent version
     pub version: i32,
@@ -38,47 +46,58 @@ pub struct Inputs {
     pub inputs: String,
 }
 
-/// The pre-requisite instructions for a contract call
+/// The pre-requisite instructions for a contract call.
 ///
-/// In many instances a contract will need to read data from an account, or 
-/// have another contract called and return data that will then be used by 
-/// the contract being called by the user. As a result, the protocol needs to 
+/// In many instances a contract will need to read data from an account, or
+/// have another contract called and return data that will then be used by
+/// the contract being called by the user. As a result, the protocol needs to
 /// be able to somehow know what contracts to call before calling this program
-/// and what data to read, and where to put that data in the `inputs` field in 
-/// the `Inputs` struct, i.e. what the key should be and what the value
-/// should be. This will all be determined by the program schema. Program 
+/// and what data to read, and where to put that data in the `inputs` field in
+/// the [`Inputs`] struct, i.e. what the key should be and what the value
+/// should be. This will all be determined by the program schema. Program
 /// schema is a developer defined schema that informs the protocol of information
-/// (WARNING: PROGRAM SCHEMAS ARE EXPERIMENTAL AND NOT YET ENABLED)
+/// (WARNING: PROGRAM SCHEMAS ARE EXPERIMENTAL AND NOT YET ENABLED).
 ///
-// TODO(asmith): Replace outputs with a proper type, instead of a vector of 
+/// This describes the action to take when a contract may be dependent upon
+/// the result of some other action. The [`PreRequisite`] is the action and
+/// the `outputs` are how the protocol keeps track of the results, e.g.
+/// what to get, what to execute beforehand, etc.
+///
+// TODO(asmith): Replace outputs with a proper type, instead of a vector of
 // tuples
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)] 
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ParamPreRequisite {
     pre_requisites: PreRequisite,
     outputs: Vec<(usize, OpParams)>,
 }
 
-/// The structure returned by a program/call transaction.
+/// The structure returned by a program or [`CallTransactionResult`].
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Outputs {
-    #[serde(rename(serialize = "computeInputs", deserialize = "computeInputs"), alias="inputs")]
+    #[serde(
+        rename(serialize = "computeInputs", deserialize = "computeInputs"),
+        alias = "inputs"
+    )]
     inputs: Inputs,
     instructions: Vec<Instruction>,
 }
 
 impl Outputs {
     pub fn new(inputs: Inputs, instructions: Vec<Instruction>) -> Self {
-        Self { inputs, instructions }
+        Self {
+            inputs,
+            instructions,
+        }
     }
-    
+
     pub fn instructions(&self) -> &Vec<Instruction> {
         &self.instructions
     }
 }
 
 /// This type is constructed from the combination of the original transaction,
-/// the constructed inputs, all outputs from contract call, and any 
+/// the constructed inputs, all outputs from contract call, and any
 /// pre-requisite contract call, witnesses, and an optional certificate
 /// if the transaction results have been certified.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -87,17 +106,27 @@ pub struct CallTransactionResult {
     inputs: Inputs,
     outputs: Vec<Outputs>,
     certificate: Option<Certificate>,
-    witnesses: Vec<TokenWitness>
+    witnesses: Vec<TokenWitness>,
 }
 
+/// The action that must be performed prior to some contract call.
+///
+/// In some cases a contract may depend on the result of another job
+/// or contract that should execute prior to the present contract.
+/// See [`ParamPreRequisite`].
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum PreRequisite {
-    Call(CallParams),
-    Unlock(AddressPair),
-    Read(ReadParams), 
-    Lock(AddressPair),
+    /// Call another contract prior to the present call
+    CallContract(CallParams),
+    /// Unlock a token prior to the present call
+    UnlockToken(AddressPair),
+    /// Read from an account prior to the present call
+    ReadAccount(ReadParams),
+    /// Lock a token prior to the present call
+    LockToken(AddressPair),
 }
 
+/// Information necessary to make a [`PreRequisite`] contract call.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CallParams {
     pub calling_program: Address,
@@ -106,27 +135,51 @@ pub struct CallParams {
     pub inputs: Inputs,
 }
 
+/// Information necessary to lock, or unlock a token via [`PreRequisite`].
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct AddressPair {
     pub account_address: Address,
     pub token_address: Address,
 }
 
+/// Information necessary for reading from some account via [`PreRequisite`].
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadParams {
     pub items: Vec<(Address, Address, TokenField)>,
     pub contract_blobs: Vec<Address>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Used in specifying location information that could either
+/// point to an account, token or a program's name, or ID.
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum AddressOrNamespace {
+    /// The address pointing to an account, or token.
     Address(Address),
+    /// The name of a [`ProgramAccount`], or program.
     Namespace(Namespace),
+    /// Refers to the program that returned it.
+    ///
+    /// Example:
+    /// ```rust, ignore
+    /// CreateInstruction {
+    ///    program_namespace: AddressOrNamespace::This,
+    ///    program_id: AddressOrNamespace::Address(Address::from([0; 20])),
+    ///    program_owner: Address::from([0; 20]),
+    ///    total_supply: crate::U256::from(0),
+    ///    initialized_supply: crate::U256::from(0),
+    ///    distribution: vec![TokenDistribution::default()],
+    /// }
+    /// ```
     This,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Information used in token creation.
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateInstruction {
     program_namespace: AddressOrNamespace,
@@ -134,10 +187,12 @@ pub struct CreateInstruction {
     program_owner: Address,
     total_supply: U256,
     initialized_supply: U256,
-    distribution: Vec<TokenDistribution>
+    distribution: Vec<TokenDistribution>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct CreateInstructionBuilder {
     pub program_namespace: Option<AddressOrNamespace>,
     pub program_id: Option<AddressOrNamespace>,
@@ -149,13 +204,13 @@ pub struct CreateInstructionBuilder {
 
 impl Default for CreateInstructionBuilder {
     fn default() -> Self {
-        Self { 
+        Self {
             program_namespace: None,
-            program_id: None, 
-            program_owner: None, 
-            total_supply: None, 
-            initialized_supply: None, 
-            distribution: vec![] 
+            program_id: None,
+            program_owner: None,
+            total_supply: None,
+            initialized_supply: None,
+            distribution: vec![],
         }
     }
 }
@@ -202,25 +257,44 @@ impl CreateInstructionBuilder {
 
     pub fn build(&self) -> Result<CreateInstruction, std::io::Error> {
         Ok(CreateInstruction {
-            program_namespace: self.program_namespace.clone().ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programNamespace is required"))?,
-            program_id: self.program_id.clone().ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programId is required"))?,
-            program_owner: self.program_owner.ok_or(std::io::Error::new(std::io::ErrorKind::NotFound, "programOwner is required"))?,
-            total_supply: self.total_supply.ok_or_else(|| U256::MAX).map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "totalSupply default is U256::MAX"))?,
-            initialized_supply: self.initialized_supply.ok_or_else(|| U256::from(0)).map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "initSupply default is 0"))?,
-            distribution: self.distribution.clone()
+            program_namespace: self.program_namespace.clone().ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "programNamespace is required",
+            ))?,
+            program_id: self.program_id.clone().ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "programId is required",
+            ))?,
+            program_owner: self.program_owner.ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "programOwner is required",
+            ))?,
+            total_supply: self.total_supply.ok_or_else(|| U256::MAX).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "totalSupply default is U256::MAX",
+                )
+            })?,
+            initialized_supply: self
+                .initialized_supply
+                .ok_or_else(|| U256::from(0))
+                .map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::NotFound, "initSupply default is 0")
+                })?,
+            distribution: self.distribution.clone(),
         })
     }
 }
 
 impl Default for CreateInstruction {
     fn default() -> Self {
-        CreateInstruction { 
-            program_namespace: AddressOrNamespace::This, 
-            program_id: AddressOrNamespace::Address(Address::from([0; 20])), 
-            program_owner: Address::from([0; 20]), 
-            total_supply: crate::U256::from(0), 
-            initialized_supply: crate::U256::from(0), 
-            distribution: vec![TokenDistribution::default()] 
+        CreateInstruction {
+            program_namespace: AddressOrNamespace::This,
+            program_id: AddressOrNamespace::Address(Address::from([0; 20])),
+            program_owner: Address::from([0; 20]),
+            total_supply: crate::U256::from(0),
+            initialized_supply: crate::U256::from(0),
+            distribution: vec![TokenDistribution::default()],
         }
     }
 }
@@ -265,38 +339,42 @@ impl CreateInstruction {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenDistribution {
     program_id: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: Option<U256>,
     token_ids: Vec<U256>,
-    update_fields: Vec<TokenUpdateField>
+    update_fields: Vec<TokenUpdateField>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct TokenDistributionBuilder {
     pub program_id: AddressOrNamespace,
     pub to: AddressOrNamespace,
     pub amount: Option<U256>,
     pub token_ids: Vec<U256>,
-    pub update_fields: Vec<TokenUpdateField>
+    pub update_fields: Vec<TokenUpdateField>,
 }
 
 impl Default for TokenDistribution {
     fn default() -> Self {
-        TokenDistribution { 
-            program_id: AddressOrNamespace::This, 
-            to: AddressOrNamespace::Address(Address::from([0; 20])), 
-            amount: Some(crate::U256::from(0)), 
-            token_ids: vec![crate::U256::from(0)], 
-            update_fields: vec![TokenUpdateField::default()] 
+        TokenDistribution {
+            program_id: AddressOrNamespace::This,
+            to: AddressOrNamespace::Address(Address::from([0; 20])),
+            amount: Some(crate::U256::from(0)),
+            token_ids: vec![crate::U256::from(0)],
+            update_fields: vec![TokenUpdateField::default()],
         }
     }
 }
 
-impl TokenDistribution { 
+impl TokenDistribution {
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
@@ -318,11 +396,13 @@ impl TokenDistribution {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenOrProgramUpdateField {
     TokenUpdateField(TokenUpdateField),
-    ProgramUpdateField(ProgramUpdateField)
+    ProgramUpdateField(ProgramUpdateField),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -338,18 +418,20 @@ impl Default for TokenOrProgramUpdate {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUpdateField {
     field: TokenField,
-    value: TokenFieldValue
+    value: TokenFieldValue,
 }
 
 impl Default for TokenUpdateField {
     fn default() -> Self {
-        TokenUpdateField { 
+        TokenUpdateField {
             field: TokenField::Data,
-            value: TokenFieldValue::Data(DataValue::Insert("some".to_string(), "data".to_string())) 
+            value: TokenFieldValue::Data(DataValue::Insert("some".to_string(), "data".to_string())),
         }
     }
 }
@@ -357,25 +439,27 @@ impl Default for TokenUpdateField {
 impl TokenUpdateField {
     pub fn field(&self) -> &TokenField {
         &self.field
-    } 
+    }
 
     pub fn value(&self) -> &TokenFieldValue {
         &self.value
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramUpdateField {
     field: ProgramField,
-    value: ProgramFieldValue 
+    value: ProgramFieldValue,
 }
 
 impl ProgramUpdateField {
     pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
         Self { field, value }
     }
-    
+
     pub fn field(&self) -> &ProgramField {
         &self.field
     }
@@ -385,15 +469,18 @@ impl ProgramUpdateField {
     }
 }
 
+/// A vector of updates to either a token, or program.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstruction {
-    updates: Vec<TokenOrProgramUpdate>
+    updates: Vec<TokenOrProgramUpdate>,
 }
 
 impl Default for UpdateInstruction {
     fn default() -> Self {
-        UpdateInstruction { updates: vec![TokenOrProgramUpdate::default()] }
+        UpdateInstruction {
+            updates: vec![TokenOrProgramUpdate::default()],
+        }
     }
 }
 
@@ -406,8 +493,12 @@ impl UpdateInstruction {
         let mut accounts_involved = Vec::new();
         for update in &self.updates {
             match update {
-                TokenOrProgramUpdate::TokenUpdate(token_update) => accounts_involved.push(token_update.account.clone()),
-                TokenOrProgramUpdate::ProgramUpdate(program_update) => accounts_involved.push(program_update.account.clone()),
+                TokenOrProgramUpdate::TokenUpdate(token_update) => {
+                    accounts_involved.push(token_update.account.clone())
+                }
+                TokenOrProgramUpdate::ProgramUpdate(program_update) => {
+                    accounts_involved.push(program_update.account.clone())
+                }
             }
         }
         accounts_involved
@@ -423,15 +514,15 @@ impl UpdateInstruction {
 pub struct TokenUpdate {
     account: AddressOrNamespace,
     token: AddressOrNamespace,
-    updates: Vec<TokenUpdateField>
+    updates: Vec<TokenUpdateField>,
 }
 
 impl Default for TokenUpdate {
     fn default() -> Self {
-        TokenUpdate { 
+        TokenUpdate {
             account: AddressOrNamespace::Address(Address::from([0; 20])),
-            token: AddressOrNamespace::This, 
-            updates: vec![TokenUpdateField::default()]
+            token: AddressOrNamespace::This,
+            updates: vec![TokenUpdateField::default()],
         }
     }
 }
@@ -454,7 +545,7 @@ impl TokenUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
-    updates: Vec<ProgramUpdateField>
+    updates: Vec<ProgramUpdateField>,
 }
 
 impl ProgramUpdate {
@@ -471,6 +562,8 @@ impl ProgramUpdate {
     }
 }
 
+/// Information needed to make a transfer of assets from one account
+/// to another.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferInstruction {
@@ -478,18 +571,17 @@ pub struct TransferInstruction {
     from: AddressOrNamespace,
     to: AddressOrNamespace,
     amount: Option<crate::U256>,
-    ids: Vec<crate::U256>
+    ids: Vec<crate::U256>,
 }
-
 
 impl Default for TransferInstruction {
     fn default() -> Self {
-        TransferInstruction { 
-            token: Address::from([0; 20]), 
-            from: AddressOrNamespace::This, 
-            to: AddressOrNamespace::Address(Address::from([0; 20])), 
-            amount: Some(crate::U256::from(0)), 
-            ids: vec![crate::U256::from(0)] 
+        TransferInstruction {
+            token: Address::from([0; 20]),
+            from: AddressOrNamespace::This,
+            to: AddressOrNamespace::Address(Address::from([0; 20])),
+            amount: Some(crate::U256::from(0)),
+            ids: vec![crate::U256::from(0)],
         }
     }
 }
@@ -500,9 +592,15 @@ impl TransferInstruction {
         from: AddressOrNamespace,
         to: AddressOrNamespace,
         amount: Option<crate::U256>,
-        ids: Vec<crate::U256>
+        ids: Vec<crate::U256>,
     ) -> Self {
-        Self { token, from, to, amount, ids }
+        Self {
+            token,
+            from,
+            to,
+            amount,
+            ids,
+        }
     }
 
     pub fn accounts_involved(&self) -> Vec<AddressOrNamespace> {
@@ -529,7 +627,12 @@ impl TransferInstruction {
         &self.ids
     }
 
-    pub fn replace_this_with_to(&mut self, transaction: &Transaction, _this: &AddressOrNamespace, field: &str) -> Result<(), std::io::Error> {
+    pub fn replace_this_with_to(
+        &mut self,
+        transaction: &Transaction,
+        _this: &AddressOrNamespace,
+        field: &str,
+    ) -> Result<(), std::io::Error> {
         match field {
             "from" => {
                 self.from = AddressOrNamespace::Address(transaction.to());
@@ -538,18 +641,17 @@ impl TransferInstruction {
                 self.to = AddressOrNamespace::Address(transaction.to());
             }
             _ => {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "received an invalid string when calling `replace_this_with_to`"
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "received an invalid string when calling `replace_this_with_to`",
+                ))
             }
         }
         Ok(())
     }
 }
 
+/// Information used in token destruction.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BurnInstruction {
@@ -558,18 +660,18 @@ pub struct BurnInstruction {
     token: Address,
     from: AddressOrNamespace,
     amount: Option<crate::U256>,
-    token_ids: Vec<crate::U256>
+    token_ids: Vec<crate::U256>,
 }
 
 impl Default for BurnInstruction {
     fn default() -> Self {
-        BurnInstruction { 
+        BurnInstruction {
             caller: Address::from([0; 20]),
             program_id: AddressOrNamespace::This,
             token: Address::from([0; 20]),
             from: AddressOrNamespace::Address(Address::from([0; 20])),
             amount: Some(crate::U256::from(0)),
-            token_ids: vec![crate::U256::from(0)] 
+            token_ids: vec![crate::U256::from(0)],
         }
     }
 }
@@ -586,7 +688,7 @@ impl BurnInstruction {
     pub fn program_id(&self) -> &AddressOrNamespace {
         &self.program_id
     }
-    
+
     pub fn token(&self) -> &Address {
         &self.token
     }
@@ -604,32 +706,33 @@ impl BurnInstruction {
     }
 }
 
+/// Information used by the protcol to log something.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LogInstruction(pub ContractLogType);
 
-/// An enum representing the instructions that a program can return 
+/// An enum representing the instructions that a program can return
 /// to the protocol. Also represent types that tell the protocol what  
 /// the pre-requisites of a given function call are.
-/// All enabled languages have equivalent types
+/// All enabled languages have equivalent types.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Instruction {
-    /// The return type created by the construction method of a contract 
+    /// The return type created by the construction method of a contract
     Create(CreateInstruction),
     /// Tells the protocol to update a field, should almost never be used  
     /// to add balance to a token or add a token id (for Non-fungible or Data tokens)
-    /// should prrimarily be used to update approvals, allowances, metadata, arbitrary data
-    /// etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used 
+    /// should primarily be used to update approvals, allowances, metadata, arbitrary data
+    /// etc. Transfer or burn should be used to add/subtract balance. Lock/Unlock should be used
     /// to lock value
     Update(UpdateInstruction),
     /// Tells the protocol to subtract balance of one address/token pair and add to different
-    /// address 
-    Transfer(TransferInstruction), 
+    /// address
+    Transfer(TransferInstruction),
     /// Tells the protocol to burn a token (amount or id for NFT/Data tokens)
     Burn(BurnInstruction),
     /// Tells the protocol to log something
-    Log(LogInstruction) 
+    Log(LogInstruction),
 }
 
 impl Instruction {
@@ -639,26 +742,30 @@ impl Instruction {
             Self::Update(update) => update.accounts_involved(),
             Self::Transfer(transfer) => transfer.accounts_involved(),
             Self::Burn(burn) => burn.accounts_involved(),
-            Self::Log(_log) => vec![] 
+            Self::Log(_log) => vec![],
         }
     }
 }
 
+/// Indicates the level of priority of the message being logged.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub enum ContractLogType {
     Info(String),
     Error(String),
     Warn(String),
-    Debug(String)
+    Debug(String),
 }
 
+/// The name for each type that can be accepted by an operation as a parameter.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum OpParamTypes {
     Address,
     String,
     Tuple,
+    /// The size of the array.
     FixedArray(usize),
     Array,
+    /// The size of the byte array.
     FixedBytes(usize),
     Bool,
     Uint,
@@ -670,6 +777,7 @@ pub enum OpParamTypes {
     Mapping,
 }
 
+/// Defines the type system. Types that can be accepted by an operation as parameters.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum OpParams {
     Address([u8; 20]),
@@ -686,7 +794,7 @@ pub enum OpParams {
     BigInt([i64; 4]),
     GiantUint([u64; 8]),
     GiantInt([i64; 8]),
-    Mapping(HashMap<String, OpParams>)
+    Mapping(HashMap<String, OpParams>),
 }
 
 impl Ord for OpParams {
@@ -713,15 +821,15 @@ impl Hash for OpParams {
             OpParams::Address(addr) => addr.hash(state),
             OpParams::String(str) => str.hash(state),
             OpParams::Tuple(tup) => tup.hash(state),
-            OpParams::FixedArray(arr, size) => { 
+            OpParams::FixedArray(arr, size) => {
                 arr.hash(state);
                 size.hash(state);
-            },
+            }
             OpParams::Array(arr) => arr.hash(state),
             OpParams::FixedBytes(arr, size) => {
                 arr.hash(state);
                 size.hash(state);
-            },
+            }
             OpParams::Bool(b) => b.hash(state),
             OpParams::Byte(b) => b.hash(state),
             OpParams::Uint(n) => n.hash(state),
@@ -740,7 +848,7 @@ impl Hash for OpParams {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramSchema {
-    pub contract: Contract
+    pub contract: Contract,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -748,7 +856,7 @@ pub struct Contract {
     pub name: String,
     pub version: String,
     pub language: String,
-    pub ops: HashMap<String, Ops>
+    pub ops: HashMap<String, Ops>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -756,7 +864,7 @@ pub struct Ops {
     pub description: String,
     pub help: Option<String>,
     pub signature: Option<OpSignature>,
-    pub required: Option<Vec<Required>> 
+    pub required: Option<Vec<Required>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -771,7 +879,7 @@ pub struct ParamSource {
     pub source: String,
     pub field: Option<String>,
     pub key: Option<String>,
-    pub position: usize
+    pub position: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -787,21 +895,21 @@ pub enum Required {
 pub struct CallMap {
     calling_program: TransactionFields,
     original_caller: TransactionFields,
-    program_id: String, 
+    program_id: String,
     op: String,
-    inputs: String, 
+    inputs: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadMap {
-    items: Vec<(String, String, String)>, 
-    contract_blobs: Option<Vec<String>> 
+    items: Vec<(String, String, String)>,
+    contract_blobs: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LockPair {
     account: String,
-    token: String
+    token: String,
 }
 
 impl ProgramSchema {
@@ -830,12 +938,17 @@ impl ProgramSchema {
     }
 
     pub fn get_prerequisites(&self, op: &str) -> std::io::Result<Vec<Required>> {
-        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
-        )?;
-        
+        let (_key, value) = self
+            .contract
+            .ops
+            .get_key_value(op)
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Invalid `op`: Not defined in schema",
+            ))?;
+
         if let Some(reqs) = &value.required {
-            return Ok(reqs.clone())
+            return Ok(reqs.clone());
         }
 
         Ok(Vec::new())
@@ -843,10 +956,15 @@ impl ProgramSchema {
 
     #[allow(unused)]
     pub fn parse_op_inputs(&self, op: &str, json_inputs: &str) -> std::io::Result<()> {
-        let (_key, value) = self.contract.ops.get_key_value(op).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "Invalid `op`: Not defined in schema")
-        )?;
-        
+        let (_key, value) = self
+            .contract
+            .ops
+            .get_key_value(op)
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Invalid `op`: Not defined in schema",
+            ))?;
+
         let mut json: Map<String, Value> = serde_json::from_str(json_inputs)?;
 
         if let Some(function_signature) = &value.signature {
@@ -867,7 +985,8 @@ pub trait Parameter {
     type Err;
 
     fn from_op_param(op_param: OpParams) -> Result<Self, Self::Err>
-        where Self: Sized;
+    where
+        Self: Sized;
 
     fn into_op_param(self) -> OpParams;
 }

@@ -1,12 +1,11 @@
 use lasr_types::{Transaction, Address};
 
-
+use serde::{Deserialize, Serialize};
 use tokio::time::Duration;
-use serde::{Serialize, Deserialize};
 
 pub const TIMEOUT_DURATION: Duration = tokio::time::Duration::from_millis(200);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialOrd, Ord, PartialEq, Eq)] 
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub enum ActorType {
     Registry,
     RpcServer,
@@ -47,16 +46,8 @@ impl ToString for ActorType {
 
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
-    Call {
-        transaction: Transaction 
-    },
-    Send {
-        transaction: Transaction
-    },
-    RegisterProgram {
-        transaction: Transaction,
-    },
-    GetAccount {
-        address: Address 
-    }
+    Call { transaction: Transaction },
+    Send { transaction: Transaction },
+    RegisterProgram { transaction: Transaction },
+    GetAccount { address: Address },
 }
