@@ -271,8 +271,8 @@ impl Engine {
 
         #[cfg(feature = "local")]
         let message = ExecutorMessage::Create {
-            transaction,
-            content_id
+            transaction: transaction.clone(),
+            content_id: content_id.clone()
         };
 
         let program_id = create_program_id(content_id.clone(), &transaction).map_err(|e| {
