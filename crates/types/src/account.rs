@@ -895,7 +895,7 @@ impl Account {
     }
 
     pub fn increment_nonce(&mut self, new_nonce: &crate::U256) {
-        self.nonce = new_nonce;
+        self.nonce = *new_nonce;
     }
 }
 
