@@ -80,6 +80,7 @@ impl TaskScheduler {
     }
 
     fn handle_send(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("scheduler handling send: {}", transaction.hash_string());
         let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
             ActorType::Engine.to_string()
         ).ok_or(
@@ -97,6 +98,7 @@ impl TaskScheduler {
         &self,
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("scheduler handling call: {}", transaction.hash_string());
         let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(
             ActorType::Engine.to_string()
         ).ok_or(
@@ -155,26 +157,14 @@ impl Actor for TaskScheduler {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
                 self.handle_call(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
-                // Send to executor, when executor returns send to validator for validation 
-                // engine for creation and batcher for application to accounts
             },
             SchedulerMessage::Send { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
                 self.handle_send(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
-                // Send to `Engine` where a `Transaction` will be created
-                // add to RpcCollector with reply port
-                // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
-                // RpcServer with the necessary information
             },
             SchedulerMessage::RegisterProgram { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
-                // Add to pending transactions where a dependency graph will be built
-                // add to RpcCollector with reply port
-                // when transaction is complete and account is consolidated,
-                // the collector will respond to the channel opened by the 
-                // RpcServer with the necessary information
                 self.handle_register_program(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
             },

@@ -185,6 +185,7 @@ impl Engine {
         transaction: Transaction,
         outputs: Option<Outputs>
     ) -> Result<(), EngineError> {
+        log::info!("acquiring pending transaction actor to set transaction: {}", transaction.hash_string());
         let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
             ActorType::PendingTransactions.to_string()
         ).ok_or(
@@ -222,6 +223,7 @@ impl Engine {
     }
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
+        log::info!("handling call transaction: {}", transaction.hash_string());
         let message = ExecutorMessage::Exec {
             transaction
         };
@@ -241,6 +243,7 @@ impl Engine {
     }
 
     async fn handle_send(&self, transaction: Transaction) -> Result<(), EngineError> {
+        log::info!("scheduler handling send: {}", transaction.hash_string());
         self.set_pending_transaction(transaction, None).await?;
         Ok(())
     }
@@ -374,7 +377,6 @@ impl Actor for Engine {
                 }
             },
             EngineMessage::Cache { account, .. } => {
-                //TODO(asmith): Use a proper LRU Cache
                 self.write_to_cache(account);
             },
             EngineMessage::Call { transaction } => {
