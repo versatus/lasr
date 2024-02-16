@@ -398,6 +398,7 @@ impl Batcher {
         log::warn!("checking account cache for account: {:?}", transaction.from());
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
+            account.increment_nonce(&transaction.nonce());
             let token = account.apply_send_transaction(transaction.clone()).map_err(|e| e as Box<dyn std::error::Error>)?;
             (account, token)
         } else {
@@ -975,7 +976,7 @@ impl Batcher {
         &mut self,
         transaction: &Transaction
     ) -> Result<(), BatcherError> {
-        let mut account = get_account(&transaction.from()).await.ok_or(
+        let mut account = get_account(transaction.from()).await.ok_or(
             BatcherError::Custom(
                 "deployer account doesn't exit".to_string()
             )

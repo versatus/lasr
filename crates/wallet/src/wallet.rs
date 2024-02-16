@@ -165,7 +165,6 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         self.get_account(&self.address()).await?;
-        self.increment_nonce();
 
         Ok(token)
     }
@@ -316,8 +315,8 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self.account
     }
 
-    fn increment_nonce(&mut self) {
-        self.account_mut().increment_nonce();
+    fn increment_nonce(&mut self, new_nonce: &U256) {
+        self.account_mut().increment_nonce(new_nonce);
     }
 
     pub(crate) fn account(&self) -> Account {

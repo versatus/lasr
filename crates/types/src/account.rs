@@ -357,7 +357,6 @@ impl Account {
         if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
             let new_token: Token = (token.clone(), transaction.clone()).try_into()?;
             *token = new_token;
-            self.increment_nonce(&transaction.nonce());
             return Ok(token.clone())
         }
         
