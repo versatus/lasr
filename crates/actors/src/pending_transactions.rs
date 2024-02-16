@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
-use lasr_messages::{
+use :{
     PendingTransactionMessage,
     ActorType,
     ValidatorMessage,
@@ -261,6 +261,7 @@ impl Actor for PendingTransactionActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             PendingTransactionMessage::New { transaction, outputs }  => {
+                log::info!("received new transction {}", transaction.hash_string());
                 state.add_transaction(transaction.clone(), outputs);
                 log::info!("added transaction: {} to dependency graph", transaction.hash_string());
             }
