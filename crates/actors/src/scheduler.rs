@@ -1,12 +1,15 @@
 #![allow(unused)]
 use std::{collections::HashMap, fmt::Display};
 use async_trait::async_trait;
+use futures::stream::FuturesUnordered;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::oneshot, RpcReplyPort};
 use thiserror::*;
 use crate::{create_handler, check_account_cache, check_da_for_account, handle_actor_response, eo_server, da_client};
 use lasr_types::{Address, RecoverableSignature, Transaction};
 use lasr_messages::{RpcMessage, ValidatorMessage, EngineMessage, SchedulerMessage, RpcResponseError, EoMessage, DaClientMessage, ActorType, AccountCacheMessage, TransactionResponse};
 use jsonrpsee::core::Error as RpcError;
+use std::sync::{Arc, Mutex};
+use tokio::task::JoinHandle;
 
 /// A generic error type to propagate errors from this actor 
 /// and other actors that interact with it
@@ -28,6 +31,12 @@ impl Default for SchedulerError {
             "Scheduler unable to acquire actor".to_string()
         )
     }
+}
+
+pub struct SchedulerState {
+    pub reply_map: HashMap<String, RpcReplyPort<RpcMessage>>,
+    pub handle_method_results: Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>,
+    pub scheduler_results_handler: JoinHandle<()>
 }
 
 /// The actor struct for the scheduler actor
@@ -155,6 +164,8 @@ impl Actor for TaskScheduler {
         match message {
             SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
+                // Convert handle_call to async, store future in Arc<Mutex<FuturesUnordered>> in `Self::State`
+                // handle futures in separate thread.
                 self.handle_call(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
             },
@@ -185,6 +196,16 @@ impl Actor for TaskScheduler {
                         response,
                         reply: None 
                     };
+                    reply_port.send(message);
+                }
+            },
+            SchedulerMessage::SendTransactionFailure { transaction_hash, error } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(
+                        TransactionResponse::TransactionError(RpcResponseError { description: error.to_string() })
+                    );
+
+                    let message = RpcMessage::Response { response, reply: None };
                     reply_port.send(message);
                 }
             }
