@@ -16,7 +16,7 @@ pub trait LasrRpc {
     async fn send(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<String, Error>;
 
     #[method(name = "registerProgram")]
     async fn register_program(
