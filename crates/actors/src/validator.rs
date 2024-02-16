@@ -575,7 +575,16 @@ impl Actor for Validator {
                                 Box::new(ValidatorError::Custom("unable to acquire pending transaction actor".to_string()))
                             )?.into();
 
-                            let message = PendingTransactionMessage::Invalid { transaction };
+                            let message = PendingTransactionMessage::Invalid { 
+                                transaction, 
+                                e: Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "account does not exist"
+                                    )
+                                ) as Box<dyn std::error::Error + Send>
+                            };
+
                             actor.cast(message)?;
                         } else {
                             log::info!("validating send transaction");
