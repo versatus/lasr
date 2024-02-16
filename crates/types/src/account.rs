@@ -355,8 +355,9 @@ impl Account {
         transaction: Transaction
     ) -> AccountResult<Token> {
         if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
-            let new_token: Token = (token.clone(), transaction).try_into()?;
+            let new_token: Token = (token.clone(), transaction.clone()).try_into()?;
             *token = new_token;
+            self.increment_nonce(&transaction.nonce());
             return Ok(token.clone())
         }
         
@@ -893,9 +894,8 @@ impl Account {
         )
     }
 
-    pub fn increment_nonce(&mut self) {
-        let new_nonce = U256::from(self.nonce) + U256::from(1);
-        self.nonce = new_nonce.into();
+    pub fn increment_nonce(&mut self, new_nonce: &crate::U256) {
+        self.nonce = new_nonce;
     }
 }
 
