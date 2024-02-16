@@ -95,6 +95,10 @@ pub enum SchedulerMessage {
         transaction_hash: String,
         token: Token
     },
+    SendTransactionFailure {
+        transaction_hash: String,
+        error: Box<dyn std::error::Error>,
+    },
     CallTransactionApplied {
         transaction_hash: String,
         account: Account, 
@@ -401,6 +405,7 @@ pub enum PendingTransactionMessage {
     },
     Invalid {
         transaction: Transaction,
+        e: Box<dyn std::error::Error + Send>
     },
     Confirmed {
         map: HashMap<Address, Transaction>,

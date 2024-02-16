@@ -174,6 +174,13 @@ impl LasrRpcServer for LasrRpcServerImpl {
                             })?,
                         )
                     },
+                    TransactionResponse::TransactionError(rpc_response_error) => {
+                        return Err(
+                            jsonrpsee::core::Error::Custom(
+                                rpc_response_error.description
+                            )
+                        )
+                    },
                     _ => {
                         return Err(
                             jsonrpsee::core::Error::Custom(

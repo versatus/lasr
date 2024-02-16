@@ -4,7 +4,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr};
 use thiserror::Error;
 use crate::{
     check_account_cache, 
-    check_da_for_account, 
+    check_da_for_account, pending_transactions, 
 };
 use lasr_messages::{
     ActorType, 
@@ -69,17 +69,34 @@ impl ValidatorCore {
 
     fn validate_send(&self) -> impl FnOnce(Transaction, Account) -> Result<(), Box<dyn std::error::Error + Send>> {
         |tx, account| {
-            account.validate_program_id(&tx.program_id())?;
-            account.validate_balance(&tx.program_id(), tx.value())?;
-            account.validate_nonce(tx.nonce())?;
-            tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
+            let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+                ActorType::PendingTransactions.to_string()
+            ).ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "unable to acquire pending transaction actor".to_string()
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )?.into();
+            match (account.validate_program_id(&tx.program_id()),
+                account.validate_balance(&tx.program_id(), tx.value()),
+                account.validate_nonce(tx.nonce()),
+                tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>))
+            {
+                (Err(e), _, _, _) | (_, Err(e), _, _) | (_, _, Err(e), _) | (_, _, _, Err(e)) => {
+                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                    let _ = pending_transactions.cast(message);
+                }
+                _ => {}
+
+            }
 
             let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
                 ActorType::Batcher.to_string()
             ).ok_or(
                 Box::new(
                     ValidatorError::Custom(
-                        "unable to acquire pending transaction actor".to_string()
+                        "unable to acquire batcher actor".to_string()
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();

@@ -1,8 +1,8 @@
 use std::{collections::{HashMap, HashSet}, sync::{Arc, RwLock}};
-use :{
+use lasr_messages::{
     PendingTransactionMessage,
     ActorType,
-    ValidatorMessage,
+    ValidatorMessage, SchedulerMessage,
 };
 
 use lasr_types::{
@@ -171,6 +171,49 @@ impl PendingGraph {
         transactions_ready_for_validation
     }
 
+    fn handle_invalid(&mut self, invalid_transaction_hash: &str, e: Box<dyn std::error::Error + Send>) -> Result<Vec<String>,PendingTransactionError> {
+        log::info!("handling invalid transaction");
+        let mut transactions_ready_for_validation = Vec::new();
+        if let Some(invalid_vertex) = self.vertices.remove(invalid_transaction_hash) {
+            for (id, vertex) in self.vertices.iter() {
+                log::info!("checking for dependenty transactions");
+                if let Ok(mut guard) = vertex.write() {
+                    if guard.dependent_transactions.remove(
+                        invalid_transaction_hash
+                    ) && guard.dependent_transactions.is_empty() {
+                        log::info!("marking dependent transaction: {} ready for validation", &id);
+                        transactions_ready_for_validation.push(id.clone());
+                    }
+                }
+            }
+
+            if let Ok(guard) = invalid_vertex.read() {
+                for account in guard.accounts_touched.iter() {
+                    if let Some(transactions) = self.account_index.get_mut(account) {
+                        log::info!(
+                            "removing invalid transaction {:?} from depdendency graph for account: {}",
+                            &invalid_transaction_hash, &account
+                        );
+                        transactions.remove(invalid_transaction_hash);
+                    }
+                }
+            }
+        }
+
+        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
+            ActorType::Scheduler.to_string()
+        ).ok_or(
+            PendingTransactionError
+        )?.into();
+
+        let message = SchedulerMessage::SendTransactionFailure { 
+            transaction_hash: invalid_transaction_hash.to_string(), 
+            error: e 
+        };
+
+        Ok(transactions_ready_for_validation)
+    }
+
     fn get_transactions(
         &self,
         transaction_ids: Vec<String>
@@ -276,8 +319,23 @@ impl Actor for PendingTransactionActor {
                     let _ = state.schedule_with_validator(transaction, outputs);
                 }
             }
-            PendingTransactionMessage::Invalid { transaction } => {
+            PendingTransactionMessage::Invalid { transaction, e } => {
                 log::error!("transaction: {} is invalid", transaction.hash_string());
+                let transactions_ready_for_validation = match state.handle_invalid(&transaction.hash_string(), e) {
+                    Ok(get_transactions) => {
+                        state.get_transactions(
+                            get_transactions
+                        )
+                    }
+                    Err(e) => {
+                        log::error!("Error handling invalid transaction {e}");
+                        vec![]
+                    }
+                };
+
+                for (transaction, outputs) in transactions_ready_for_validation {
+                    let _ = state.schedule_with_validator(transaction, outputs);
+                }
             }
             PendingTransactionMessage::GetPendingTransaction { 
                 transaction_hash: _, 
