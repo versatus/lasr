@@ -149,7 +149,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     async fn send(
         &self,
         transaction: Transaction
-    ) -> Result<Vec<u8>, jsonrpsee::core::Error> {
+    ) -> Result<String, jsonrpsee::core::Error> {
         log::info!("Received RPC send method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx); 
@@ -169,9 +169,9 @@ impl LasrRpcServer for LasrRpcServerImpl {
                 match resp {
                     TransactionResponse::SendResponse(token) => {
                         return Ok(
-                            bincode::serialize(&token).map_err(|e| {
+                            serde_json::to_string(&token).map_err(|e| {
                                 jsonrpsee::core::Error::Custom(e.to_string())
-                            })?,
+                            })?
                         )
                     },
                     TransactionResponse::TransactionError(rpc_response_error) => {
