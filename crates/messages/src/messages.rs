@@ -97,7 +97,7 @@ pub enum SchedulerMessage {
     },
     SendTransactionFailure {
         transaction_hash: String,
-        error: Box<dyn std::error::Error>,
+        error: Box<dyn std::error::Error + Send>,
     },
     CallTransactionApplied {
         transaction_hash: String,
