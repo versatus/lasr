@@ -185,6 +185,7 @@ impl Engine {
         transaction: Transaction,
         outputs: Option<Outputs>
     ) -> Result<(), EngineError> {
+        log::info!("acquiring pending transaction actor to set transaction: {}", transaction.hash_string());
         let actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
             ActorType::PendingTransactions.to_string()
         ).ok_or(
