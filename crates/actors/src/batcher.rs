@@ -975,6 +975,12 @@ impl Batcher {
         &mut self,
         transaction: &Transaction
     ) -> Result<(), BatcherError> {
+        let mut account = get_account(&transaction.from()).await.ok_or(
+            BatcherError::Custom(
+                "deployer account doesn't exit".to_string()
+            )
+        )?;
+
         let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs()).map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;
@@ -1006,6 +1012,12 @@ impl Batcher {
             .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
         self.add_account_to_batch(program_account).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
+        account.increment_nonce(&transaction.nonce());
+
+        self.add_account_to_batch(account).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;
 
@@ -1075,6 +1087,18 @@ impl Batcher {
         outputs: &Outputs,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
+        let mut caller = get_account(transaction.to()).await.ok_or(
+            BatcherError::Custom(
+                "caller account does not exist".to_string()
+            )
+        )?;
+
+        caller.increment_nonce(&transaction.nonce());
+
+        self.add_account_to_batch(caller).await.map_err(|e| {
+            BatcherError::Custom(e.to_string())
+        })?;
+
         for instruction in outputs.instructions().into_iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
