@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize, Deserializer};
-use sha3::{Sha3_256, Digest};
+use sha3::{Sha3_256, Digest, Keccak256};
 use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
@@ -150,16 +150,17 @@ impl Payload {
     }
 
     pub fn hash_string(&self) -> String {
-        let mut hasher = Sha3_256::new();
+        let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         format!("0x{:x}", res)
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let mut hasher = Sha3_256::new();
+        let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
+        log::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
@@ -365,16 +366,17 @@ impl Transaction {
     }
 
     pub fn hash_string(&self) -> String {
-        let mut hasher = Sha3_256::new();
+        let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
         format!("0x{:x}", res)
     }
 
     pub fn hash(&self) -> Vec<u8> {
-        let mut hasher = Sha3_256::new();
+        let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
+        log::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
