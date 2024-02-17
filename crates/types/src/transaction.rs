@@ -65,6 +65,26 @@ impl TransactionType {
             _ => false
         }
     }
+
+    pub fn to_json(&self) -> String {
+        match self {
+            Self::BridgeIn(n) => {
+                return serde_json::json!({"bridgeIn": format!("0x{:064x}", n)}).to_string()
+            }
+            Self::Send(n) => {
+                return serde_json::json!({"send": format!("0x{:064x}", n)}).to_string()
+            }
+            Self::Call(n) => {
+                return serde_json::json!({"call": format!("0x{:064x}", n)}).to_string()
+            }
+            Self::RegisterProgram(n) => {
+                return serde_json::json!({"registerProgram": format!("0x{:064x}", n)}).to_string()
+            }
+            Self::BridgeOut(n) => {
+                return serde_json::json!({"bridgeOut": format!("0x{:064x}", n)}).to_string()
+            }
+        }
+    }
 }
 
 impl ToString for TransactionType {
@@ -144,20 +164,16 @@ impl Payload {
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
-        bytes.extend_from_slice(&self.from().as_ref());
-        bytes.extend_from_slice(&self.to().as_ref());
-        bytes.extend_from_slice(&self.program_id().as_ref());
-        bytes.extend_from_slice(self.inputs().to_string().as_bytes());
-        let mut u256 = Vec::new(); 
-        let value = self.value();
-        value.0.iter().for_each(|n| { 
-            let le = n.to_le_bytes();
-            u256.extend_from_slice(&le);
-        }); 
-        bytes.extend_from_slice(&u256);
-        bytes
+        serde_json::json!({
+            "transactionType": self.transaction_type().to_json(),
+            "from": Address::from(self.from()).to_full_string(),
+            "to": Address::from(self.to()).to_full_string(),
+            "programId": Address::from(self.program_id()).to_full_string(),
+            "op": self.op.clone(),
+            "transactionInputs": self.inputs().clone(),
+            "value": format!("0x{:064x}", self.value()),
+            "nonce": format!("0x{:064x}", self.nonce())
+        }).to_string().as_bytes().to_vec()
     }
 }
 
@@ -360,20 +376,16 @@ impl Transaction {
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(self.transaction_type().to_string().as_bytes());
-        bytes.extend_from_slice(&self.from().as_ref());
-        bytes.extend_from_slice(&self.to().as_ref());
-        bytes.extend_from_slice(&self.program_id().as_ref());
-        bytes.extend_from_slice(self.inputs().to_string().as_bytes());
-        let mut u256 = Vec::new(); 
-        let value = self.value();
-        value.0.iter().for_each(|n| { 
-            let le = n.to_le_bytes();
-            u256.extend_from_slice(&le);
-        }); 
-        bytes.extend_from_slice(&u256);
-        bytes
+        serde_json::json!({
+            "transactionType": self.transaction_type().to_json(),
+            "from": Address::from(self.from()).to_full_string(),
+            "to": Address::from(self.to()).to_full_string(),
+            "programId": Address::from(self.program_id()).to_full_string(),
+            "op": self.op.clone(),
+            "transactionInputs": self.inputs().clone(),
+            "value": format!("0x{:064x}", self.value()),
+            "nonce": format!("0x{:064x}", self.nonce())
+        }).to_string().as_bytes().to_vec()
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
