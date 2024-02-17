@@ -397,7 +397,7 @@ impl Transaction {
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.as_bytes())
+        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())
     }
 
     pub fn get_accounts_involved(&self) -> Vec<Address> {
