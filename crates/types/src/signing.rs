@@ -37,19 +37,10 @@ impl RecoverableSignature {
     /// This method takes a message slice as input, computes its SHA3-256 hash,
     /// and then attempts to recover the public key that was used to sign the message.
     /// It returns the recovered public key if successful.
-    pub fn recover(&self, message: &[u8]) -> Result<PublicKey, secp256k1::Error> {
+    pub fn recover(&self, message_bytes: &[u8]) -> Result<PublicKey, secp256k1::Error> {
         let secp = secp256k1::Secp256k1::new();
-        let mut hasher = Sha3_256::new();
-        hasher.update(message);
-        let message_hash = hasher.finalize();
-        let message = Message::from_digest_slice(&message_hash)?;
-        let mut serialized_sig = [0u8; 64];
-        serialized_sig[..32].copy_from_slice(&self.r);
-        serialized_sig[32..].copy_from_slice(&self.s);
-        let recovery_id = RecoveryId::from_i32(self.v)?;
-
-        let recoverable_sig = Signature::from_compact(&serialized_sig, recovery_id)?;
-
+        let message = Message::from_digest_slice(message_bytes)?;
+        let recoverable_sig = Signature::try_from(self)?;
         secp.recover_ecdsa(&message, &recoverable_sig)
     }
 
