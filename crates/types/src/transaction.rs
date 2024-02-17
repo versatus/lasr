@@ -164,7 +164,7 @@ impl Payload {
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
-        serde_json::json!({
+        let transaction_json = serde_json::json!({
             "transactionType": self.transaction_type().to_json(),
             "from": Address::from(self.from()).to_full_string(),
             "to": Address::from(self.to()).to_full_string(),
@@ -173,7 +173,10 @@ impl Payload {
             "transactionInputs": self.inputs().clone(),
             "value": format!("0x{:064x}", self.value()),
             "nonce": format!("0x{:064x}", self.nonce())
-        }).to_string().as_bytes().to_vec()
+        }).to_string();
+
+        log::info!("converted payload to json: {}", &transaction_json);
+        transaction_json.as_bytes().to_vec()
     }
 }
 
@@ -376,7 +379,7 @@ impl Transaction {
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
-        serde_json::json!({
+        let transaction_json = serde_json::json!({
             "transactionType": self.transaction_type().to_json(),
             "from": Address::from(self.from()).to_full_string(),
             "to": Address::from(self.to()).to_full_string(),
@@ -385,7 +388,10 @@ impl Transaction {
             "transactionInputs": self.inputs().clone(),
             "value": format!("0x{:064x}", self.value()),
             "nonce": format!("0x{:064x}", self.nonce())
-        }).to_string().as_bytes().to_vec()
+        }).to_string();
+
+        log::info!("converted payload to json: {}", &transaction_json);
+        transaction_json.as_bytes().to_vec()
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
