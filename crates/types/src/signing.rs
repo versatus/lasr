@@ -116,9 +116,30 @@ impl TryFrom<RecoverableSignature> for Signature {
     type Error = secp256k1::Error;
     fn try_from(value: RecoverableSignature) -> Result<Signature, Self::Error> {
         let mut data = Vec::new();
-        data.extend_from_slice(&value.get_r());
-        data.extend_from_slice(&value.get_s());
-        Signature::from_compact(&data, RecoveryId::from_i32(value.get_v())?)
+        let mut recovery_id = value.get_v();
+        if recovery_id >= 0 && recovery_id <= 3 {
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if recovery_id >= 27 && recovery_id <= 30 {
+            recovery_id -= 27;
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if recovery_id >= 35 && recovery_id <= 38 {
+            recovery_id -= 35;
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else {
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        }
     }
 }
 
@@ -126,10 +147,30 @@ impl TryFrom<&RecoverableSignature> for Signature {
     type Error = secp256k1::Error;
     fn try_from(value: &RecoverableSignature) -> Result<Signature, Self::Error> {
         let mut data = Vec::new();
-        log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
-        data.extend_from_slice(&value.get_r());
-        data.extend_from_slice(&value.get_s());
-        Signature::from_compact(&data, RecoveryId::from_i32(value.get_v())?)
+        let mut recovery_id = value.get_v();
+        if recovery_id >= 0 && recovery_id <= 3 {
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if recovery_id >= 27 && recovery_id <= 30 {
+            recovery_id -= 27;
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if recovery_id >= 35 && recovery_id <= 38 {
+            recovery_id -= 35;
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else {
+            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            data.extend_from_slice(&value.get_r());
+            data.extend_from_slice(&value.get_s());
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        }
     }
 }
 
