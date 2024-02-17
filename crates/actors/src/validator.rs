@@ -83,7 +83,10 @@ impl ValidatorCore {
                 account.validate_nonce(tx.nonce()),
                 tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>))
             {
-                (Err(e), _, _, _) | (_, Err(e), _, _) | (_, _, Err(e), _) | (_, _, _, Err(e)) => {
+                (Err(e), _, _, _) | 
+                    (_, Err(e), _, _) | 
+                    (_, _, Err(e), _) | 
+                    (_, _, _, Err(e)) => {
                     let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
                     let _ = pending_transactions.cast(message);
                 }

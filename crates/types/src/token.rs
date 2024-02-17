@@ -69,7 +69,6 @@ impl<'de> Visitor<'de> for U256Visitor {
             }
         } else if value.len() == 64 {
             // Parse as a hex string
-            log::info!("{}", &value);
             let decoded = hex::decode(value).map_err(E::custom)?;
             if decoded.len() == 32 {
                 let mut bytes = [0u8; 32];

@@ -211,6 +211,7 @@ impl PendingGraph {
             error: e 
         };
 
+        let _ = scheduler.cast(message);
         Ok(transactions_ready_for_validation)
     }
 
@@ -320,7 +321,7 @@ impl Actor for PendingTransactionActor {
                 }
             }
             PendingTransactionMessage::Invalid { transaction, e } => {
-                log::error!("transaction: {} is invalid", transaction.hash_string());
+                log::error!("transaction: {} is invalid: {e}", transaction.hash_string());
                 let transactions_ready_for_validation = match state.handle_invalid(&transaction.hash_string(), e) {
                     Ok(get_transactions) => {
                         state.get_transactions(
