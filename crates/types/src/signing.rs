@@ -56,9 +56,11 @@ impl RecoverableSignature {
     pub fn verify(&self, message: &[u8]) -> Result<(), secp256k1::Error> {
         log::info!("attemting to recover signature");
         let sig = Signature::try_from(self)?.to_standard();
-        log::info!("attemting to recover public key with message: {:?}", &message);
+        log::info!("attemting to recover public key with message: {}", &hex::encode(message));
         let pk = self.recover(message)?;
+        log::info!("reconstructing message: {}", hex::encode(message));
         let msg = Message::from_digest_slice(&message)?;
+        log::info!("verifying message: {} with pubkey: {}", hex::encode(message), pk.to_string());
         sig.verify(&msg, &pk)
     }
 
