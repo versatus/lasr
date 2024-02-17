@@ -87,9 +87,10 @@ impl ValidatorCore {
                     (_, Err(e), _, _) | 
                     (_, _, Err(e), _) | 
                     (_, _, _, Err(e)) => {
+                    let error_string = e.to_string();
                     let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
                     let _ = pending_transactions.cast(message);
-                    return Err(Box::new(e) as Box<dyn std::error::Error + Send>);
+                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
                 }
                 _ => {}
 
