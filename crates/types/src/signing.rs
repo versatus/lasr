@@ -56,7 +56,7 @@ impl RecoverableSignature {
     pub fn verify(&self, message: &[u8]) -> Result<(), secp256k1::Error> {
         log::info!("attemting to recover signature");
         let sig = Signature::try_from(self)?.to_standard();
-        log::info!("attemting to recover public key");
+        log::info!("attemting to recover public key with message: {:?}", &message);
         let pk = self.recover(message)?;
         let msg = Message::from_digest_slice(&message)?;
         sig.verify(&msg, &pk)
@@ -126,6 +126,7 @@ impl TryFrom<&RecoverableSignature> for Signature {
     type Error = secp256k1::Error;
     fn try_from(value: &RecoverableSignature) -> Result<Signature, Self::Error> {
         let mut data = Vec::new();
+        log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
         data.extend_from_slice(&value.get_r());
         data.extend_from_slice(&value.get_s());
         Signature::from_compact(&data, RecoveryId::from_i32(value.get_v())?)
