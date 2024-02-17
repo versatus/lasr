@@ -137,7 +137,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
                         return Ok(account_str)
                     }
                     TransactionResponse::TransactionError(rpc_response_error) => {
-                        Err(RpcError::Custom(rpc_response_error.to_string()))
+                        Err(RpcError::Custom(rpc_response_error.description))
                     }
                     _ => Err(jsonrpsee::core::Error::Custom("invalid response to `call` method".to_string())) 
                 }
@@ -175,6 +175,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
                         )
                     },
                     TransactionResponse::TransactionError(rpc_response_error) => {
+                        log::error!("Returning error to client: {}", &rpc_response_error);
                         return Err(
                             jsonrpsee::core::Error::Custom(
                                 rpc_response_error.description
@@ -222,6 +223,14 @@ impl LasrRpcServer for LasrRpcServerImpl {
                             None => return Err(RpcError::Custom("program registeration failed to return program_id".to_string())),
                         }
                     },
+                    TransactionResponse::TransactionError(rpc_response_error) => {
+                        log::error!("Returning error to client: {}", &rpc_response_error);
+                        return Err(
+                            jsonrpsee::core::Error::Custom(
+                                rpc_response_error.description
+                            )
+                        )
+                    }
                     _ => {
                         return Err(RpcError::Custom(
                             "received invalid response for `registerProgram` method".to_string()

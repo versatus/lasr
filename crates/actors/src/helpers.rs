@@ -19,11 +19,7 @@ macro_rules! create_handler {
             match resp {
                 RpcMessage::Response { response, .. } => {
                     match response {
-                        Ok(TransactionResponse::CallResponse(deltas)) => {
-                            return Ok(
-                                TransactionResponse::CallResponse(deltas.clone())
-                            );
-                        }
+                        Ok(resp) => return Ok(resp),
                         _ => {
                             return Err(Box::new(RpcError::Custom(
                                 "Received an invalid type in response to RPC `call` method".to_string()
@@ -45,10 +41,8 @@ macro_rules! create_handler {
             match resp {
                 RpcMessage::Response { response, .. } => {
                     match response {
-                        Ok(TransactionResponse::SendResponse(token)) => {
-                            return Ok(
-                                TransactionResponse::SendResponse(token.clone())
-                            );
+                        Ok(resp) => {
+                            return Ok(resp);
                         }
                         _ => {
                             return Err(Box::new(RpcError::Custom(
@@ -74,6 +68,7 @@ macro_rules! create_handler {
                         Ok(resp) => {
                             return Ok(resp)
                         },
+
                         _ => {
                             return Err(Box::new(RpcError::Custom(
                                 "Received an invalid type in response to RPC `registerProgram` method".to_string()
