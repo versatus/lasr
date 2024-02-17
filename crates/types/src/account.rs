@@ -1,5 +1,4 @@
 use std::{collections::{BTreeMap, BTreeSet}, hash::Hash, fmt::{Debug, LowerHex, Display}, str::FromStr};
-use ethereum_types::U256;
 use hex::{FromHexError, ToHex};
 use schemars::JsonSchema;
 use serde::{ Serialize, Deserialize, Deserializer, Serializer};

@@ -69,19 +69,19 @@ impl TransactionType {
     pub fn to_json(&self) -> String {
         match self {
             Self::BridgeIn(n) => {
-                return serde_json::json!({"bridgeIn": format!("0x{:064x}", n)}).to_string()
+                return format!("{{\"bridgeIn\":\"0x{:064x}\"}}", n)
             }
             Self::Send(n) => {
-                return serde_json::json!({"send": format!("0x{:064x}", n)}).to_string()
+                return format!("{{\"send\":\"0x{:064x}\"}}", n)
             }
             Self::Call(n) => {
-                return serde_json::json!({"call": format!("0x{:064x}", n)}).to_string()
+                return format!("{{\"call\":\"0x{:064x}\"}}", n)
             }
             Self::RegisterProgram(n) => {
-                return serde_json::json!({"registerProgram": format!("0x{:064x}", n)}).to_string()
+                return format!("{{\"registerProgram\":\"0x{:064x}\"}}", n)
             }
             Self::BridgeOut(n) => {
-                return serde_json::json!({"bridgeOut": format!("0x{:064x}", n)}).to_string()
+                return format!("{{\"bridgeOut\":\"0x{:064x}\"}}", n)
             }
         }
     }
