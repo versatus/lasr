@@ -72,7 +72,12 @@ impl TransactionType {
                 return format!("{{\"bridgeIn\":\"0x{:064x}\"}}", n)
             }
             Self::Send(n) => {
-                return format!("{{\"send\":\"0x{:064x}\"}}", n)
+                let mut string = String::new();
+                string.push_str(r#""send":""#);
+                string.push_str(&format!("{:064x}", n));
+                string.push_str(r#"""#);
+                return string 
+
             }
             Self::Call(n) => {
                 return format!("{{\"call\":\"0x{:064x}\"}}", n)
