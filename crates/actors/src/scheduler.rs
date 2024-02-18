@@ -160,7 +160,6 @@ impl Actor for TaskScheduler {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        println!("Scheduler Received RPC Call");
         match message {
             SchedulerMessage::Call { transaction, rpc_reply } => {
                 log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");

@@ -444,7 +444,6 @@ impl Actor for ExecutorActor {
                 // Handle the results of an execution
                 log::info!("Received results for execution of container:"); 
                 log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
-                dbg!(&state.handles);
                 match transaction_hash {
                     Some(hash) => {
                         match state.handles.remove(&(program_id.clone(), hash.clone())) {
