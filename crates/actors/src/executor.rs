@@ -273,7 +273,6 @@ impl ExecutorActor {
     }
 }
 
-
 #[cfg(feature = "local")]
 #[async_trait]
 impl Actor for ExecutorActor {

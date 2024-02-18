@@ -232,11 +232,13 @@ impl Engine {
     }
 
     async fn inform_executor(&self, message: ExecutorMessage) -> Result<(), EngineError> {
+        log::info!("acquiring Executor actor");
         let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
             ActorType::Executor.to_string()
         ).ok_or(
             EngineError::Custom("engine.rs 161: Error: unable to acquire executor".to_string())
         )?.into();
+        log::info!("acquired Executor Actor, attempting to send message: {:?}", &message);
         actor.cast(message).map_err(|e| EngineError::Custom(e.to_string()))?;
 
         Ok(())
