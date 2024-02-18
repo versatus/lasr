@@ -93,15 +93,16 @@ impl PackageContainerMetadata {
     }
 }
 
+#[derive(Builder, Debug, Clone)]
 pub struct OciManager {
     bundler: OciBundler<String, String>,
-    store: Web3Store,
+    store: Option<String>,
 }
 
 impl OciManager {
     pub fn new(
         bundler: OciBundler<String, String>,
-        store: Web3Store,
+        store: Option<String>,
     ) -> Self {
         Self {
             bundler,
@@ -109,9 +110,24 @@ impl OciManager {
         }
     }
 
+    pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
+        let store = if let Some(addr) = &self.store {
+            Web3Store::from_multiaddr(&addr).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?
+        } else {
+            Web3Store::local().map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?
+        };
+
+        Ok(store)
+    }
+
     pub async fn check_pinned_status(&self, content_id: &str) -> Result<(), std::io::Error> {
         log::info!("calling self.store.is_pinned to check if {} is pinned", content_id);
-        self.store.is_pinned(content_id).await.map_err(|e| {
+        let store = self.try_get_store()?;
+        store.is_pinned(content_id).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e.to_string()
@@ -120,7 +136,8 @@ impl OciManager {
     }
 
     pub async fn pin_object(&self, content_id: &str, recursive: bool) -> Result<(), std::io::Error> {
-        let cids = self.store.pin_object(content_id, recursive).await.map_err(|e| {
+        let store = self.try_get_store()?;
+        let cids = store.pin_object(content_id, recursive).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e.to_string()
@@ -140,7 +157,8 @@ impl OciManager {
             .to_string();
 
         log::info!("Attempting to read DAG for {} from Web3Store...", &cid);
-        let package_data = self.store.read_dag(
+        let store = self.try_get_store()?;
+        let package_data = store.read_dag(
             &cid
         ).await.map_err(|e| {
             std::io::Error::new(
@@ -189,7 +207,7 @@ impl OciManager {
         //TODO(asmith) convert into a parallel iterator
         while let Some(obj) = package_object_iter.next() {
             log::info!("getting object: {} from Web3Store", &obj.object_cid());
-            let object_data = self.store.read_object(obj.object_cid()).await.map_err(|e| {
+            let object_data = store.read_object(obj.object_cid()).await.map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     e.to_string()
