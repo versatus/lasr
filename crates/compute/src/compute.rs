@@ -417,7 +417,7 @@ impl OciManager {
             log::error!("{}", String::from_utf8_lossy(&output.stderr).into_owned());
             let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
 
-            log::info!("result from container: {container_id} = {:#?}", res);
+            log::warn!("result from container: {container_id} = {:#?}", res);
 
             let actor: ActorRef<ExecutorMessage> = ractor::registry::where_is(
                 ActorType::Executor.to_string()
