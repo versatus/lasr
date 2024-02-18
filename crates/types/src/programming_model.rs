@@ -376,13 +376,7 @@ impl Default for TokenDistributionBuilder {
 
 impl TokenDistributionBuilder {
     pub fn new() -> Self {
-        TokenDistributionBuilder { 
-            program_id: None, 
-            to: None, 
-            amount: None, 
-            token_ids: vec![], 
-            update_fields: vec![] 
-        }
+        Default::default()
     }
 
     pub fn program_id(mut self, program_id: AddressOrNamespace) -> Self {
@@ -496,6 +490,43 @@ pub struct TokenUpdateField {
     value: TokenFieldValue,
 }
 
+pub struct TokenUpdateFieldBuilder {
+    pub field: Option<TokenField>,
+    pub value: Option<TokenFieldValue>,
+}
+
+impl Default for TokenUpdateFieldBuilder {
+    fn default() -> Self {
+        Self {
+            field: None,
+            value: None
+        }
+    }
+}
+
+impl TokenUpdateFieldBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn field(mut self, field: TokenField) -> Self {
+        self.field = Some(field);
+        self
+    }
+
+    pub fn value(mut self, value: TokenFieldValue) -> Self {
+        self.value = Some(value);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<TokenUpdateField> {
+        Ok(TokenUpdateField {
+            field: self.field.clone().ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
+            value: self.value.clone().ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?
+        })
+    }
+}
+
 impl Default for TokenUpdateField {
     fn default() -> Self {
         TokenUpdateField {
@@ -524,6 +555,40 @@ pub struct ProgramUpdateField {
     value: ProgramFieldValue,
 }
 
+pub struct ProgramUpdateFieldBuilder {
+    pub field: Option<ProgramField>,
+    pub value: Option<ProgramFieldValue>,
+}
+
+impl Default for ProgramUpdateFieldBuilder {
+    fn default() -> Self {
+        Self { field: None, value: None }
+    }
+}
+
+impl ProgramUpdateFieldBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn field(mut self, field: ProgramField) -> Self {
+        self.field = Some(field);
+        self
+    }
+
+    pub fn value(mut self, value: ProgramFieldValue) -> Self {
+        self.value = Some(value);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<ProgramUpdateField> {
+        Ok(ProgramUpdateField {
+            field: self.field.clone().ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
+            value: self.value.clone().ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?,
+        })
+    }
+}
+
 impl ProgramUpdateField {
     pub fn new(field: ProgramField, value: ProgramFieldValue) -> Self {
         Self { field, value }
@@ -543,6 +608,38 @@ impl ProgramUpdateField {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstruction {
     updates: Vec<TokenOrProgramUpdate>,
+}
+
+pub struct UpdateInstructionBuilder {
+    pub updates: Vec<TokenOrProgramUpdate>
+}
+
+impl Default for UpdateInstructionBuilder {
+    fn default() -> Self {
+        Self { updates: vec![] }
+    }
+}
+
+impl UpdateInstructionBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn add_update(mut self, update: TokenOrProgramUpdate) -> Self {
+        self.updates.push(update);
+        self
+    }
+
+    pub fn extend_updates(mut self, updates: Vec<TokenOrProgramUpdate>) -> Self {
+        self.updates.extend(updates);
+        self
+    }
+
+    pub fn build(&self) -> UpdateInstruction {
+        UpdateInstruction { 
+            updates: self.updates.clone() 
+        }
+    }
 }
 
 impl Default for UpdateInstruction {
