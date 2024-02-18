@@ -214,7 +214,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .inputs(inputs.to_string())
             .op(op.to_string())
             .value(value)
-            .nonce(account.nonce())
+            .nonce(account.nonce() + lasr_types::U256::from(1))
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
@@ -255,7 +255,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .inputs(inputs.to_string())
             .op(String::from(""))
             .value(U256::from(0).into())
-            .nonce(account.nonce())
+            .nonce(account.nonce() + lasr_types::U256::from(1))
             .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
         let msg = Message::from_digest_slice(&payload.hash()).map_err(|e| {
