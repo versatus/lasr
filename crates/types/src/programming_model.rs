@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
-    hash::{Hash, Hasher},
+    hash::{Hash, Hasher}, io::ErrorKind,
 };
 
 /// The inputs type for a contract call. This is built from a combination of
@@ -355,11 +355,80 @@ pub struct TokenDistribution {
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 pub struct TokenDistributionBuilder {
-    pub program_id: AddressOrNamespace,
-    pub to: AddressOrNamespace,
+    pub program_id: Option<AddressOrNamespace>,
+    pub to: Option<AddressOrNamespace>,
     pub amount: Option<U256>,
     pub token_ids: Vec<U256>,
     pub update_fields: Vec<TokenUpdateField>,
+}
+
+impl Default for TokenDistributionBuilder {
+    fn default() -> Self {
+        Self {
+            program_id: None,
+            to: None,
+            amount: None,
+            token_ids: vec![],
+            update_fields: vec![]
+        }
+    }
+}
+
+impl TokenDistributionBuilder {
+    pub fn new() -> Self {
+        TokenDistributionBuilder { 
+            program_id: None, 
+            to: None, 
+            amount: None, 
+            token_ids: vec![], 
+            update_fields: vec![] 
+        }
+    }
+
+    pub fn program_id(mut self, program_id: AddressOrNamespace) -> Self {
+        self.program_id = Some(program_id);
+        self
+    }
+
+    pub fn to(mut self, to: AddressOrNamespace) -> Self {
+        self.to = Some(to);
+        self
+    }
+
+    pub fn amount(mut self, amount: U256) -> Self {
+        self.amount = Some(amount);
+        self
+    }
+
+    pub fn add_token_id(mut self, token_id: U256) -> Self {
+        self.token_ids.push(token_id);
+        self
+    }
+
+    pub fn extend_token_ids(mut self, token_ids: Vec<U256>) -> Self {
+        self.token_ids.extend(token_ids);
+        self
+    }
+
+    pub fn add_update_field(mut self, update_field: TokenUpdateField) -> Self {
+        self.update_fields.push(update_field);
+        self
+    }
+    
+    pub fn extend_update_fields(mut self, update_fields: Vec<TokenUpdateField>) -> Self {
+        self.update_fields.extend(update_fields);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<TokenDistribution> {
+        Ok(TokenDistribution {
+            program_id: self.program_id.clone().ok_or(std::io::Error::new(ErrorKind::Other, "program id is required"))?,
+            to: self.to.clone().ok_or(std::io::Error::new(ErrorKind::Other, "to address is required"))?,
+            amount: self.amount.clone(),
+            token_ids: self.token_ids.clone(),
+            update_fields: self.update_fields.clone()
+        })
+    }
 }
 
 impl Default for TokenDistribution {
