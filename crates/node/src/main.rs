@@ -56,9 +56,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(|e| Box::new(e))?;
-
-    dbg!(sk);
-
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         .server_address("disperser-goerli.eigenda.xyz:443".to_string())
@@ -67,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
-    println!("Ethereum RPC URL: {}", eth_rpc_url);
+    log::warn!("Ethereum RPC URL: {}", eth_rpc_url);
     let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
