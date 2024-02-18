@@ -486,9 +486,11 @@ impl Account {
         token_ids: &Vec<crate::U256>,
         token_updates: &Vec<TokenUpdateField>
     ) -> AccountResult<Token> {
+        let owner_address = self.owner_address().to_full_string();
         if let Some(token) = self.programs_mut().get_mut(program_id) {
 
             if let Some(amt) = amount {
+                log::warn!("applying {} to {}", &amt, &owner_address);
                 token.credit(amt)?;
             }
 
@@ -532,8 +534,9 @@ impl Account {
                 })?;
 
             if let Some(amt) = amount {
+                log::warn!("applying {} to {}", &amt, &owner_address);
                 token.credit(amt)?;
-                log::info!("applied credits from token distribution");
+                log::warn!("applied credits from token distribution");
             }
 
             if !token_ids.is_empty() {

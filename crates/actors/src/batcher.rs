@@ -668,6 +668,7 @@ impl Batcher {
         };
         match distribution.to() {
             AddressOrNamespace::This => {
+                log::warn!("Distribution going to {:?}", transaction.to());
                 let addr = transaction.to();
                 if let Some(mut acct) = self.get_transfer_to_account(
                     &transaction, 
@@ -712,6 +713,7 @@ impl Batcher {
                 }
             }
             AddressOrNamespace::Address(to_addr) => {
+                log::warn!("distribution going to {}", to_addr.to_full_string());
                 if let Some(mut account) = self.get_transfer_to_account(
                     transaction, 
                     distribution.to(), 
@@ -1117,7 +1119,7 @@ impl Batcher {
                     log::info!("Applying create instruction: {:?}", create);
                     log::info!("Create instruction has {} distributions", &create.distribution().len());
                     for dist in create.distribution() {
-                        log::info!("Applying distribution: {:?}", create);
+                        log::warn!("Applying distribution: {:?}", create);
                         let account = self.apply_distribution(&transaction, dist, &mut batch_buffer).await?;
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
