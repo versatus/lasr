@@ -110,6 +110,7 @@ impl OciManager {
     }
 
     pub async fn check_pinned_status(&self, content_id: &str) -> Result<(), std::io::Error> {
+        log::info!("calling self.store.is_pinned to check if {} is pinned", content_id);
         self.store.is_pinned(content_id).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
