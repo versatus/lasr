@@ -1,8 +1,9 @@
 use std::{collections::HashMap, path::Path};
 #[cfg(feature = "remote")]
 use std::time::Duration;
+use futures::stream::{FuturesOrdered, FuturesUnordered};
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
-use ractor::{Actor, ActorRef, ActorProcessingErr};
+use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver};
 use async_trait::async_trait;
 use crate::get_account;
 use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage};
@@ -309,7 +310,8 @@ impl Actor for ExecutorActor {
                 log::info!("Received create program bundle request");
                 // Build the container spec and create the container image 
                 log::info!("attempting to pin object from IPFS");
-                match state.manager.check_pinned_status(&content_id).await {
+                let manager = state.manager.clone();
+                match manager.check_pinned_status(&content_id).await {
                     Ok(()) => {} 
                     Err(_) => {
                         match state.pin_object(&content_id.clone(), true).await {
@@ -323,8 +325,7 @@ impl Actor for ExecutorActor {
                     }
                 }
 
-                log::info!("Receieved request to create container image");
-                match state.create_bundle(
+                match manager.bundle(
                     content_id.clone()
                 ).await {
                     Ok(()) => {

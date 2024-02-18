@@ -4,7 +4,7 @@ use ractor::{ActorRef, Actor, ActorProcessingErr};
 use thiserror::Error;
 use crate::{
     check_account_cache, 
-    check_da_for_account, pending_transactions, 
+    check_da_for_account
 };
 use lasr_messages::{
     ActorType, 
@@ -114,28 +114,54 @@ impl ValidatorCore {
     #[allow(unused)]
     fn validate_call(&self) -> impl FnOnce(HashMap<AddressOrNamespace, Option<Account>>, Outputs, Transaction) -> Result<(), Box<dyn std::error::Error + Send>> {
         |account_map, outputs, tx| {
+            let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+                ActorType::PendingTransactions.to_string()
+            ).ok_or(
+                Box::new(
+                    ValidatorError::Custom(
+                        "unable to acquire pending transaction actor".to_string()
+                    )
+                ) as Box<dyn std::error::Error + Send>
+            )?.into();
             log::info!("attempting to validate call: {}", tx.hash_string());
-            tx.verify_signature().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-            log::info!("signature is valid");
 
+            match tx.verify_signature() {
+                Err(e) => {
+                    let error_string = e.to_string();
+                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: Box::new(e) };
+                    let _ = pending_transactions.cast(message);
+                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                }
+                _ => {}
+            }
+
+            log::info!("signature is valid");
             log::info!("acquiring caller from account map");
-            let caller = account_map.get(&AddressOrNamespace::Address(tx.from())).ok_or(
-                Box::new(
-                    ValidatorError::Custom(
-                        "caller account does not exist".to_string()
-                    )                 
-                ) as Box<dyn std::error::Error + Send>
-            )?.clone().ok_or(
-                Box::new(
-                    ValidatorError::Custom(
-                        "caller account does not exist".to_string()
-                    )                 
-                ) as Box<dyn std::error::Error + Send>
-            )?;
+            let caller = match account_map.get(&AddressOrNamespace::Address(tx.from())) {
+                Some(Some(account)) => {
+                    account
+                },
+                _ => {
+                    let error_string = "unable to acquire `caller` account, does not exist".to_string();
+                    let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                    let _ = pending_transactions.cast(message);
+                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                }
+            };
 
             log::info!("validating caller balance");
             log::info!("validating caller nonce");
-            caller.clone().validate_nonce(tx.nonce())?;
+            match caller.clone().validate_nonce(tx.nonce()) {
+                Err(e) => {
+                    let error_string = e.to_string();
+                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                    let _ = pending_transactions.cast(message);
+                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                }
+                _ => {}
+            }
+
             let instructions = outputs.instructions();
             log::info!("call returned {} instruction", instructions.len());
             for instruction in instructions {
@@ -153,36 +179,55 @@ impl ValidatorCore {
                         // Check if the transferrer is the caller
                         if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
-                                caller.validate_balance(&program_id, amt.clone())?;
+                                match caller.validate_balance(&program_id, amt.clone()) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                    }
+                                    _ => {
+                                        log::info!("`caller` balance is valid");
+                                    }
+                                }
                             } else {
-                                caller.validate_token_ownership(&program_id, transfer.ids())?;
+                                match caller.validate_token_ownership(&program_id, transfer.ids()) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                    }
+                                    _ => {
+                                        log::info!("`caller` token ownership is valid");
+                                    }
+                                }
                             }
                         } else {
                             // If not attempt to get the account for the transferrer
-                            let transfer_from_account = account_map.get(transfer_from).ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not exist".to_string()
-                                    )                 
-                                ) as Box<dyn std::error::Error + Send>
-                            )?.clone().ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not exist".to_string()
-                                    )                 
-                                ) as Box<dyn std::error::Error + Send>
-                            )?;
-
+                            let transfer_from_account = match account_map.get(transfer_from) {
+                                Some(Some(account)) => account,
+                                _ => {
+                                    let error_string = "unable to acquire transferFrom account, does not exist".to_string();
+                                    let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                    let _ = pending_transactions.cast(message);
+                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                }
+                            };
 
                             // check that the account being debited indeed has the token 
                             // we are debiting
-                            let token = transfer_from_account.programs().get(&token_address).ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not hold token".to_string()
-                                    )
-                                ) as Box<dyn std::error::Error + Send>
-                            )?;
+                            let token = match transfer_from_account.programs().get(&token_address) {
+                                Some(token) => token,
+                                None => {
+                                    let error_string = format!("unable to acquire token {} from account, does not exist", token_address);
+                                    let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                    let _ = pending_transactions.cast(message);
+                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                }
+                            };
 
                             // If fungible token, check balance
                             if let Some(amt) = transfer.amount() {
@@ -197,27 +242,59 @@ impl ValidatorCore {
                                     &caller.owner_address().clone(), 
                                     amt
                                 ).is_err() {
-                                    transfer_from_account.validate_approved_spend(
+                                    match transfer_from_account.validate_approved_spend(
                                         &token_address, 
                                         &program_id, 
                                         amt
-                                    )?;
+                                    ) {
+                                        Err(e) => {
+                                            let error_string = e.to_string();
+                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                            let _ = pending_transactions.cast(message);
+                                            return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                        }
+                                        _ => {
+                                            log::info!("is approved spender");
+                                        }
+                                    };
+                                } else {
+                                    log::info!("is approved spender");
                                 }
                             } else {
                                 // If non-fungible token check ids
-                                transfer_from_account.validate_token_ownership(
+                                match transfer_from_account.validate_token_ownership(
                                     &token_address,
                                     transfer.ids()
-                                )?;
+                                ) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                    }
+                                    _ => {
+                                        log::info!("is token owner")
+                                    }
+                                }
 
                                 // Check that the caller or the program being called 
                                 // is approved to transfer these tokens
                                 if transfer_from_account.validate_approved_token_transfer(
                                     &token_address, &caller.owner_address().clone(), &transfer.ids()
                                 ).is_err() {
-                                    transfer_from_account.validate_approved_token_transfer(
+                                    match transfer_from_account.validate_approved_token_transfer(
                                         &token_address, &program_id, &transfer.ids()
-                                    )?;
+                                    ) {
+                                        Err(e) => {
+                                            let error_string = e.to_string();
+                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                            let _ = pending_transactions.cast(message);
+                                            return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                        }
+                                        _ => {
+                                            log::info!("is approved");
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -230,12 +307,25 @@ impl ValidatorCore {
                         let program_id = match burn.program_id() {
                             AddressOrNamespace::Address(addr) => addr.clone(),
                             AddressOrNamespace::This => tx.to(),
-                            _ => return Err(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "program namespaces not yet implemented".to_string()
-                                    )
-                                ) as Box<dyn std::error::Error + Send>)
+                            _ => {
+                                let err = { 
+                                    Box::new(
+                                        ValidatorError::Custom(
+                                            "program namespaces not yet implemented".to_string()
+                                        )
+                                    ) as Box<dyn std::error::Error + Send>
+                                };
+                                let error_string = err.to_string();
+                                let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                let _ = pending_transactions.cast(message);
+                                return Err(
+                                    Box::new(
+                                        ValidatorError::Custom(
+                                            "program namespaces not yet implemented".to_string()
+                                        )
+                                    ) as Box<dyn std::error::Error + Send>
+                                )
+                            }
                         };
 
                         // get the program address of the token being burned 
@@ -244,74 +334,177 @@ impl ValidatorCore {
                         // Check if the transferrer is the caller
                         if burn_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = burn.amount() {
-                                caller.validate_balance(&program_id, amt.clone())?;
+                                match caller.validate_balance(&program_id, amt.clone()) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(
+                                            Box::new(
+                                                ValidatorError::Custom(error_string)
+                                            ) as Box<dyn std::error::Error + Send>
+                                        )
+                                    }
+                                    _ => {
+                                        log::info!("balance is valid");
+                                    }
+                                }
                             } else {
-                                caller.validate_token_ownership(&program_id, burn.token_ids())?;
+                                match caller.validate_token_ownership(&program_id, burn.token_ids()) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(
+                                            Box::new(
+                                                ValidatorError::Custom(error_string)
+                                            ) as Box<dyn std::error::Error + Send>
+                                        )
+                                    }
+                                    _ => {
+                                        log::info!("token ownership is valid");
+                                    }
+                                }
                             }
                         } else {
                             // If not attempt to get the account for the transferrer
-                            let transfer_from_account = account_map.get(burn_from).ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not exist".to_string()
-                                    )                 
-                                ) as Box<dyn std::error::Error + Send>
-                            )?.clone().ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not exist".to_string()
-                                    )                 
-                                ) as Box<dyn std::error::Error + Send>
-                            )?;
+                            log::info!("Attempting to burn from non caller address");
+                            let burn_from_account = match account_map.get(burn_from) {
+                                Some(Some(account)) => account,
+                                _ => {
+                                    let error_string = "account being debited does not exist".to_string();
+                                    let e = Box::new(ValidatorError::Custom(error_string.clone())) as Box<dyn std::error::Error + Send>;
+                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                    let _ = pending_transactions.cast(message);
+                                    return Err(
+                                        Box::new(
+                                            ValidatorError::Custom(error_string)
+                                        ) as Box<dyn std::error::Error + Send>
+                                    )
+                                }
+                            };
 
                             // check that the account being debited indeed has the token 
                             // we are debiting
-                            let token = transfer_from_account.programs().get(&token_address).ok_or(
-                                Box::new(
-                                    ValidatorError::Custom(
-                                        "account being debited does not hold token".to_string()
+                            let token = match burn_from_account.programs().get(&token_address) {
+                                Some(token) => token,
+                                None => {
+                                    let e = {
+                                        Box::new(
+                                            ValidatorError::Custom(
+                                                "account being debited does not hold token".to_string()
+                                            )
+                                        ) as Box<dyn std::error::Error + Send>
+                                    };
+                                    let error_string = e.to_string();
+                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                    let _ = pending_transactions.cast(message);
+                                    return Err(
+                                        Box::new(
+                                            ValidatorError::Custom(error_string)
+                                        ) as Box<dyn std::error::Error + Send>
                                     )
-                                ) as Box<dyn std::error::Error + Send>
-                            )?;
+                                }
+                            };
 
                             // If fungible token, check balance
                             if let Some(amt) = burn.amount() {
-                                transfer_from_account.validate_balance(
+                                match burn_from_account.validate_balance(
                                     &token_address,
                                     amt.clone()
-                                )?;
+                                ) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(
+                                            Box::new(
+                                                ValidatorError::Custom(error_string)
+                                            ) as Box<dyn std::error::Error + Send>
+                                        )
+                                    }
+                                    _ => {
+                                        log::info!("balance is valid");
+                                    }
+                                }
                                 // Check that the caller or the program being called 
                                 // is approved to spend this token
-                                if transfer_from_account.validate_approved_spend(
+                                if burn_from_account.validate_approved_spend(
                                     &token_address,
                                     &caller.owner_address().clone(), 
                                     amt
                                 ).is_err() {
-                                    transfer_from_account.validate_approved_spend(
+                                    match burn_from_account.validate_approved_spend(
                                         &token_address, 
                                         &program_id, 
                                         amt
-                                    )?;
+                                    ) {
+                                        Err(e) => {
+                                            let error_string = e.to_string();
+                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                            let _ = pending_transactions.cast(message);
+                                            return Err(
+                                                Box::new(
+                                                    ValidatorError::Custom(error_string)
+                                                ) as Box<dyn std::error::Error + Send>
+                                            )
+                                        }
+                                        _ => {
+                                            log::info!("approved spender");
+                                        }
+                                    }
+                                } else {
+                                    log::info!("approved spender");
                                 }
                             } else {
                                 // If non-fungible token check ids
-                                transfer_from_account.validate_token_ownership(
+                                match burn_from_account.validate_token_ownership(
                                     &token_address,
                                     burn.token_ids()
-                                )?;
+                                ) {
+                                    Err(e) => {
+                                        let error_string = e.to_string();
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(
+                                            Box::new(
+                                                ValidatorError::Custom(error_string)
+                                            ) as Box<dyn std::error::Error + Send>
+                                        )
+                                    }
+                                    _ => {
+                                        log::info!("valid token ownership");
+                                    }
+                                }
 
                                 // Check that the caller or the program being called 
                                 // is approved to transfer these tokens
-                                if transfer_from_account.validate_approved_token_transfer(
+                                if burn_from_account.validate_approved_token_transfer(
                                     &token_address,
                                     &caller.owner_address().clone(),
                                     &burn.token_ids()
                                 ).is_err() {
-                                    transfer_from_account.validate_approved_token_transfer(
+                                    match burn_from_account.validate_approved_token_transfer(
                                         &token_address,
                                         &program_id,
                                         &burn.token_ids()
-                                    )?;
+                                    ) { 
+                                        Err(e) => {
+                                            let error_string = e.to_string();
+                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                            let _ = pending_transactions.cast(message);
+                                            return Err(
+                                                Box::new(
+                                                    ValidatorError::Custom(error_string)
+                                                ) as Box<dyn std::error::Error + Send>
+                                            )
+                                        }
+                                        _ => {
+                                            log::info!("approved spender");
+                                        }
+                                    }
+                                } else {
+                                    log::info!("approved spender");
                                 }
                             }
                         }
@@ -324,7 +517,18 @@ impl ValidatorCore {
                                     for update_field in token_update.updates() {
                                         match update_field.value() {
                                             TokenFieldValue::Balance(_) => {
-                                                return Err( Box::new(
+                                                let err = {
+                                                    Box::new(
+                                                        ValidatorError::Custom(
+                                                            "Update Instruction cannot be used to update balance, use Transfer or Burn Instruction instead".to_string()
+                                                        )
+                                                    ) as Box<dyn std::error::Error + Send>
+                                                };
+                                                let error_string = err.to_string();
+                                                let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                let _ = pending_transactions.cast(message);
+                                                return Err( 
+                                                    Box::new(
                                                         ValidatorError::Custom(
                                                             "Update Instruction cannot be used to update balance, use Transfer or Burn Instruction instead".to_string()
                                                         )
@@ -334,6 +538,16 @@ impl ValidatorCore {
                                             TokenFieldValue::Approvals(approval_value) => {
                                                 if let Some(Some(acct)) = account_map.get(token_update.account()) {
                                                     if acct.owner_address() != caller.owner_address() {
+                                                        let err = { 
+                                                            Box::new(
+                                                                ValidatorError::Custom(
+                                                                    "Approvals can only be updated by the account owner".to_string()
+                                                                )
+                                                            ) as Box<dyn std::error::Error + Send>
+                                                        };
+                                                        let error_string = err.to_string();
+                                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                        let _  = pending_transactions.cast(message);
                                                         return Err(
                                                             Box::new(
                                                                 ValidatorError::Custom(
@@ -341,9 +555,18 @@ impl ValidatorCore {
                                                                 )
                                                             ) as Box<dyn std::error::Error + Send>
                                                         )
-                                                        
                                                     }
                                                 } else {
+                                                    let err = { 
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "Approvals can only be updated on accounts that exist".to_string()
+                                                            )
+                                                        ) as Box<dyn std::error::Error + Send>
+                                                    };
+                                                    let error_string = err.to_string();
+                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                    let _  = pending_transactions.cast(message);
                                                     return Err(
                                                         Box::new(
                                                             ValidatorError::Custom(
@@ -356,6 +579,16 @@ impl ValidatorCore {
                                             TokenFieldValue::Allowance(allowance_value) => {
                                                 if let Some(Some(acct)) = account_map.get(token_update.account()) {
                                                     if acct.owner_address() != caller.owner_address() {
+                                                        let err = {
+                                                            Box::new(
+                                                                ValidatorError::Custom(
+                                                                    "Allowances can only be updated by the account owner".to_string()
+                                                                )
+                                                            )
+                                                        };
+                                                        let error_string = err.to_string();
+                                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                        let _  = pending_transactions.cast(message);
                                                         return Err(
                                                             Box::new(
                                                                 ValidatorError::Custom(
@@ -365,6 +598,16 @@ impl ValidatorCore {
                                                         )
                                                     }                                                
                                                 } else {
+                                                    let err = {
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "Allowances can only be updated on accounts that exist".to_string()
+                                                            )
+                                                        )
+                                                    };
+                                                    let error_string = err.to_string();
+                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                    let _  = pending_transactions.cast(message);
                                                     return Err(
                                                         Box::new(
                                                             ValidatorError::Custom(
@@ -381,6 +624,16 @@ impl ValidatorCore {
                                                         AddressOrNamespace::This => tx.to(),
                                                         AddressOrNamespace::Address(addr) => addr.clone(),
                                                         AddressOrNamespace::Namespace(namespace) => {
+                                                            let err = {
+                                                                Box::new(
+                                                                    ValidatorError::Custom(
+                                                                        "Namespaces not yet implemented for token updates".to_string()
+                                                                    )
+                                                                )
+                                                            };
+                                                            let error_string = err.to_string();
+                                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                            let _  = pending_transactions.cast(message);
                                                             return Err(
                                                                 Box::new(
                                                                     ValidatorError::Custom(
@@ -399,6 +652,15 @@ impl ValidatorCore {
                                                             let caller_approved = approvals.get(&tx.from());
                                                             match (program_approved, caller_approved) {
                                                                 (None, None) => {
+                                                                    let err = {
+                                                                        Box::new(
+                                                                            ValidatorError::Custom(
+                                                                                "the caller does not own this account, and the account owner has not approved either the caller of the called program".to_string()
+                                                                            )
+                                                                        ) as Box<dyn std::error::Error + Send>
+                                                                    };
+                                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                                    let _ = pending_transactions.cast(message);
                                                                     return Err(
                                                                         Box::new(
                                                                             ValidatorError::Custom(
@@ -424,6 +686,15 @@ impl ValidatorCore {
                                                 Some(Some(acct)) => {
                                                     if acct.owner_address() != tx.from() {
                                                         if !acct.program_account_linked_programs().contains(&AddressOrNamespace::Address(tx.to())) {
+                                                            let err = {
+                                                                Box::new(
+                                                                    ValidatorError::Custom(
+                                                                        "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
+                                                                    )
+                                                                ) as Box<dyn std::error::Error + Send> 
+                                                            };
+                                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                            let _ = pending_transactions.cast(message);
                                                             return Err(
                                                                 Box::new(
                                                                     ValidatorError::Custom(
@@ -435,6 +706,15 @@ impl ValidatorCore {
                                                     }
                                                 }
                                                 _ => {
+                                                    let err = {
+                                                        Box::new(
+                                                            ValidatorError::Custom(
+                                                                "program accounts must exist to be updated".to_string()
+                                                            )
+                                                        )
+                                                    };
+                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                                    let _ = pending_transactions.cast(message);
                                                     return Err(
                                                         Box::new(
                                                             ValidatorError::Custom(
@@ -452,6 +732,14 @@ impl ValidatorCore {
                     }
                     Instruction::Create(create) => {
                         if &caller.owner_address() != create.program_owner() {
+                            let err = Box::new(
+                                ValidatorError::Custom(
+                                    "caller must be program owner for Create Instruction".to_string()
+                                )
+                            ) as Box<dyn std::error::Error + Send>;
+                            let error_string = err.to_string();
+                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                            let _ = pending_transactions.cast(message);
                             return Err(
                                 Box::new(
                                     ValidatorError::Custom(

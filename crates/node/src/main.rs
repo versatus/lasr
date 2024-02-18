@@ -28,9 +28,6 @@ use lasr_actors::LasrRpcServerActor;
 use lasr_compute::OciManager;
 use lasr_compute::OciBundlerBuilder;
 use lasr_compute::OciBundler;
-use web3_pkg::web3_store::Web3Store;
-
-
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
 use lasr_actors::Validator;
@@ -84,10 +81,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
-        Web3Store::from_multiaddr(&addr)?
+        Some(addr.clone())
     } else {
-        Web3Store::local()?
+        None
     };
+    
     #[cfg(feature = "local")]
     let oci_manager = OciManager::new(bundler, store);
 
