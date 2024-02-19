@@ -320,6 +320,7 @@ impl Actor for ExecutorActor {
                             }
                             Err(e) => {
                                 log::error!("Error pinning objects: {e}");
+                                let _ = self.registration_error(transaction.hash_string(), e.to_string());
                             }
                         }
                     }
@@ -333,9 +334,10 @@ impl Actor for ExecutorActor {
 
                         match program_id_result {
                             Ok(_program_id) => {
-                                match self.registration_success(transaction) {
+                                match self.registration_success(transaction.clone()) {
                                     Err(e) => {
                                         log::error!("Error: executor.rs: 225: {e}");
+                                        let _ = self.registration_error(transaction.hash_string(), e.to_string());
                                     }
                                     _ => {
                                     }
@@ -343,16 +345,18 @@ impl Actor for ExecutorActor {
                             }
                             Err(e) => {
                                 if let Err(e) = self.registration_error(transaction.hash_string(), e.to_string()){
-                                    log::error!("Error: executor.rs: 315: {e}")
+                                    log::error!("Error: executor.rs: 315: {}", &e);
+                                    let _ = self.registration_error(transaction.hash_string(), e.to_string());
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!("Error: executor.rs: 219: {e}");
+                        log::error!("Error: executor.rs: 219: {}", &e);
                         match self.registration_error(transaction.hash_string(), e.to_string()) {
                             Err(e) => {
-                                log::error!("Error: executor.rs: 235: {e}");
+                                log::error!("Error: executor.rs: 235: {}", &e);
+                                let _ = self.registration_error(transaction.hash_string(), e.to_string());
                             }
                             _ => {
                             }
@@ -407,23 +411,25 @@ impl Actor for ExecutorActor {
                                        );
                                     },
                                     Err(e) => {
+                                        let error_string = format!("Error calling state.execute: executor.rs: 265: {}", &e);
                                         log::error!(
-                                            "Error calling state.execute: executor.rs: 265: {}", e
+                                            "Error calling state.execute: executor.rs: 265: {}", &error_string
                                         );
+                                        let _ = self.execution_error(&transaction_hash, e);
                                     } 
                                 }
                             },
                             Err(e) => {
-                                log::error!(
-                                    "Error calling state.parse_inputs: executor.rs: 263: {}", e
-                                );
+                                let error_string = format!("Error calling state.parse_inputs: executor.rs: 263: {}", &e);
+                                log::error!("{}", &error_string);
+                                let _ = self.execution_error(&transaction_hash, e);
                             }
                         }
                     }
                     None => {
-                        log::error!(
-                            "program account does not exist, unable to execute"
-                        )
+                        let error_string = "program account does not exist, unable to execute"; 
+                        log::error!("{}", &error_string);
+                        let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
                     }
                 }
                 //    }
