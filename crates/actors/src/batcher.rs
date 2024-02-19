@@ -688,6 +688,7 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
+                    log::warn!("{:#?}", acct);
                     return Ok(acct)
                 } else {
                     let mut acct = AccountBuilder::default()
@@ -1154,6 +1155,7 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
+            log::warn!("adding account: {:#?} to batch", &account);
             self.add_account_to_batch(account).await.map_err(|e| {
                 BatcherError::Custom(e.to_string())
             })?;
