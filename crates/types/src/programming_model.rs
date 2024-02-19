@@ -117,6 +117,15 @@ impl OutputsBuilder {
         self.instructions.extend(instructions);
         self
     }
+
+    pub fn build(&self) -> std::io::Result<Outputs> {
+        Ok(
+            Outputs {
+                inputs: self.inputs.clone().ok_or(std::io::Error::new(ErrorKind::Other, "inputs is required"))?,
+                instructions: self.instructions.clone()
+            }
+        )
+    }
 }
 
 impl Outputs {
