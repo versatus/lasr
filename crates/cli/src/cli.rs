@@ -981,23 +981,25 @@ async fn handle_send_command(children: &ArgMatches) -> Result<(), Box<dyn::std::
     Ok(())
 }
 
+fn address_arg() -> Arg {
+    Arg::new("address")
+        .long("address")
+        .short('a')
+        .aliases(["pubkey", "addy"])
+}
+
 fn get_account_command() -> Command {
     Command::new("get-account")
         .about("gets the account given a secret key or mnemonic")
-        .arg(from_file_arg())
-        .arg(keyfile_path_arg())
-        .arg(wallet_index_arg())
-        .arg(from_mnemonic_arg())
-        .arg(mnemonic_arg())
-        .arg(from_secret_key_arg())
-        .arg(secret_key_arg())
+        .arg(address_arg())
         .arg(verbose_arg())
 }
 
 async fn handle_get_account_command(children: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    let mut wallet = get_wallet(children).await?;
-    let address = wallet.address();
-    wallet.get_account(&address).await;
+    use lasr_rpc::LasrRpcClient;
+    let address = children.get_one::<String>("address").expect("address is required");
+    let client: HttpClient = get_client().await?;
+    client.get_account(address.clone()).await;
     Ok(())
 }
 
@@ -1281,6 +1283,12 @@ async fn get_wallet(children: &ArgMatches) -> Result<Wallet<HttpClient>, Box<dyn
         .map_err(|e| {
             Box::new(e) as Box<dyn std::error::Error>
         })
+}
+
+async fn get_client() -> Result<HttpClient, Box<dyn std::error::Error>> {
+    let lasr_rpc_url = std::env::var("LASR_RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:9292".to_string());
+    let client = HttpClientBuilder::default().build(lasr_rpc_url)?;
+    Ok(client)
 }
 
 fn pretty_print_keypair_info(wallet_info: &WalletInfo) {
