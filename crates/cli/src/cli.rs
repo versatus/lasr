@@ -985,7 +985,7 @@ fn address_arg() -> Arg {
     Arg::new("address")
         .long("address")
         .short('a')
-        .aliases(["pubkey", "addy"])
+        .aliases(["pubkey", "addy", "addr"])
 }
 
 fn get_account_command() -> Command {
@@ -999,7 +999,8 @@ async fn handle_get_account_command(children: &ArgMatches) -> Result<(), Box<dyn
     use lasr_rpc::LasrRpcClient;
     let address = children.get_one::<String>("address").expect("address is required");
     let client: HttpClient = get_client().await?;
-    client.get_account(address.clone()).await;
+    let account = client.get_account(address.clone()).await?;
+    println!("{}", account);
     Ok(())
 }
 

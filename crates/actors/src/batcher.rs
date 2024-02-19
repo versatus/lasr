@@ -675,6 +675,9 @@ impl Batcher {
                     distribution.to(), 
                     batch_buffer
                 ).await {
+                    if let AccountType::Program(program_addr) = acct.account_type() {
+                        log::warn!("applying token distribution to {}", program_addr.to_full_string());
+                    }
                     acct.apply_token_distribution(
                         &program_id, 
                         distribution.amount(), 
@@ -716,9 +719,12 @@ impl Batcher {
                 log::warn!("distribution going to {}", to_addr.to_full_string());
                 if let Some(mut account) = self.get_transfer_to_account(
                     transaction, 
-                    distribution.to(), 
+                    &AddressOrNamespace::Address(to_addr.clone()), 
                     batch_buffer
                 ).await {
+                    if let AccountType::Program(program_addr) = account.account_type() {
+                        log::warn!("distribution going to program account: {}", program_addr.to_full_string());
+                    }
                     account.apply_token_distribution(
                         &program_id, 
                         distribution.amount(),

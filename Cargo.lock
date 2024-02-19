@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_actors"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_cli"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "async-recursion",
  "bip39",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_clients"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2091,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_compute"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "async-std",
  "bincode",
@@ -2116,7 +2116,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_contract"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "lasr_types",
  "sha3",
@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_messages"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "derive_builder",
  "eigenda_client",
@@ -2144,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_node"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "dotenv",
  "eigenda_client",
@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_rpc"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "jsonrpsee",
  "lasr_types",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_types"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "bincode",
  "derive_builder",
@@ -2196,7 +2196,7 @@ dependencies = [
 
 [[package]]
 name = "lasr_wallet"
-version = "0.1.0"
+version = "0.9.0"
 dependencies = [
  "bincode",
  "bip39",
