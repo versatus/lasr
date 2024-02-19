@@ -495,7 +495,7 @@ impl Account {
             }
         };
 
-        if let Some(token) = self.programs_mut().get_mut(program_id) {
+        if let Some(token) = self.programs.get_mut(program_id) {
 
             if let Some(amt) = amount {
                 log::warn!("applying {} to {}", &amt, &token_owner);
@@ -543,6 +543,7 @@ impl Account {
 
             if let Some(amt) = amount {
                 log::warn!("applying {} to {}", &amt, &token_owner);
+                log::warn!("applying credits to token: {:?}", token);
                 token.credit(amt)?;
                 log::warn!("applied credits from token distribution");
             }
@@ -553,12 +554,12 @@ impl Account {
             }
 
             log::warn!("token distribution includes token updates: {:?}", token_updates);
-            for update in token_updates {
+            for update in token_updates.into_iter() {
                 log::info!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            self.programs_mut().insert(token.program_id(), token.clone());
+            self.programs.insert(token.program_id(), token.clone());
 
             Ok(token.clone())
         }
