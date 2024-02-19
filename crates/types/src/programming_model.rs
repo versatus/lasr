@@ -693,6 +693,58 @@ impl Default for TokenUpdate {
     }
 }
 
+pub struct TokenUpdateBuilder {
+    pub account: Option<AddressOrNamespace>,
+    pub token: Option<AddressOrNamespace>,
+    pub updates: Vec<TokenUpdateField>,
+}
+
+impl Default for TokenUpdateBuilder {
+    fn default() -> Self {
+        Self {
+            account: None,
+            token: None,
+            updates: vec![]
+        }
+    }
+}
+
+impl TokenUpdateBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn account(mut self, account: AddressOrNamespace) -> Self {
+        self.account = Some(account);
+        self
+    }
+
+    pub fn token(mut self, token: AddressOrNamespace) -> Self {
+        self.token = Some(token);
+        self
+    }
+    
+    pub fn add_update(mut self, update: TokenUpdateField) -> Self {
+        self.updates.push(update);
+        self
+    }
+
+    pub fn extend_updates(mut self, updates: Vec<TokenUpdateField>) -> Self {
+        self.updates.extend(updates);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<TokenUpdate> {
+        Ok(
+            TokenUpdate { 
+                account: self.account.clone().ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?, 
+                token: self.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?, 
+                updates: self.updates.clone() 
+            }
+        )
+    }
+}
+
 impl TokenUpdate {
     pub fn account(&self) -> &AddressOrNamespace {
         &self.account
@@ -712,6 +764,50 @@ impl TokenUpdate {
 pub struct ProgramUpdate {
     account: AddressOrNamespace,
     updates: Vec<ProgramUpdateField>,
+}
+
+pub struct ProgramUpdateBuilder {
+    pub account: Option<AddressOrNamespace>,
+    pub updates: Vec<ProgramUpdateField>,
+}
+
+impl Default for ProgramUpdateBuilder {
+    fn default() -> Self {
+        Self {
+            account: None,
+            updates: vec![]
+        }
+    }
+}
+
+impl ProgramUpdateBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn account(mut self, account: AddressOrNamespace) -> Self {
+        self.account = Some(account);
+        self
+    }
+
+    pub fn add_update(mut self, update: ProgramUpdateField) -> Self {
+        self.updates.push(update);
+        self
+    }
+
+    pub fn extend_updates(mut self, updates: Vec<ProgramUpdateField>) -> Self {
+        self.updates.extend(updates);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<ProgramUpdate> {
+        Ok(
+            ProgramUpdate {
+                account: self.account.clone().ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?,
+                updates: self.updates.clone()
+            }
+        )
+    }
 }
 
 impl ProgramUpdate {
@@ -740,6 +836,26 @@ pub struct TransferInstruction {
     ids: Vec<crate::U256>,
 }
 
+pub struct TransferInstructionBuilder {
+    pub token: Option<Address>,
+    pub from: Option<AddressOrNamespace>,
+    pub to: Option<AddressOrNamespace>,
+    pub amount: Option<crate::U256>,
+    pub ids: Vec<crate::U256>,
+}
+
+impl Default for TransferInstructionBuilder {
+    fn default() -> Self {
+        Self {
+            token: None,
+            from: None,
+            to: None,
+            amount: None,
+            ids: vec![]
+        }
+    }
+}
+
 impl Default for TransferInstruction {
     fn default() -> Self {
         TransferInstruction {
@@ -749,6 +865,54 @@ impl Default for TransferInstruction {
             amount: Some(crate::U256::from(0)),
             ids: vec![crate::U256::from(0)],
         }
+    }
+}
+
+impl TransferInstructionBuilder {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn token(mut self, token: Address) -> Self {
+        self.token = Some(token);
+        self
+    }
+
+    pub fn from(mut self, from: AddressOrNamespace) -> Self {
+        self.from = Some(from);
+        self
+    }
+
+    pub fn to(mut self, to: AddressOrNamespace) -> Self {
+        self.to = Some(to);
+        self
+    }
+
+    pub fn amount(mut self, amount: crate::U256) -> Self {
+        self.amount = Some(amount);
+        self
+    }
+
+    pub fn add_id(mut self, token_id: crate::U256) -> Self {
+        self.ids.push(token_id);
+        self
+    }
+
+    pub fn extend_ids(mut self, token_ids: Vec<crate::U256>) -> Self {
+        self.ids.extend(token_ids);
+        self
+    }
+
+    pub fn build(&self) -> std::io::Result<TransferInstruction> {
+        Ok(
+            TransferInstruction { 
+                token: self.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token address is required"))?, 
+                from: self.from.clone().ok_or(std::io::Error::new(ErrorKind::Other, "from address is required"))?, 
+                to: self.to.clone().ok_or(std::io::Error::new(ErrorKind::Other, "to address is required"))?, 
+                amount: self.amount.clone(), 
+                ids: self.ids.clone() 
+            }
+        )
     }
 }
 
@@ -827,6 +991,15 @@ pub struct BurnInstruction {
     from: AddressOrNamespace,
     amount: Option<crate::U256>,
     token_ids: Vec<crate::U256>,
+}
+
+pub struct BurnInstructionBuilder {
+    pub caller: Option<Address>,
+    pub program_id: Option<AddressOrNamespace>,
+    pub token: Option<Address>,
+    pub from: Option<AddressOrNamespace>,
+    pub amount: Option<crate::U256>,
+    pub token_ids: Vec<crate::U256>,
 }
 
 impl Default for BurnInstruction {
