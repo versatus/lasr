@@ -204,7 +204,7 @@ impl ExecutorActor {
     fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
 
         let actor: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Scheduler")
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire batcher")
         )?.into();
 
         let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
