@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use uint::construct_uint;
 use derive_builder::Builder;
 
-use crate::{Address, RecoverableSignature, Transaction};
+use crate::{Address, RecoverableSignature, Transaction, TokenUpdateField};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
@@ -301,6 +301,15 @@ impl Token {
         Ok(())
     }
 
+    pub fn apply_token_updates(
+        &mut self,
+        token_updates: Vec<TokenUpdateField>,
+    ) {
+        for update in token_updates {
+            log::warn!("{:?}", update);
+        }
+    }
+
     pub(crate) fn apply_token_update_field_values(
         &mut self,
         token_update_value: &TokenFieldValue
@@ -310,7 +319,7 @@ impl Token {
                 self.apply_data_update(data_update)?;
             }
             TokenFieldValue::Metadata(metadata_update) => {
-                log::info!("found metadata update: {:?}", &metadata_update);
+                log::warn!("found metadata update: {:?}", &metadata_update);
                 self.apply_metadata_update(metadata_update)?;
             }
             TokenFieldValue::Approvals(approvals_update) => {

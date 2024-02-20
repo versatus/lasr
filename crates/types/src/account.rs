@@ -543,7 +543,7 @@ impl Account {
 
             if let Some(amt) = amount {
                 log::warn!("applying {} to {}", &amt, &token_owner);
-                log::warn!("applying credits to token: {:?}", token);
+                log::warn!("applying credits to token: {:?}", &token);
                 token.credit(amt)?;
                 log::warn!("applied credits from token distribution");
             }
@@ -553,9 +553,9 @@ impl Account {
                 log::warn!("applied token ids from token distribution");
             }
 
-            log::warn!("token distribution includes token updates: {:?}", token_updates);
-            for update in token_updates.into_iter() {
-                log::info!("Applying token update: {:?}", &update);
+            log::warn!("token distribution includes token updates: {:?}", &token_updates);
+            for update in token_updates {
+                log::warn!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
