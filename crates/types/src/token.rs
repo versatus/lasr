@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use uint::construct_uint;
 use derive_builder::Builder;
 
-use crate::{Address, RecoverableSignature, Transaction};
+use crate::{Address, RecoverableSignature, Transaction, TokenUpdateField};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
@@ -305,12 +305,12 @@ impl Token {
         &mut self,
         token_update_value: &TokenFieldValue
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying TokenFieldValue: {:?}", token_update_value);
         match token_update_value { 
             TokenFieldValue::Data(data_update) => {
                 self.apply_data_update(data_update)?;
             }
             TokenFieldValue::Metadata(metadata_update) => {
-                log::info!("found metadata update: {:?}", &metadata_update);
                 self.apply_metadata_update(metadata_update)?;
             }
             TokenFieldValue::Approvals(approvals_update) => {
@@ -348,6 +348,7 @@ impl Token {
     }
 
     fn apply_data_update(&mut self, data_update: &DataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying data update: {:?}", data_update);
         match data_update {
             DataValue::Insert(key, value) => {
                 self.data.insert(key.clone(), value.clone());
@@ -364,6 +365,7 @@ impl Token {
     }
 
     fn apply_metadata_update(&mut self, metadata_update: &MetadataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying metadata update: {:?}", metadata_update);
         match metadata_update {
             MetadataValue::Insert(key, value) => {
                 self.metadata.inner_mut().insert(key.clone(), value.clone());
@@ -381,6 +383,7 @@ impl Token {
     }
 
     fn apply_approvals_update(&mut self, approvals_update: &ApprovalsValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying approvals update: {:?}", approvals_update);
         match approvals_update {
             ApprovalsValue::Insert(key, value) => {
                 if let Some(entry) = self.approvals.get_mut(key) {
@@ -410,6 +413,7 @@ impl Token {
     }
 
     fn apply_allowance_update(&mut self, allowance_update: &AllowanceValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying approvals update: {:?}", allowance_update);
         match allowance_update {
             AllowanceValue::Insert(key, value) => {
                 if let Some(entry) = self.allowance.get_mut(key) {
@@ -440,6 +444,7 @@ impl Token {
     }
 
     fn apply_status_update(&mut self, status_update: &StatusValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+        log::warn!("applying status update: {:?}", status_update);
         match status_update {
             StatusValue::Lock => {
                 self.status = Status::Locked;

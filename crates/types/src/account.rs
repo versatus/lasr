@@ -486,11 +486,19 @@ impl Account {
         token_ids: &Vec<crate::U256>,
         token_updates: &Vec<TokenUpdateField>
     ) -> AccountResult<Token> {
-        let owner_address = self.owner_address().to_full_string();
-        if let Some(token) = self.programs_mut().get_mut(program_id) {
+        let token_owner = {
+            if let AccountType::Program(program_account_address) = self.account_type() {
+                log::warn!("applying distribution to program acocunt: {}", &program_account_address.to_full_string());
+                program_account_address
+            } else {
+                self.owner_address()
+            }
+        };
+
+        if let Some(token) = self.programs.get_mut(program_id) {
 
             if let Some(amt) = amount {
-                log::warn!("applying {} to {}", &amt, &owner_address);
+                log::warn!("applying {} to {}", &amt, &token_owner);
                 token.credit(amt)?;
             }
 
@@ -518,7 +526,7 @@ impl Account {
 
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
-                .owner_id(token_owner)
+                .owner_id(token_owner.clone())
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(Metadata::new())
@@ -534,23 +542,25 @@ impl Account {
                 })?;
 
             if let Some(amt) = amount {
-                log::warn!("applying {} to {}", &amt, &owner_address);
+                log::warn!("applying {} to {}", &amt, &token_owner);
+                log::warn!("applying credits to token: {:?}", &token);
                 token.credit(amt)?;
                 log::warn!("applied credits from token distribution");
             }
 
             if !token_ids.is_empty() {
                 token.add_token_ids(token_ids)?;
-                log::info!("applied token ids from token distribution");
+                log::warn!("applied token ids from token distribution");
             }
 
-            log::info!("token distribution includes token updates: {:?}", token_updates);
+            log::warn!("token distribution includes token updates: {:?}", &token_updates);
             for update in token_updates {
-                log::info!("Applying token update: {:?}", &update);
+                log::warn!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            self.programs_mut().insert(token.program_id(), token.clone());
+            log::warn!("inserting token: {} into account {}", token.program_id(), token_owner);
+            self.programs.insert(token.program_id(), token.clone());
 
             Ok(token.clone())
         }
