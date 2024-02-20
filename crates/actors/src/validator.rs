@@ -142,7 +142,7 @@ impl ValidatorCore {
                     account
                 },
                 _ => {
-                    let error_string = "unable to acquire `caller` account, does not exist".to_string();
+                    let error_string = format!("unable to acquire `caller` account {}, does not exist", tx.from().to_full_string());
                     let err = Box::new(ValidatorError::Custom(error_string.clone()));
                     let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
                     let _ = pending_transactions.cast(message);
@@ -933,9 +933,12 @@ impl Actor for Validator {
                 // Acquire all relevant accounts.
                 if let Some(outputs) = outputs {
 
-                    let accounts_involved: Vec<AddressOrNamespace> = outputs.instructions().iter().map(|inst| {
+                    let mut accounts_involved: Vec<AddressOrNamespace> = outputs.instructions().iter().map(|inst| {
                         inst.get_accounts_involved()
                     }).flatten().collect();
+
+                    accounts_involved.push(AddressOrNamespace::Address(transaction.from()));
+                    accounts_involved.push(AddressOrNamespace::Address(transaction.to()));
 
                     let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> = HashMap::new();
                     for address in &accounts_involved {
