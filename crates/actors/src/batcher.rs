@@ -334,7 +334,9 @@ impl Batcher {
             Box::new(BatcherError::Custom("unable to acquire account cache actor".to_string()))
         )?.into();
 
-        log::warn!("caching account: {}", account.owner_address().to_full_string());
+        if let AccountType::Program(program_address) = account.account_type() {
+            log::warn!("caching account: {}", program_address.to_full_string());
+        }
         let message = AccountCacheMessage::Write { account: account.clone() };
         account_cache.cast(message)?;
 
