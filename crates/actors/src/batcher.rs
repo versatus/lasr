@@ -979,6 +979,7 @@ impl Batcher {
                 self.apply_token_update(transaction, &token_update, batch_buffer).await
             }
             TokenOrProgramUpdate::ProgramUpdate(program_update) => {
+                log::warn!("received program update: {:?}", &program_update);
                 self.apply_program_update(transaction, &program_update, batch_buffer).await
             }
         }

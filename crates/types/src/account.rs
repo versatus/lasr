@@ -603,6 +603,9 @@ impl Account {
                 })?;
             
             for update in updates {
+                if let AccountType::Program(program_addr) = self.account_type() {
+                    log::warn!("applying {:?} to account: {}", &update, &program_addr.to_full_string());
+                }
                 token.apply_token_update_field_values(update.value())?;
             }
 
@@ -615,6 +618,7 @@ impl Account {
         &mut self,
         update_field_value: &ProgramFieldValue
     ) -> AccountResult<()> {
+        log::warn!("applying program update field value: {:?}", update_field_value);
         match update_field_value {
             ProgramFieldValue::LinkedPrograms(linked_programs_value) => {
                 match linked_programs_value {
@@ -642,7 +646,7 @@ impl Account {
             ProgramFieldValue::Metadata(metadata_value) => {
                 match metadata_value {
                     MetadataValue::Insert(key, value) => {
-                        self.program_account_metadat_mut()
+                        self.program_account_metadata
                             .inner_mut()
                             .insert(
                                 key.clone(),
@@ -650,12 +654,12 @@ impl Account {
                             );
                     }
                     MetadataValue::Extend(iter) => {
-                        self.program_account_metadat_mut()
+                        self.program_account_metadata
                             .inner_mut()
                             .extend(iter.clone());
                     }
                     MetadataValue::Remove(key) => {
-                        self.program_account_metadat_mut()
+                        self.program_account_metadata
                             .inner_mut()
                             .remove(key);
                     }
@@ -665,7 +669,7 @@ impl Account {
             ProgramFieldValue::Data(data_value) => {
                 match data_value {
                     DataValue::Insert(key, value) => {
-                        self.program_account_data_mut()
+                        self.program_account_data
                             .inner_mut()
                             .insert(
                                 key.clone(),
@@ -673,12 +677,12 @@ impl Account {
                             );
                     }
                     DataValue::Extend(iter) => {
-                        self.program_account_data_mut()
+                        self.program_account_data
                             .inner_mut()
                             .extend(iter.clone())
                     }
                     DataValue::Remove(key) => {
-                        self.program_account_data_mut()
+                        self.program_account_data
                             .inner_mut()
                             .remove(key);
                     }
