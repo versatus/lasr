@@ -511,7 +511,6 @@ impl Batcher {
             }
             AddressOrNamespace::Address(address) => {
                 if let Some(account) = batch_buffer.get(&address) {
-                let account_address = transaction.clone().to();
                     return Ok(account.clone())
                 } else {
                     log::info!("requesting account: {:?}", &address.to_full_string());
@@ -736,6 +735,7 @@ impl Batcher {
                             e.to_string()
                         )
                     })?;
+
                     return Ok(account)
                 } else {
                     let mut account = AccountBuilder::default()
@@ -790,6 +790,7 @@ impl Batcher {
                 )
             }
         };
+
         match token_update.account() {
             AddressOrNamespace::This => {
                 if let Some(mut account) = batch_buffer.get_mut(&transaction.to()) {
@@ -1061,8 +1062,13 @@ impl Batcher {
     async fn try_create_program_account(
         &mut self,
         transaction: &Transaction,
-        instruction: CreateInstruction
+        instruction: CreateInstruction,
+        batch_buffer: &HashMap<Address, Account>, 
     ) -> Result<Account, BatcherError> {
+        if let Some(account) = batch_buffer.get(&transaction.to()) {
+            return Ok(account.clone())
+        }
+
         if let Some(account) = get_account(transaction.to()).await {
             return Ok(account)
         } else {
@@ -1131,7 +1137,7 @@ impl Batcher {
                         self.add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
 
-                    let program_account = self.try_create_program_account(&transaction, create).await?;
+                    let program_account = self.try_create_program_account(&transaction, create, &batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {

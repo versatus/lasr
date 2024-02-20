@@ -526,7 +526,7 @@ impl Account {
 
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
-                .owner_id(token_owner)
+                .owner_id(token_owner.clone())
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(Metadata::new())
@@ -559,6 +559,7 @@ impl Account {
                 token.apply_token_update_field_values(update.value())?;
             }
 
+            log::warn!("inserting token: {} into account {}", token.program_id(), token_owner);
             self.programs.insert(token.program_id(), token.clone());
 
             Ok(token.clone())
