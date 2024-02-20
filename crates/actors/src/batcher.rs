@@ -1179,7 +1179,7 @@ impl Batcher {
             })?;
         }
 
-        log::info!("Adding transaction to a batch");
+        log::warn!("Adding transaction to a batch");
         self.add_transaction_to_batch(transaction.clone()).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
         })?;
