@@ -646,25 +646,19 @@ impl Account {
             ProgramFieldValue::Metadata(metadata_value) => {
                 match metadata_value {
                     MetadataValue::Insert(key, value) => {
-                        self.program_account_metadata
-                            .inner_mut()
-                            .insert(
-                                key.clone(),
-                                value.clone()
-                            );
+                        self.program_account_metadata.insert(
+                            key.clone(),
+                            value.clone()
+                        );
                     }
                     MetadataValue::Extend(iter) => {
                         log::warn!("extending metdata");
                         log::warn!("current metadata: {:?}", self.program_account_metadata);
-                        self.program_account_metadata
-                            .inner_mut()
-                            .extend(iter.clone());
+                        self.program_account_metadata.extend(iter.clone());
                         log::warn!("metadata after update: {:?}", self.program_account_metadata);
                     }
                     MetadataValue::Remove(key) => {
-                        self.program_account_metadata
-                            .inner_mut()
-                            .remove(key);
+                        self.program_account_metadata.remove(key);
                     }
 
                 }
@@ -672,22 +666,16 @@ impl Account {
             ProgramFieldValue::Data(data_value) => {
                 match data_value {
                     DataValue::Insert(key, value) => {
-                        self.program_account_data
-                            .inner_mut()
-                            .insert(
-                                key.clone(),
-                                value.clone()
-                            );
+                        self.program_account_data.insert(
+                            key.clone(),
+                            value.clone()
+                        );
                     }
                     DataValue::Extend(iter) => {
-                        self.program_account_data
-                            .inner_mut()
-                            .extend(iter.clone())
+                        self.program_account_data.extend(iter.clone())
                     }
                     DataValue::Remove(key) => {
-                        self.program_account_data
-                            .inner_mut()
-                            .remove(key);
+                        self.program_account_data.remove(key);
                     }
                 }
             }

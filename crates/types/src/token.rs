@@ -202,6 +202,18 @@ impl Metadata {
         Self(BTreeMap::new())
     }
 
+    pub fn extend(&mut self, iter: BTreeMap<String, String>) {
+        self.0.extend(iter);
+    }
+
+    pub fn insert(&mut self, key: String, value: String) {
+        self.0.insert(key, value);
+    }
+
+    pub fn remove(&mut self, key: &String) -> Option<String> {
+        self.0.remove(key)
+    }
+
     pub fn inner_mut(&mut self) -> &mut BTreeMap<String, String> {
         &mut self.0
     }
