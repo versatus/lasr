@@ -654,9 +654,12 @@ impl Account {
                             );
                     }
                     MetadataValue::Extend(iter) => {
+                        log::warn!("extending metdata");
+                        log::warn!("current metadata: {:?}", self.program_account_metadata);
                         self.program_account_metadata
                             .inner_mut()
                             .extend(iter.clone());
+                        log::warn!("metadata after update: {:?}", self.program_account_metadata);
                     }
                     MetadataValue::Remove(key) => {
                         self.program_account_metadata

@@ -921,6 +921,16 @@ impl Batcher {
                 }
             }
             AddressOrNamespace::Address(address) => {
+                if let Some(mut account) = batch_buffer.get_mut(&address) {
+                    account.apply_program_update(
+                        program_update
+                    ).map_err(|e| {
+                        BatcherError::Custom(
+                            e.to_string()
+                        )
+                    })?;
+                    return Ok(account.clone());
+                }
                 log::warn!("attempting to get account {} from cache in batcher.rs 852", &address);
                 if let Some(mut account) = get_account(address.clone()).await {
                     account.apply_program_update(
