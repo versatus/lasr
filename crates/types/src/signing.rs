@@ -224,6 +224,4 @@ impl Certificate {
 
 mod tests {
     use super::*;
-
-    let keypair = Secp256k1
 }
