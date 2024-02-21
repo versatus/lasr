@@ -1078,7 +1078,7 @@ impl From<PublicKey> for Address {
         if serialized_pk.len() == 65 {
             hasher.update(&serialized_pk[1..]);
         } else {
-            hasher.update(&seriralize_pk[..]);
+            hasher.update(&serialized_pk[..]);
         }
 
         let result = hasher.finalize();
