@@ -985,8 +985,14 @@ impl Actor for Validator {
                     });
                 } else {
                     log::error!("Call transactions must have an output associated with them");
-                    //TODO(asmith): CallFailed message back to pending transactions and up the
-                    //stack to the RPC client
+                    if let Some(actor) = ractor::registry::where_is(
+                        ActorType::PendingTransactions.to_string()
+                    ) {
+                        let pending_transactions: ActorRef<PendingTransactionMessage> = actor.into();
+                        let e = Box::new(ValidatorError::Custom("Call transaction missing associated outputs".to_string()));
+                        let message = PendingTransactionMessage::Invalid { transaction: transaction.clone(), e };
+                        let _ = pending_transactions.cast(message);
+                    }
                 }
             },
             ValidatorMessage::PendingRegistration { transaction } => {
