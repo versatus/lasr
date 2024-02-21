@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
-use sha3::{Digest, Sha3_256};
+use ethers_core::types::Signature as ElectrumSignature;
 use std::collections::BTreeSet;
 use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId}, Message};
-use crate::deserialize_sig_bytes_or_string;
+use crate::{deserialize_sig_bytes_or_string, Address};
 use derive_builder::Builder;
 
 
@@ -37,19 +37,30 @@ impl RecoverableSignature {
     /// This method takes a message slice as input, computes its SHA3-256 hash,
     /// and then attempts to recover the public key that was used to sign the message.
     /// It returns the recovered public key if successful.
-    pub fn recover(&self, message_bytes: &[u8]) -> Result<PublicKey, secp256k1::Error> {
+    pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
         let secp = secp256k1::Secp256k1::new();
         log::warn!("MessageBytes: {}", hex::encode(message_bytes));
         let message = Message::from_digest_slice(message_bytes)?;
-        let recoverable_sig = Signature::try_from(self)?;
-        secp.recover_ecdsa(&message, &recoverable_sig)
+        if self.v >= 27 && self.v <=28 {
+            let esig = ElectrumSignature {
+                r: ethers_core::abi::ethereum_types::U256::from(self.get_r()),
+                s: ethers_core::abi::ethereum_types::U256::from(self.get_s()),
+                v: self.get_v() as u64
+            };
+
+            let eaddr = esig.recover(message_bytes).map_err(|e| secp256k1::Error::InvalidSignature)?; 
+
+            Ok(Address::from(eaddr))
+        } else {
+            let recoverable_sig = Signature::try_from(self)?;
+            let pk = secp.recover_ecdsa(&message, &recoverable_sig)?;
+            Ok(Address::from(pk))
+        }
     }
 
-    pub fn verify(&self, message: &[u8]) -> Result<(), secp256k1::Error> {
+    pub fn verify(&self, message: &[u8], pk: PublicKey) -> Result<(), secp256k1::Error> {
         log::info!("attemting to recover signature");
         let sig = Signature::try_from(self)?.to_standard();
-        log::info!("attemting to recover public key with message: {}", &hex::encode(message));
-        let pk = self.recover(message)?;
         log::info!("reconstructing message: {}", hex::encode(message));
         let msg = Message::from_digest_slice(&message)?;
         log::info!("verifying message: {} with pubkey: {}", hex::encode(message), pk.to_string());
@@ -143,19 +154,19 @@ impl TryFrom<&RecoverableSignature> for Signature {
         let mut data = Vec::new();
         let mut recovery_id = value.get_v();
         if recovery_id >= 0 && recovery_id <= 3 {
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if recovery_id >= 27 && recovery_id <= 30 {
             recovery_id -= 27;
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if recovery_id >= 35 && recovery_id <= 38 {
             recovery_id -= 35;
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)

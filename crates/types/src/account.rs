@@ -1071,6 +1071,7 @@ impl From<PublicKey> for Address {
     /// hashing to derive the Ethereum address. It returns the last 20 bytes of the hash
     /// as the address.
     fn from(value: PublicKey) -> Self {
+        log::warn!("attempting to recover address from public key");
         let serialized_pk = value.serialize_uncompressed();
 
         let mut hasher = Keccak256::new();

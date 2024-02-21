@@ -356,9 +356,9 @@ impl Transaction {
         Ok(sig)
     }
 
-    pub fn recover(&self) -> Result<PublicKey, Box<dyn std::error::Error>> {
-        let pk = self.sig()?.recover(&self.as_bytes())?;
-        Ok(pk)
+    pub fn recover(&self) -> Result<Address, Box<dyn std::error::Error>> {
+        let addr = self.sig()?.recover(&self.as_bytes())?;
+        Ok(addr)
     }
 
     pub fn message(&self) -> String {
@@ -397,10 +397,7 @@ impl Transaction {
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())?;
-        let pk = self.sig().map_err(|_| secp256k1::Error::InvalidPublicKey)?.recover(&self.hash())?;
-        log::warn!("able to recover public key from signature: {:?}", pk);
-        let addr = Address::from(pk);
+        let addr = self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.recover(&self.hash())?;
         if self.from() != addr {
             log::error!("self.from() {} != addr {}", self.from().to_full_string(), addr.to_full_string());
             return Err(secp256k1::Error::InvalidSignature)
