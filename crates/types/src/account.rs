@@ -351,12 +351,22 @@ impl Account {
 
     pub fn apply_send_transaction(
         &mut self,
-        transaction: Transaction
+        transaction: Transaction,
+        program_account: Option<&Account>,
     ) -> AccountResult<Token> {
         if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
-            let new_token: Token = (token.clone(), transaction.clone()).try_into()?;
-            *token = new_token;
-            return Ok(token.clone())
+            let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
+            if let Some(account) = program_account {
+                let program_account_metadata = account.program_account_metadata();
+                let program_account_data = account.program_account_data();
+                new_token.metadata_mut().extend(program_account_metadata.inner().clone());
+                new_token.data_mut().extend(program_account_data.inner().clone());
+                *token = new_token;
+                return Ok(token.clone())
+            } else {
+                *token = new_token;
+                return Ok(token.clone())
+            }
         }
         
         if transaction.transaction_type().is_bridge_in() {
@@ -366,9 +376,17 @@ impl Account {
         } 
 
         if transaction.to() == self.owner_address() {
-            let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token.clone());
-            return Ok(token) 
+            let mut token: Token = transaction.into();
+            if let Some(account) = program_account {
+                let program_account_metadata = account.program_account_metadata();
+                let program_account_data = account.program_account_data();
+                token.metadata_mut().extend(program_account_metadata.inner().clone());
+                token.data_mut().extend(program_account_data.inner().clone());
+                self.insert_program(&token.program_id(), token.clone());
+                return Ok(token) 
+            } else {
+                return Ok(token)
+            }
         }
 
         return Err(

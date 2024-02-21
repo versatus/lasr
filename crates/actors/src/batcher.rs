@@ -402,7 +402,7 @@ impl Batcher {
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             account.increment_nonce(&transaction.nonce());
-            let token = account.apply_send_transaction(transaction.clone()).map_err(|e| e as Box<dyn std::error::Error>)?;
+            let token = account.apply_send_transaction(transaction.clone(), None).map_err(|e| e as Box<dyn std::error::Error>)?;
             (account, token)
         } else {
             if !transaction.transaction_type().is_bridge_in() {
@@ -420,11 +420,16 @@ impl Batcher {
                 .program_account_metadata(Metadata::new())
                 .program_account_linked_programs(BTreeSet::new())
                 .build()?;
-            let token = account.apply_send_transaction(
-                transaction.clone()
-            ).map_err(|e| e as Box<dyn std::error::Error>)?;
 
-            (account, token)
+            if let Some(program_account) = get_account(transaction.program_id()).await {
+                let token = account.apply_send_transaction(
+                    transaction.clone(), Some(&program_account)
+                ).map_err(|e| e as Box<dyn std::error::Error>)?;
+
+                (account, token)
+            } else {
+                return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
+            }
         };
         
         log::info!(
@@ -440,8 +445,12 @@ impl Batcher {
             log::warn!("checking account cache for account: {:?}", transaction.to());
             let mut to_account = get_account(transaction.to()).await;
             let to_account = if let Some(mut account) = to_account {
-                let _ = account.apply_send_transaction(transaction.clone());
-                account
+                if let Some(program_account) = get_account(transaction.program_id()).await { 
+                    let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    account
+                } else {
+                    return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
+                }
             } else {
                 log::info!("first transaction send to account {:x} building account", transaction.to());
                 let mut account = AccountBuilder::default()
@@ -456,8 +465,13 @@ impl Batcher {
                     .build()?;
 
                 log::info!("applying transaction to `to` account");
-                let _ = account.apply_send_transaction(transaction.clone());
-                account
+                if let Some(program_account) = get_account(transaction.program_id()).await {
+                    let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    account
+                } else {
+                    return Err(Box::new(BatcherError::Custom(format!("program account {} does not eixt", transaction.program_id().to_full_string()))))
+                }
+
             };
             log::info!("adding account to batch");
             self.add_account_to_batch(to_account).await?;
