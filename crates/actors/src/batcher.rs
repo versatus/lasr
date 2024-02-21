@@ -499,18 +499,33 @@ impl Batcher {
 
             batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
         } else {
-            let to_account = if let Some(mut account) = get_account(transaction.to()).await {
+            let to_account = if let Some(mut account) = batch_buffer.get_mut(&transaction.to().to_full_string()) { 
                 if let Some(program_account) = get_account(transaction.program_id()).await { 
                     let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
                     log::warn!("token_entry: {:?}", &account.programs().get(&transaction.program_id()));
-                    account
+                    account.clone()
                 } else if transaction.program_id() == ETH_ADDR {
                     let _ = account.apply_send_transaction(transaction.clone(), None);
-                    account
+                    account.clone()
                 } else if transaction.program_id() == VERSE_ADDR {
                     let _ = account.apply_send_transaction(transaction.clone(), None);
-                    account
+                    account.clone()
+                } else {
+                    return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
+                }
+            } else if let Some(mut account) = get_account(transaction.to()).await {
+                if let Some(program_account) = get_account(transaction.program_id()).await { 
+                    let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
+                    log::warn!("token_entry: {:?}", &account.programs().get(&transaction.program_id()));
+                    account.clone()
+                } else if transaction.program_id() == ETH_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
+                } else if transaction.program_id() == VERSE_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
                 } else {
                     return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
                 }
