@@ -384,7 +384,8 @@ impl Account {
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
-        token_ids: &Vec<crate::U256>
+        token_ids: &Vec<crate::U256>,
+        program_account: &Account
     ) -> AccountResult<Token> {
         if let Some(entry) = self.programs_mut().get_mut(token_address) {
             if let Some(amt) = amount {
@@ -396,13 +397,15 @@ impl Account {
             }
             return Ok(entry.clone())
         } else {
+            let token_metadata = program_account.program_account_metadata();
+            let token_data = program_account.program_account_data();
             let mut token = TokenBuilder::default()
                 .program_id(token_address.clone())
                 .owner_id(self.owner_address.clone())
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
-                .metadata(Metadata::new())
-                .data(ArbitraryData::new())
+                .metadata(token_metadata.clone())
+                .data(token_data.clone())
                 .approvals(BTreeMap::new())
                 .allowance(BTreeMap::new())
                 .status(crate::Status::Free)
@@ -484,7 +487,8 @@ impl Account {
         program_id: &Address,
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>,
-        token_updates: &Vec<TokenUpdateField>
+        token_updates: &Vec<TokenUpdateField>,
+        program_account: &Account,
     ) -> AccountResult<Token> {
         let token_owner = {
             if let AccountType::Program(program_account_address) = self.account_type() {
@@ -524,13 +528,15 @@ impl Account {
                 }
             };
 
+            let token_metadata = program_account.program_account_metadata();
+            let token_data = program_account.program_account_data();
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
                 .owner_id(token_owner.clone())
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
-                .metadata(Metadata::new())
-                .data(ArbitraryData::new())
+                .metadata(token_metadata.clone())
+                .data(token_data.clone())
                 .approvals(BTreeMap::new())
                 .allowance(BTreeMap::new())
                 .status(Status::Free)
@@ -569,7 +575,8 @@ impl Account {
     pub fn apply_token_update(
         &mut self,
         program_id: &Address,
-        updates: &Vec<TokenUpdateField>
+        updates: &Vec<TokenUpdateField>,
+        program_account: &Account,
     ) -> AccountResult<Token> {
         let owner_address = {
             if let AccountType::Program(program_account_address) = self.account_type() {
@@ -585,6 +592,8 @@ impl Account {
             }
             return Ok(token.clone())
         } else {
+            let token_metadata = program_account.program_account_metadata();
+            let token_data = program_account.program_account_data();
             let mut token = TokenBuilder::default()
                 .program_id(program_id.clone())
                 .owner_id(owner_address.clone())
@@ -592,8 +601,8 @@ impl Account {
                 .token_ids(vec![])
                 .approvals(BTreeMap::new())
                 .allowance(BTreeMap::new())
-                .data(ArbitraryData::new())
-                .metadata(Metadata::new())
+                .data(token_data.clone())
+                .metadata(token_metadata.clone())
                 .status(crate::Status::Free)
                 .build()
                 .map_err(|e| {
@@ -728,6 +737,7 @@ impl Account {
 
     pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
+            log::warn!("token.balance() {} >= {} amount", &token.balance(), &amount);
             if token.balance() >= amount {
                 return Ok(())
             } else {

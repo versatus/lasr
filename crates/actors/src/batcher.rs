@@ -586,10 +586,15 @@ impl Batcher {
     ) -> Result<Account, BatcherError> {
         let to = transfer.to().clone();
         if let Some(mut account) = self.get_transfer_to_account(transaction, &to, batch_buffer).await {
-            account.apply_transfer_to_instruction(
-                transfer.token(), transfer.amount(), transfer.ids()
-            ).map_err(|e| BatcherError::Custom(e.to_string()))?;
-            Ok(account)
+            if let Some(program_account) = get_account(transfer.token().clone()).await {
+                account.apply_transfer_to_instruction(
+                    transfer.token(), transfer.amount(), transfer.ids(), &program_account
+                ).map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+                Ok(account)
+            } else {
+                return Err(BatcherError::Custom(format!("token {} program account does not exist", transfer.token().to_full_string())))
+            }
         } else {
             match to {
                 AddressOrNamespace::Address(address) => {
@@ -605,15 +610,20 @@ impl Batcher {
                         .build().map_err(|e| {
                             BatcherError::Custom(e.to_string())
                         })?;
-                    account.apply_transfer_to_instruction(
-                        transfer.token(), transfer.amount(), transfer.ids() 
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
 
-                    Ok(account)
+                    if let Some(program_account) = get_account(transfer.token().clone()).await {
+                        account.apply_transfer_to_instruction(
+                            transfer.token(), transfer.amount(), transfer.ids(), &program_account 
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+
+                        Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", transfer.token().to_full_string())));
+                    }
                 }
                 _ => {
                     Err(
@@ -680,17 +690,22 @@ impl Batcher {
                     if let AccountType::Program(program_addr) = acct.account_type() {
                         log::warn!("applying token distribution to {}", program_addr.to_full_string());
                     }
-                    acct.apply_token_distribution(
-                        &program_id, 
-                        distribution.amount(), 
-                        distribution.token_ids(), 
-                        distribution.update_fields()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    return Ok(acct)
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        acct.apply_token_distribution(
+                            &program_id, 
+                            distribution.amount(), 
+                            distribution.token_ids(), 
+                            distribution.update_fields(),
+                            &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        return Ok(acct)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 } else {
                     let mut acct = AccountBuilder::default()
                         .account_type(AccountType::Program(transaction.to()))
@@ -703,18 +718,23 @@ impl Batcher {
                         .program_account_data(ArbitraryData::new())
                         .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    acct.apply_token_distribution(
-                        &program_id, 
-                        distribution.amount(), 
-                        distribution.token_ids(), 
-                        distribution.update_fields()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        acct.apply_token_distribution(
+                            &program_id, 
+                            distribution.amount(), 
+                            distribution.token_ids(), 
+                            distribution.update_fields(),
+                            &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
 
-                    return Ok(acct)
+                        return Ok(acct)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 }
             }
             AddressOrNamespace::Address(to_addr) => {
@@ -727,18 +747,23 @@ impl Batcher {
                     if let AccountType::Program(program_addr) = account.account_type() {
                         log::warn!("distribution going to program account: {}", program_addr.to_full_string());
                     }
-                    account.apply_token_distribution(
-                        &program_id, 
-                        distribution.amount(),
-                        distribution.token_ids(), 
-                        distribution.update_fields()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_distribution(
+                            &program_id, 
+                            distribution.amount(),
+                            distribution.token_ids(), 
+                            distribution.update_fields(),
+                            &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
 
-                    return Ok(account)
+                        return Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 } else {
                     let mut account = AccountBuilder::default()
                         .account_type(AccountType::User)
@@ -751,18 +776,23 @@ impl Batcher {
                         .program_account_data(ArbitraryData::new())
                         .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    account.apply_token_distribution(
-                        &program_id,
-                        distribution.amount(),
-                        distribution.token_ids(),
-                        distribution.update_fields()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_distribution(
+                            &program_id,
+                            distribution.amount(),
+                            distribution.token_ids(),
+                            distribution.update_fields(),
+                            &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
 
-                    Ok(account)
+                        Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 }
             }
             AddressOrNamespace::Namespace(namespace) => {
@@ -796,26 +826,34 @@ impl Batcher {
         match token_update.account() {
             AddressOrNamespace::This => {
                 if let Some(mut account) = batch_buffer.get_mut(&transaction.to()) {
-                    account.apply_token_update(
-                        &program_id, token_update.updates()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    return Ok(account.clone())
+                    if let Some(program_account) = get_account(program_id.clone()).await { 
+                        account.apply_token_update(
+                            &program_id, token_update.updates(), &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        return Ok(account.clone())
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 }
                 
                 log::warn!("attempting to get account: {} from cache in batcher", &transaction.to());
                 if let Some(mut account) = get_account(transaction.to()).await {
-                    account.apply_token_update(
-                        &program_id, token_update.updates()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    return Ok(account)
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_update(
+                            &program_id, token_update.updates(), &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        return Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 } else {
                     return Err(
                         BatcherError::Custom(
@@ -826,26 +864,34 @@ impl Batcher {
             }
             AddressOrNamespace::Address(address) => {
                 if let Some(mut account) = batch_buffer.get_mut(&transaction.to()) {
-                    account.apply_token_update(
-                        &program_id, token_update.updates()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    return Ok(account.clone())
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_update(
+                            &program_id, token_update.updates(), &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        return Ok(account.clone())
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 } 
 
                 log::warn!("attempting to get account: {} from cache in batcher", &transaction.to());
                 if let Some(mut account) = get_account(address.clone()).await {
-                    account.apply_token_update(
-                        &program_id, token_update.updates()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    return Ok(account)
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_update(
+                            &program_id, token_update.updates(), &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        return Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 } else {
                     let mut account = AccountBuilder::default()
                         .account_type(AccountType::User)
@@ -863,14 +909,18 @@ impl Batcher {
                             )
                         })?;
 
-                    account.apply_token_update(
-                        &program_id, token_update.updates()
-                    ).map_err(|e| {
-                        BatcherError::Custom(
-                            e.to_string()
-                        )
-                    })?;
-                    Ok(account)
+                    if let Some(program_account) = get_account(program_id.clone()).await {
+                        account.apply_token_update(
+                            &program_id, token_update.updates(), &program_account
+                        ).map_err(|e| {
+                            BatcherError::Custom(
+                                e.to_string()
+                            )
+                        })?;
+                        Ok(account)
+                    } else {
+                        return Err(BatcherError::Custom(format!("token {} program account does not exist", program_id.to_full_string())));
+                    }
                 }
             }
             AddressOrNamespace::Namespace(namespace) => {
