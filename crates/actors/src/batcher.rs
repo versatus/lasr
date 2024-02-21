@@ -1229,7 +1229,7 @@ impl Batcher {
         for instruction in outputs.instructions().into_iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
-                    log::info!("Applying transfer instruction: {:?}", transfer);
+                    log::warn!("Applying transfer instruction: {:?}", transfer);
                     let (from_account, to_account) = self.apply_transfer_instruction(&transaction, &transfer, &mut batch_buffer).await?;
                     self.add_account_to_batch_buffer(&mut batch_buffer, from_account);
                     self.add_account_to_batch_buffer(&mut batch_buffer, to_account);

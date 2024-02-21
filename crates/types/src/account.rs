@@ -478,8 +478,15 @@ impl Account {
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>
     ) -> AccountResult<Token> {
+        let owner_address = self.owner_address().clone();
+        let account_type = self.account_type().clone();
         if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
+                if let AccountType::Program(program_address) = account_type {
+                    log::warn!("debiting {} {} from {}", &amt, &token_address.to_full_string(), program_address.to_full_string());
+                } else {
+                    log::warn!("debiting {} {} from {}", &amt, &token_address.to_full_string(), owner_address.to_full_string());
+                }
                 entry.debit(amt)?;
             } 
 
