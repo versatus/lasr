@@ -607,6 +607,7 @@ impl Batcher {
         batch_buffer: &mut HashMap<Address, Account>
     ) -> Result<Account, BatcherError> {
         let from = transfer.from().clone();
+        log::warn!("instruction indicates a transfer from {:?}", &from);
         let mut account = self.get_transfer_from_account(transaction, &from, batch_buffer).await?;
         account.apply_transfer_from_instruction(
             transfer.token(), transfer.amount(), transfer.ids()
@@ -621,6 +622,7 @@ impl Batcher {
         batch_buffer: &mut HashMap<Address, Account>
     ) -> Result<Account, BatcherError> {
         let to = transfer.to().clone();
+        log::warn!("instruction indicates a transfer from {:?}", &to);
         if let Some(mut account) = self.get_transfer_to_account(transaction, &to, batch_buffer).await {
             if let Some(program_account) = get_account(transfer.token().clone()).await {
                 account.apply_transfer_to_instruction(
@@ -691,6 +693,8 @@ impl Batcher {
         batch_buffer: &mut HashMap<Address, Account>
     ) -> Result<(Account, Account), BatcherError> {
         let to = transfer.to().clone();
+        let from = transfer.from().clone();
+        log::warn!("tranferring {} from {:?} to {:?}", &transfer.token().to_full_string(), &from, &to);
         let from_account = self.apply_transfer_from(transaction, transfer, batch_buffer).await?;
         let to_account = self.apply_transfer_to(transaction, transfer, batch_buffer).await?;
         Ok((from_account, to_account))
