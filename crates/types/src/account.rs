@@ -362,6 +362,12 @@ impl Account {
         transaction: Transaction,
         program_account: Option<&Account>,
     ) -> AccountResult<Token> {
+        if transaction.transaction_type().is_bridge_in() {
+            let token: Token = transaction.into();
+            self.insert_program(&token.program_id(), token.clone());
+            return Ok(token)
+        } 
+
         if transaction.to() == transaction.from() {
             if let Some(token) = self.programs.get(&transaction.program_id()) {
                 return Ok(token.clone())
@@ -394,12 +400,6 @@ impl Account {
             }
         }
         
-        if transaction.transaction_type().is_bridge_in() {
-            let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token.clone());
-            return Ok(token)
-        } 
-
         if transaction.to() == self.owner_address() {
             let mut token: Token = transaction.into();
             if let Some(account) = program_account {
