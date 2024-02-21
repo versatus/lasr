@@ -38,8 +38,12 @@ impl RecoverableSignature {
     /// and then attempts to recover the public key that was used to sign the message.
     /// It returns the recovered public key if successful.
     pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&self.get_r());
+        sig_bytes.copy_from_slice(&self.get_s());
+        let sig_string = hex::encode(&sig_bytes);
+        log::warn!("attempting to recover from {}", sig_string);
         log::warn!("MessageBytes: {}", hex::encode(message_bytes));
-        let message = Message::from_digest_slice(message_bytes)?;
         if self.v >= 27 && self.v <=28 {
             log::warn!("v is >= 27, <= 28, using electrum signature");
             let esig = ElectrumSignature {
@@ -53,6 +57,7 @@ impl RecoverableSignature {
 
             Ok(Address::from(eaddr))
         } else {
+            let message = Message::from_digest_slice(message_bytes)?;
             let secp = secp256k1::Secp256k1::new();
             let recoverable_sig = Signature::try_from(self)?;
             let pk = secp.recover_ecdsa(&message, &recoverable_sig)?;
@@ -215,4 +220,10 @@ impl Certificate {
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
     }
+}
+
+mod tests {
+    use super::*;
+
+    let keypair = Secp256k1
 }
