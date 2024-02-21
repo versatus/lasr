@@ -36,7 +36,7 @@ pub struct Inputs {
     /// The compute agent version
     pub version: i32,
     /// An optional program/contract's account in the protocol
-    pub account_info: Option<Account>,
+    pub account_info: Account,
     /// The transaction that made the original call
     pub transaction: Transaction,
     /// The operation in the program being called

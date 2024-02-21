@@ -151,14 +151,18 @@ impl<C: ClientT> ExecutionEngine<C> {
         self.manager.get_program_schema(content_id)
     }
 
-    pub fn parse_inputs(
+    pub async fn parse_inputs(
         &self, 
         /*_schema: &ProgramSchema,*/ 
         transaction: &Transaction, 
         op: String, 
         inputs: String
     ) -> std::io::Result<Inputs> {
-        return Ok(Inputs { version: 1, account_info: None, transaction: transaction.clone(), op, inputs } )
+        if let Some(program_account) = get_account(transaction.to()).await {
+            return Ok(Inputs { version: 1, account_info: program_account.clone(), transaction: transaction.clone(), op, inputs } )
+        } else {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("program account {} does not exist", transaction.to().to_full_string())))
+        }
     }
 
     pub fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
@@ -394,7 +398,7 @@ impl Actor for ExecutorActor {
                             &transaction, 
                             op, 
                             inputs
-                        ) {
+                        ).await {
                             Ok(inputs) => {
                                 match state.execute(
                                     content_id,
