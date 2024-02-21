@@ -39,6 +39,7 @@ impl RecoverableSignature {
     /// It returns the recovered public key if successful.
     pub fn recover(&self, message_bytes: &[u8]) -> Result<PublicKey, secp256k1::Error> {
         let secp = secp256k1::Secp256k1::new();
+        log::warn!("MessageBytes: {}", hex::encode(message_bytes));
         let message = Message::from_digest_slice(message_bytes)?;
         let recoverable_sig = Signature::try_from(self)?;
         secp.recover_ecdsa(&message, &recoverable_sig)
