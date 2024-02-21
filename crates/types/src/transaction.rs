@@ -398,7 +398,7 @@ impl Transaction {
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
         self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())?;
-        let pk = self.sig().map_err(|_| secp256k1::Error::InvalidPublicKey)?.recover(&self.as_bytes())?;
+        let pk = self.sig().map_err(|_| secp256k1::Error::InvalidPublicKey)?.recover(&self.hash())?;
         let addr = Address::from(pk);
         if self.from() != addr {
             return Err(secp256k1::Error::InvalidSignature)
