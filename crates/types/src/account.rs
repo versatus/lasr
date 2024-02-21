@@ -362,6 +362,13 @@ impl Account {
         transaction: Transaction,
         program_account: Option<&Account>,
     ) -> AccountResult<Token> {
+        if transaction.to() == transaction.from() {
+            if let Some(token) = self.programs.get(&transaction.program_id()) {
+                return Ok(token.clone())
+            } else {
+                return Err(Box::new(ToTokenError::Custom("user attempting to send to self, token that does not yet exist".to_string())))
+            }
+        }
         let mut programs = self.programs.clone();
         if let Some(token) = programs.get_mut(&transaction.program_id()) {
             let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
