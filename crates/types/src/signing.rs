@@ -39,8 +39,8 @@ impl RecoverableSignature {
     /// It returns the recovered public key if successful.
     pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
         let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&self.get_r());
-        sig_bytes.copy_from_slice(&self.get_s());
+        sig_bytes[..32].copy_from_slice(&self.get_r());
+        sig_bytes[32..].copy_from_slice(&self.get_s());
         let sig_string = hex::encode(&sig_bytes);
         log::warn!("attempting to recover from {}", sig_string);
         log::warn!("MessageBytes: {}", hex::encode(message_bytes));
