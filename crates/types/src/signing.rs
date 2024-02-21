@@ -38,20 +38,21 @@ impl RecoverableSignature {
     /// and then attempts to recover the public key that was used to sign the message.
     /// It returns the recovered public key if successful.
     pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
-        let secp = secp256k1::Secp256k1::new();
         log::warn!("MessageBytes: {}", hex::encode(message_bytes));
         let message = Message::from_digest_slice(message_bytes)?;
         if self.v >= 27 && self.v <=28 {
+            log::warn!("v is >= 27, <= 28, using electrum signature");
             let esig = ElectrumSignature {
                 r: ethers_core::abi::ethereum_types::U256::from(self.get_r()),
                 s: ethers_core::abi::ethereum_types::U256::from(self.get_s()),
                 v: self.get_v() as u64
             };
 
-            let eaddr = esig.recover(message_bytes).map_err(|e| secp256k1::Error::InvalidSignature)?; 
+            let eaddr = esig.recover(message_bytes).map_err(|_| secp256k1::Error::InvalidSignature)?; 
 
             Ok(Address::from(eaddr))
         } else {
+            let secp = secp256k1::Secp256k1::new();
             let recoverable_sig = Signature::try_from(self)?;
             let pk = secp.recover_ecdsa(&message, &recoverable_sig)?;
             Ok(Address::from(pk))
