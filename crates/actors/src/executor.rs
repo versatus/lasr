@@ -592,59 +592,63 @@ impl Actor for ExecutorActor {
             ExecutorMessage::Exec { transaction } => {
                 // Fire off RPC call to compute runtime
                 // program_address, op, inputs, transaction_hash
-                let inputs = Inputs {
-                    version: 1,
-                    account_info: None,
-                    transaction: transaction.clone(),
-                    op: transaction.op(),
-                    inputs: transaction.inputs()
-                };
-                if let Some(account) = get_account(transaction.to()).await {
-                    let metadata = account.program_account_metadata();
-                    if let Some(cid) = metadata.inner().get("content_id") {
-                        log::info!("found cid, converting inputs to json");
-                        if let Ok(json_inputs) = serde_json::to_string(&inputs) {
-                            log::info!("successfully converted inputs to json, queueing job");
-                            match state.compute_rpc_client.queue_job(
-                                cid, 
-                                ServiceJobType::Compute(
-                                    ComputeJobExecutionType::SmartContract
-                                ), 
-                                json_inputs
-                            ).await {
-                                // Spin a thread to periodically poll for the result
-                                Ok(job_id) => {
+                if let Some(program_account) = get_account(transaction.to()).await {
+                    let inputs = Inputs {
+                        version: 1,
+                        account_info: program_account.clone(),
+                        transaction: transaction.clone(),
+                        op: transaction.op(),
+                        inputs: transaction.inputs()
+                    };
+                    if let Some(account) = get_account(transaction.to()).await {
+                        let metadata = account.program_account_metadata();
+                        if let Some(cid) = metadata.inner().get("content_id") {
+                            log::info!("found cid, converting inputs to json");
+                            if let Ok(json_inputs) = serde_json::to_string(&inputs) {
+                                log::info!("successfully converted inputs to json, queueing job");
+                                match state.compute_rpc_client.queue_job(
+                                    cid, 
+                                    ServiceJobType::Compute(
+                                        ComputeJobExecutionType::SmartContract
+                                    ), 
+                                    json_inputs
+                                ).await {
+                                    // Spin a thread to periodically poll for the result
+                                    Ok(job_id) => {
 
-                                    log::info!("successfully queued job, spawning thread to poll status");
-                                    let (tx, rx) = tokio::sync::mpsc::channel(1); 
-                                    let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
-                                    match poll_spawn_result {
-                                        Ok(handle) => {
-                                            // Stash the job_id
-                                            log::info!("Received handle, stashing in PendingJob");
-                                            let pending_job = PendingJob::new(handle, tx, transaction);
-                                            state.pending.insert(job_id.clone(), pending_job);
+                                        log::info!("successfully queued job, spawning thread to poll status");
+                                        let (tx, rx) = tokio::sync::mpsc::channel(1); 
+                                        let poll_spawn_result = state.spawn_poll(job_id.clone(), rx);
+                                        match poll_spawn_result {
+                                            Ok(handle) => {
+                                                // Stash the job_id
+                                                log::info!("Received handle, stashing in PendingJob");
+                                                let pending_job = PendingJob::new(handle, tx, transaction);
+                                                state.pending.insert(job_id.clone(), pending_job);
+                                            }
+                                            Err(_e) => {}
                                         }
-                                        Err(_e) => {}
                                     }
+                                    Err(_e) => {}
                                 }
-                                Err(_e) => {}
+                            } else {
+                                log::error!("Unable to serialize JSON inputs")
                             }
-                        } else {
-                            log::error!("Unable to serialize JSON inputs")
                         }
+                    } else {
+                        log::error!("Program account does not exist, not a valid call");
+                        let _ = self.execution_error(
+                            &transaction.hash_string(), 
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other, 
+                                "Program account does not exist, not a valid call"
+                            )
+                        );
+
+                        log::error!("Returning error to scheduler to propagate to RPC");
                     }
                 } else {
-                    log::error!("Program account does not exist, not a valid call");
-                    let _ = self.execution_error(
-                        &transaction.hash_string(), 
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other, 
-                            "Program account does not exist, not a valid call"
-                        )
-                    );
-
-                    log::error!("Returning error to scheduler to propagate to RPC");
+                    log::error!("program account {} does not exist", transaction.to());
                 }
             },
             ExecutorMessage::PollJobStatus { job_id } => {
@@ -662,7 +666,7 @@ impl Actor for ExecutorActor {
                                     }
                                     if let Err(e) = self.execution_success(
                                         transaction,
-                                        outputs
+                                        &outputs
                                     ) { 
                                         log::error!("Error attempting to handle a successful execution result: {e}");
                                     }
