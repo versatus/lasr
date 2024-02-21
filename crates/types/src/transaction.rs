@@ -5,7 +5,7 @@ use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
 use std::fmt::{LowerHex, Display};
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, Secp256k1};
 use thiserror::Error;
 use derive_builder::Builder;
 
@@ -397,7 +397,14 @@ impl Transaction {
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())
+        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())?;
+        let pk = self.sig().map_err(|_| secp256k1::Error::InvalidPublicKey)?.recover(&self.as_bytes())?;
+        let addr = Address::from(pk);
+        if self.from() != addr {
+            return Err(secp256k1::Error::InvalidSignature)
+        }
+
+        Ok(())
     }
 
     pub fn get_accounts_involved(&self) -> Vec<Address> {
