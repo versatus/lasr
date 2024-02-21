@@ -60,6 +60,8 @@ use lasr_types::{
 
 use derive_builder::Builder;
 
+pub const VERSE_ADDR: Address = Address::verse_addr();
+pub const ETH_ADDR: Address = Address::eth_addr();
 // const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
 
@@ -428,7 +430,11 @@ impl Batcher {
 
                 (account, token)
             } else {
-                return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
+                let token = account.apply_send_transaction(
+                    transaction.clone(), None 
+                ).map_err(|e| e as Box<dyn std::error::Error>)?;
+
+                (account, token)
             }
         };
         
@@ -447,6 +453,14 @@ impl Batcher {
             let to_account = if let Some(mut account) = to_account {
                 if let Some(program_account) = get_account(transaction.program_id()).await { 
                     let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
+                    log::warn!("token_entry: {:?}", &account.programs().get(&transaction.program_id()));
+                    account
+                } else if transaction.program_id() == ETH_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account
+                } else if transaction.program_id() == VERSE_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else {
                     return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
@@ -467,6 +481,14 @@ impl Batcher {
                 log::info!("applying transaction to `to` account");
                 if let Some(program_account) = get_account(transaction.program_id()).await {
                     let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
+                    log::warn!("token_entry: {:?}", &account.programs().get(&transaction.program_id()));
+                    account
+                } else if transaction.program_id() == ETH_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account
+                } else if transaction.program_id() == VERSE_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else {
                     return Err(Box::new(BatcherError::Custom(format!("program account {} does not eixt", transaction.program_id().to_full_string()))))
@@ -602,7 +624,13 @@ impl Batcher {
         if let Some(mut account) = self.get_transfer_to_account(transaction, &to, batch_buffer).await {
             if let Some(program_account) = get_account(transfer.token().clone()).await {
                 account.apply_transfer_to_instruction(
-                    transfer.token(), transfer.amount(), transfer.ids(), &program_account
+                    transfer.token(), transfer.amount(), transfer.ids(), Some(&program_account)
+                ).map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+                Ok(account)
+            } else if transfer.token() == &ETH_ADDR || transfer.token() == &VERSE_ADDR {
+                account.apply_transfer_to_instruction(
+                    transfer.token(), transfer.amount(), transfer.ids(), None
                 ).map_err(|e| BatcherError::Custom(e.to_string()))?;
 
                 Ok(account)
@@ -627,12 +655,18 @@ impl Batcher {
 
                     if let Some(program_account) = get_account(transfer.token().clone()).await {
                         account.apply_transfer_to_instruction(
-                            transfer.token(), transfer.amount(), transfer.ids(), &program_account 
+                            transfer.token(), transfer.amount(), transfer.ids(), Some(&program_account) 
                         ).map_err(|e| {
                             BatcherError::Custom(
                                 e.to_string()
                             )
                         })?;
+
+                        Ok(account)
+                    } else if transfer.token() == &ETH_ADDR || transfer.token() == &VERSE_ADDR {
+                        account.apply_transfer_to_instruction(
+                            transfer.token(), transfer.amount(), transfer.ids(), None
+                        ).map_err(|e| BatcherError::Custom(e.to_string()))?;
 
                         Ok(account)
                     } else {
@@ -1290,6 +1324,20 @@ impl Batcher {
 
     }
 
+    async fn handle_batcher_error(&mut self, transaction: &Transaction, err: String) -> Result<(), BatcherError> {
+        let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            BatcherError::Custom("unable to acquire pending transactions in batcher.rs handle_batcher_error method".to_string())
+        )?.into();
+
+        let message = PendingTransactionMessage::Invalid { transaction: transaction.clone(), e: Box::new(BatcherError::Custom(err))}; 
+
+        pending_transactions.cast(message);
+
+        Ok(())
+    }
+
     async fn handle_next_batch_request(&mut self) -> Result<(), BatcherError> {
         if !self.parent.empty() {
             let da_client: ActorRef<DaClientMessage> = ractor::registry::where_is(
@@ -1425,9 +1473,10 @@ impl Actor for BatcherActor {
                 log::info!("appending transaction to batch");
                 match transaction.transaction_type() {
                     TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
-                        let res = state.add_transaction_to_account(transaction).await;
+                        let res = state.add_transaction_to_account(transaction.clone()).await;
                         if let Err(e) = res {
                             log::error!("{e}");
+                            let _ = state.handle_batcher_error(&transaction, e.to_string());
                         }
                     }
                     TransactionType::Call(_) => {
@@ -1435,6 +1484,7 @@ impl Actor for BatcherActor {
                             let res = state.apply_instructions_to_accounts(&transaction, &o).await;
                             if let Err(e) = res {
                                 log::error!("{e}");
+                                let _ = state.handle_batcher_error(&transaction, e.to_string());
                             }
                         } else {
                             log::error!("Call transaction result did not contain outputs")
@@ -1444,6 +1494,7 @@ impl Actor for BatcherActor {
                         let res = state.apply_program_registration(&transaction).await;
                         if let Err(e) = res {
                             log::error!("{e}");
+                            let _ = state.handle_batcher_error(&transaction, e.to_string());
                         }
                     },
                     TransactionType::BridgeOut(_) => {}

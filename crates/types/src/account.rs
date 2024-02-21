@@ -88,6 +88,14 @@ pub struct Address([u8; 20]);
 
 impl Address {
     /// Creates a new address from a 20 byte array
+    pub const fn verse_addr() -> Address {
+        Address([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])
+    }
+
+    pub const fn eth_addr() -> Address {
+        Address([0; 20])
+    }
+
     pub fn new(bytes: [u8; 20]) -> Address {
         Address(bytes)
     }
@@ -354,17 +362,27 @@ impl Account {
         transaction: Transaction,
         program_account: Option<&Account>,
     ) -> AccountResult<Token> {
-        if let Some(token) = self.programs_mut().get_mut(&transaction.program_id()) {
+        let mut programs = self.programs.clone();
+        if let Some(token) = programs.get_mut(&transaction.program_id()) {
             let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
             if let Some(account) = program_account {
+                log::warn!("found program account");
                 let program_account_metadata = account.program_account_metadata();
+                log::warn!("found program metadata: {:?}", &program_account_metadata);
                 let program_account_data = account.program_account_data();
+                log::warn!("found program data: {:?}", &program_account_data); 
                 new_token.metadata_mut().extend(program_account_metadata.inner().clone());
+                log::warn!("applied metadata to token: {:?}", &new_token.metadata()); 
                 new_token.data_mut().extend(program_account_data.inner().clone());
+                log::warn!("applied data to token: {:?}", &new_token.data()); 
                 *token = new_token;
+                log::warn!("replaced token with new token: token_metadata: {:?}", &token.metadata());
+                log::warn!("replaced token with new token: token_data: {:?}", &token.data());
+                self.programs.insert(token.program_id(), token.clone());
                 return Ok(token.clone())
             } else {
                 *token = new_token;
+                self.programs.insert(token.program_id(), token.clone());
                 return Ok(token.clone())
             }
         }
@@ -380,8 +398,8 @@ impl Account {
             if let Some(account) = program_account {
                 let program_account_metadata = account.program_account_metadata();
                 let program_account_data = account.program_account_data();
-                token.metadata_mut().extend(program_account_metadata.inner().clone());
-                token.data_mut().extend(program_account_data.inner().clone());
+                token.set_metadata(program_account_metadata.clone());
+                token.set_data(program_account_data.clone());
                 self.insert_program(&token.program_id(), token.clone());
                 return Ok(token) 
             } else {
@@ -403,9 +421,9 @@ impl Account {
         token_address: &Address,
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>,
-        program_account: &Account
+        program_account: Option<&Account>
     ) -> AccountResult<Token> {
-        if let Some(entry) = self.programs_mut().get_mut(token_address) {
+        if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
                 entry.credit(amt)?;
             } 
@@ -415,8 +433,18 @@ impl Account {
             }
             return Ok(entry.clone())
         } else {
-            let token_metadata = program_account.program_account_metadata();
-            let token_data = program_account.program_account_data();
+            let token_metadata = if let Some(program_account) = program_account {
+                program_account.program_account_metadata().clone()
+            } else {
+                Metadata::new()
+            };
+
+            let token_data = if let Some(program_account) = program_account {
+                program_account.program_account_data().clone()
+            } else {
+                ArbitraryData::new()
+            };
+
             let mut token = TokenBuilder::default()
                 .program_id(token_address.clone())
                 .owner_id(self.owner_address.clone())
@@ -438,7 +466,7 @@ impl Account {
             if !token_ids.is_empty() {
                 token.add_token_ids(&token_ids)?;
             }
-            self.programs_mut().insert(token.program_id(), token.clone());
+            self.programs.insert(token.program_id(), token.clone());
 
             return Ok(token)
         }
@@ -450,7 +478,7 @@ impl Account {
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>
     ) -> AccountResult<Token> {
-        if let Some(entry) = self.programs_mut().get_mut(token_address) {
+        if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
                 entry.debit(amt)?;
             } 
@@ -478,7 +506,7 @@ impl Account {
         token_ids: &Vec<crate::U256>
     ) -> AccountResult<Token> {
         // Check if caller is this address, if so, 
-        if let Some(entry) = self.programs_mut().get_mut(token_address) {
+        if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
                 entry.debit(amt)?;
             }
@@ -604,7 +632,7 @@ impl Account {
             }
         };
 
-        if let Some(token) = self.programs_mut().get_mut(&program_id) {
+        if let Some(token) = self.programs.get_mut(&program_id) {
             for update in updates {
                 token.apply_token_update_field_values(update.value())?;
             }
@@ -636,7 +664,7 @@ impl Account {
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            self.programs_mut().insert(program_id.clone(), token.clone());
+            self.programs.insert(program_id.clone(), token.clone());
             Ok(token)
         }
     }

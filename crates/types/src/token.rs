@@ -261,6 +261,14 @@ pub struct Token {
 }
 
 impl Token {
+    pub(crate) fn set_metadata(&mut self, metadata: Metadata) {
+        self.metadata = metadata;
+    }
+
+    pub(crate) fn set_data(&mut self, data: ArbitraryData) {
+        self.data = data;
+    }
+
     pub(crate) fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
         if amount > &self.balance {
             return Err(
