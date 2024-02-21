@@ -1075,7 +1075,11 @@ impl From<PublicKey> for Address {
 
         let mut hasher = Keccak256::new();
 
-        hasher.update(&serialized_pk[1..]);
+        if serialized_pk.len() == 65 {
+            hasher.update(&serialized_pk[1..]);
+        } else {
+            hasher.update(&seriralize_pk[..]);
+        }
 
         let result = hasher.finalize();
         let address_bytes = &result[result.len() - 20..];
