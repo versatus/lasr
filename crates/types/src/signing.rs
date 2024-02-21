@@ -49,6 +49,7 @@ impl RecoverableSignature {
             };
 
             let eaddr = esig.recover(message_bytes).map_err(|_| secp256k1::Error::InvalidSignature)?; 
+            log::warn!("{:?}", eaddr);
 
             Ok(Address::from(eaddr))
         } else {
