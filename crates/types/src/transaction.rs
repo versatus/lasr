@@ -357,7 +357,21 @@ impl Transaction {
     }
 
     pub fn recover(&self) -> Result<Address, Box<dyn std::error::Error>> {
-        let addr = self.sig()?.recover(&self.as_bytes())?;
+        let r = self.r;
+        let s = self.s;
+        let v = self.v;
+
+        if v >= 27 && v <= 28 {
+            let sig = ethers_core::types::Signature {
+                r: ethers_core::abi::ethereum_types::U256::from(r), 
+                s: ethers_core::abi::ethereum_types::U256::from(s), 
+                v: v as u64
+            };
+            log::warn!("attempting to recover from {}", sig.to_string());
+            let addr = sig.recover(self.hash())?;
+            return Ok(addr.into());
+        }
+        let addr = self.sig()?.recover(&self.hash())?;
         Ok(addr)
     }
 
