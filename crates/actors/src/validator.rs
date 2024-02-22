@@ -20,7 +20,7 @@ use lasr_types::{
     Outputs, 
     Instruction, 
     TokenOrProgramUpdate, 
-    TokenFieldValue
+    TokenFieldValue, AccountType
 };
 
 #[derive(Debug)]
@@ -231,10 +231,26 @@ impl ValidatorCore {
 
                             // If fungible token, check balance
                             if let Some(amt) = transfer.amount() {
-                                transfer_from_account.validate_balance(
+                                let tf_address = if let AccountType::Program(program_address) = transfer_from_account.account_type() {
+                                    program_address.to_full_string()
+                                } else {
+                                    transfer_from_account.owner_address().to_full_string()
+                                };
+
+                                match transfer_from_account.validate_balance(
                                     &token_address,
                                     amt.clone()
-                                )?;
+                                ) { 
+                                    Err(e) => {
+                                        
+                                    let error_string = format!("account {} has insufficient balance for token {}: Error: {}", tf_address, token_address.to_full_string(), e.to_string());
+                                    let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                    let _ = pending_transactions.cast(message);
+                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                    }
+                                    _ => {}
+                                }
                                 // Check that the caller or the program being called 
                                 // is approved to spend this token
                                 if transfer_from_account.validate_approved_spend(
