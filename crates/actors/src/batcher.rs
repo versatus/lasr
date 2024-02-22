@@ -736,7 +736,7 @@ impl Batcher {
     ) -> Result<(Account, Account), BatcherError> {
         let to = transfer.to().clone();
         let from = transfer.from().clone();
-        log::warn!("tranferring {} from {:?} to {:?}", &transfer.token().to_full_string(), &from, &to);
+        log::warn!("tranferring {:?} in {} from {:?} to {:?}", &transfer.amount(), &transfer.token().to_full_string(), &from, &to);
         let from_account = self.apply_transfer_from(transaction, transfer, batch_buffer).await?;
         let to_account = self.apply_transfer_to(transaction, transfer, batch_buffer).await?;
         Ok((from_account, to_account))
