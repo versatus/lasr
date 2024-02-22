@@ -150,7 +150,6 @@ impl ValidatorCore {
                 }
             };
 
-            log::info!("validating caller balance");
             log::info!("validating caller nonce");
             match caller.clone().validate_nonce(tx.nonce()) {
                 Err(e) => {
@@ -171,8 +170,9 @@ impl ValidatorCore {
                         let transfer_from = transfer.from(); 
                         // Get the program id of the program that was executed to 
                         // return this transfer instruction
-                        let program_id = tx.to(); 
+                        let program_id = transfer.token(); 
 
+                        log::warn!("validating caller information: {:?}", caller.programs().get(&program_id));
                         // get the program address of the token being transfered
                         let token_address = transfer.token(); 
 
