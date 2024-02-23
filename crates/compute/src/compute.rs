@@ -414,8 +414,8 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             }).await?;
             let output = child.wait_with_output().await?;
-            log::error!("{}", String::from_utf8_lossy(&output.stderr).into_owned());
-            let res: String = String::from_utf8_lossy(&output.stdout).into_owned();
+            log::error!("{:#?}", String::from_utf8(output.stderr));
+            let res: String = String::from_utf8(output.stdout).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
             log::warn!("result from container: {container_id} = {:#?}", res);
 

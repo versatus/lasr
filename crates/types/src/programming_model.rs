@@ -575,9 +575,11 @@ impl TokenUpdateFieldBuilder {
 
 impl Default for TokenUpdateField {
     fn default() -> Self {
+        let mut map = BTreeMap::new();
+        map.insert("some".to_string(), "data".to_string());
         TokenUpdateField {
             field: TokenField::Data,
-            value: TokenFieldValue::Data(DataValue::Insert("some".to_string(), "data".to_string())),
+            value: TokenFieldValue::Metadata(crate::MetadataValue::Extend(map)),
         }
     }
 }

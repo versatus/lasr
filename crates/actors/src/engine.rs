@@ -295,29 +295,31 @@ impl Engine {
     async fn handle_call_success(&self, transaction: Transaction, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
-        let outputs = serde_json::from_str(outputs).map_err(|e| {
+        let outputs_json = serde_json::from_str(outputs).map_err(|e| {
             EngineError::Custom(e.to_string())
         });
         
-        let outputs: Outputs = match outputs {
+        let parsed_outputs: Outputs = match outputs_json {
             Ok(outputs) => {
                 log::info!("Output parsed: {:?}", &outputs);
                 outputs
             },
             Err(e) => {
+                let error_string = e.to_string();
                 log::error!("Error: engine.rs: 336: Deserialization of outputs failed: {}", e);
+                self.respond_with_error(transaction.hash_string(), outputs.clone(), error_string);
                 return Err(e);
             }
         };
 
-        // Get transaction from pending transactions
         let pending_transactions: ActorRef<PendingTransactionMessage> = {
             ractor::registry::where_is(ActorType::PendingTransactions.to_string()).ok_or(
                 EngineError::Custom("unable to acquire PendingTransactions Actor: engine.rs: 291".to_string())
             )?.into()
         };
 
-        let message = PendingTransactionMessage::New { transaction, outputs: Some(outputs) };
+        // Get transaction from pending transactions
+        let message = PendingTransactionMessage::New { transaction, outputs: Some(parsed_outputs) };
         pending_transactions.cast(message).map_err(|e| {
             EngineError::Custom(e.to_string())
         })?;
