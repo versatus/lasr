@@ -1143,11 +1143,27 @@ impl Batcher {
         &mut self,
         transaction: &Transaction
     ) -> Result<(), BatcherError> {
-        let mut account = get_account(transaction.from()).await.ok_or(
-            BatcherError::Custom(
-                "deployer account doesn't exit".to_string()
-            )
-        )?;
+
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(
+            BatcherError::Custom("unable to acquire Scheduler".to_string())
+        )?.into();
+
+        let mut account = match get_account(transaction.from()).await {
+            None => {
+
+                let e = BatcherError::Custom(
+                    "deployer account doesn't exit".to_string()
+                );
+                let error_string = e.to_string();
+
+                let message = SchedulerMessage::CallTransactionFailure { transaction_hash: transaction.hash_string(), outputs: "".to_string(), error: error_string };
+                actor.cast(message);
+                return Err(e)
+            }
+            Some(account) => {
+                account
+            }
+        };
 
         let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs()).map_err(|e| {
             BatcherError::Custom(e.to_string())
