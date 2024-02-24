@@ -401,7 +401,7 @@ impl Batcher {
         transaction: Transaction
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut batch_buffer = HashMap::new();
-        log::warn!("checking account cache for account: {:?}", transaction.from());
+        log::warn!("checking account cache for account: {:?}", transaction.from().to_full_string());
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             account.increment_nonce(&transaction.nonce());
@@ -467,7 +467,7 @@ impl Batcher {
                     return Err(Box::new(BatcherError::Custom(format!("program account {} does not exist", transaction.program_id().to_full_string()))))
                 }
             } else {
-                log::info!("first transaction send to account {:x} building account", transaction.to());
+                log::warn!("first transaction send to account {} building account", transaction.to().to_full_string());
                 let mut account = AccountBuilder::default()
                     .account_type(AccountType::User)
                     .program_namespace(None)
@@ -479,7 +479,7 @@ impl Batcher {
                     .program_account_linked_programs(BTreeSet::new())
                     .build()?;
 
-                log::info!("applying transaction to `to` account");
+                log::warn!("applying transaction to `to` account");
                 if let Some(program_account) = get_account(transaction.program_id()).await {
                     let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
@@ -1532,7 +1532,7 @@ impl Actor for BatcherActor {
                 }
             }
             BatcherMessage::AppendTransaction { transaction, outputs } => {
-                log::info!("appending transaction to batch");
+                log::warn!("appending transaction to batch");
                 match transaction.transaction_type() {
                     TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
                         let res = state.add_transaction_to_account(transaction.clone()).await;

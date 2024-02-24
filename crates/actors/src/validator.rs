@@ -78,6 +78,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+
             match (account.validate_program_id(&tx.program_id()),
                 account.validate_balance(&tx.program_id(), tx.value()),
                 account.validate_nonce(tx.nonce()),
@@ -90,6 +91,7 @@ impl ValidatorCore {
                     let error_string = e.to_string();
                     let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
                     let _ = pending_transactions.cast(message);
+                    log::error!("{}", &error_string);
                     return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
                 }
                 _ => {}
@@ -105,6 +107,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+
             let message = BatcherMessage::AppendTransaction { transaction: tx.clone(), outputs: None }; 
             batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
