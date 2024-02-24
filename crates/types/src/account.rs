@@ -89,7 +89,9 @@ pub struct Address([u8; 20]);
 impl Address {
     /// Creates a new address from a 20 byte array
     pub const fn verse_addr() -> Address {
-        Address([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])
+        let mut inner = [0; 20];
+        inner[19] = 1;
+        Address(inner)
     }
 
     pub const fn eth_addr() -> Address {
@@ -375,6 +377,7 @@ impl Account {
                 return Err(Box::new(ToTokenError::Custom("user attempting to send to self, token that does not yet exist".to_string())))
             }
         }
+
         let mut programs = self.programs.clone();
         if let Some(token) = programs.get_mut(&transaction.program_id()) {
             let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
@@ -410,6 +413,7 @@ impl Account {
                 self.insert_program(&token.program_id(), token.clone());
                 return Ok(token) 
             } else {
+                self.insert_program(&token.program_id(), token.clone());
                 return Ok(token)
             }
         }

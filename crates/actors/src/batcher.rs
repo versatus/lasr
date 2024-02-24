@@ -404,6 +404,7 @@ impl Batcher {
         log::warn!("checking account cache for account: {:?}", transaction.from().to_full_string());
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
+            log::warn!("found account, token pair");
             account.increment_nonce(&transaction.nonce());
             let token = account.apply_send_transaction(transaction.clone(), None).map_err(|e| e as Box<dyn std::error::Error>)?;
             batch_buffer.insert(transaction.from().to_full_string(), account.clone());
@@ -449,18 +450,21 @@ impl Batcher {
         );
 
         if transaction.to() != transaction.from() {
-            log::warn!("checking account cache for account: {:?}", transaction.to());
+            log::warn!("checking account cache for account: {}", transaction.to().to_full_string());
             let mut to_account = get_account(transaction.to()).await;
             let to_account = if let Some(mut account) = to_account {
+                log::warn!("found `to` account: {}", transaction.to().to_full_string());
                 if let Some(program_account) = get_account(transaction.program_id()).await { 
                     let _ = account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!("applied send transaction, account {} now has new token", account.owner_address().to_full_string());
                     log::warn!("token_entry: {:?}", &account.programs().get(&transaction.program_id()));
                     account
                 } else if transaction.program_id() == ETH_ADDR {
+                    log::warn!("applying ETH to account {}", transaction.to().to_full_string());
                     let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else if transaction.program_id() == VERSE_ADDR {
+                    log::warn!("applying VERSE to account {}", transaction.to().to_full_string());
                     let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else {
@@ -1535,6 +1539,7 @@ impl Actor for BatcherActor {
                 log::warn!("appending transaction to batch");
                 match transaction.transaction_type() {
                     TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                        log::warn!("send transaction");
                         let res = state.add_transaction_to_account(transaction.clone()).await;
                         if let Err(e) = res {
                             log::error!("{e}");
