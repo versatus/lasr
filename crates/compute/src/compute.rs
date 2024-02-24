@@ -438,6 +438,7 @@ impl OciManager {
                 )
             )?.into();
 
+            log::warn!("results received, informing executor");
             let message = ExecutorMessage::Results {
                 content_id: content_id.as_ref().to_string_lossy().into_owned(), 
                 program_id,
@@ -447,6 +448,7 @@ impl OciManager {
 
             actor.cast(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
+            log::warn!("casted message to inform executor");
             Ok::<_, std::io::Error>(outputs)
         }))
     }

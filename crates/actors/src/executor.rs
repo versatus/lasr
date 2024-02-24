@@ -452,15 +452,15 @@ impl Actor for ExecutorActor {
             },
             ExecutorMessage::Results { content_id, program_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
-                log::info!("Received results for execution of container:"); 
-                log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
+                log::warn!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 match transaction_hash {
                     Some(hash) => {
                         match state.handles.remove(&(program_id.clone(), hash.clone())) {
                             Some(handle) => {
+                                log::warn!("discovered handle");
                                 match handle.await {
                                     Ok(Ok(output)) => {
-                                        log::info!("Outputs: {:#?}", &output);
+                                        log::warn!("Outputs: {:#?}", &output);
                                         match transaction {
                                             Some(tx) => { 
                                                 match self.execution_success(
