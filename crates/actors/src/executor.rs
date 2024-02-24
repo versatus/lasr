@@ -141,6 +141,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
         let handle = self.manager.run_container(content_id, program_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
+        log::warn!("returning handle to executor");
         Ok(handle)
     }
 
@@ -371,21 +372,11 @@ impl Actor for ExecutorActor {
             ExecutorMessage::Exec {
                 transaction
             } => {
-                // Run container
-                // parse inputs
-                // program_id, op, inputs, transaction_hash 
-                // get config
                 let program_id = transaction.program_id();
                 let op = transaction.op();
                 let inputs = transaction.inputs();
                 let transaction_hash = transaction.hash_string();
                 
-                //match state.get_program_schema(program_id.to_full_string()) {
-                //    Ok(schema) => {
-                //        match schema.get_prerequisites(&op) {
-                //            Ok(pre_requisites) => {
-                //                let _ = state.handle_prerequisites(&pre_requisites);
-
                 match get_account(program_id).await {
                     Some(account) => {
                         let content_id = account.program_account_metadata()
@@ -408,7 +399,7 @@ impl Actor for ExecutorActor {
                                     &transaction_hash
                                 ).await {
                                     Ok(handle) => {
-                                        log::info!("result successful, placing handle in handles");
+                                        log::warn!("result successful, placing handle in handles");
                                         state.handles.insert(
                                             (program_id.to_full_string(), transaction_hash), 
                                             handle
@@ -436,19 +427,6 @@ impl Actor for ExecutorActor {
                         let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
                     }
                 }
-                //    }
-                //},
-                //            Err(e) => {
-                //                log::error!(
-                //                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
-                //                );
-                //            }
-                //        }
-                //    },
-                //    Err(e) => {
-                //        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
-                //    }
-                //}
             },
             ExecutorMessage::Results { content_id, program_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
