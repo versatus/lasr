@@ -691,7 +691,7 @@ impl Account {
         &mut self,
         update_field_value: &ProgramFieldValue
     ) -> AccountResult<()> {
-        log::warn!("applying program update field value: {:?}", update_field_value);
+        log::warn!("applying program update field value");
         match update_field_value {
             ProgramFieldValue::LinkedPrograms(linked_programs_value) => {
                 match linked_programs_value {
@@ -745,6 +745,7 @@ impl Account {
                         );
                     }
                     DataValue::Extend(iter) => {
+                        log::warn!("program metdata");
                         self.program_account_data.extend(iter.clone())
                     }
                     DataValue::Remove(key) => {

@@ -411,8 +411,10 @@ impl OciManager {
                     stdio_inputs.clone().as_bytes()
                 ).await?;
 
+                drop(stdin);
                 Ok::<_, std::io::Error>(())
             }).await?;
+
             let stdout = child.stdout.take().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "stdout returned None"))?;
             let mut stdout_reader = BufReader::new(stdout); 
             let buffer_size = 1024;

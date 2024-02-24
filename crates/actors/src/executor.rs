@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::Path};
 use std::time::Duration;
 use futures::stream::{FuturesOrdered, FuturesUnordered};
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
-use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver};
+use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver, SupervisionEvent};
 use async_trait::async_trait;
 use crate::get_account;
 use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage};
@@ -684,6 +684,52 @@ impl Actor for ExecutorActor {
             _ => {}
         }
 
+        Ok(())
+    }
+}
+
+
+pub struct ExecutorSupervisor;
+
+#[async_trait]
+impl Actor for ExecutorSupervisor {
+    type Msg = ExecutorMessage;
+    type State = (); 
+    type Arguments = ();
+    
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        log::info!("Executor Supervisor running prestart routine");
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());
+            },
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            },
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
         Ok(())
     }
 }
