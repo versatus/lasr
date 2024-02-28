@@ -315,8 +315,8 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self.account
     }
 
-    fn increment_nonce(&mut self, new_nonce: &U256) {
-        self.account_mut().increment_nonce(new_nonce);
+    fn increment_nonce(&mut self) {
+        self.account_mut().increment_nonce();
     }
 
     pub(crate) fn account(&self) -> Account {

@@ -405,7 +405,7 @@ impl Batcher {
         let mut from_account = get_account(transaction.from()).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             log::warn!("found account, token pair");
-            account.increment_nonce(&transaction.nonce());
+            account.increment_nonce();
             let token = account.apply_send_transaction(transaction.clone(), None).map_err(|e| e as Box<dyn std::error::Error>)?;
             batch_buffer.insert(transaction.from().to_full_string(), account.clone());
             (account, token)
@@ -1203,7 +1203,7 @@ impl Batcher {
             BatcherError::Custom(e.to_string())
         })?;
 
-        account.increment_nonce(&transaction.nonce());
+        account.increment_nonce();
 
         self.add_account_to_batch(account).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
@@ -1286,7 +1286,7 @@ impl Batcher {
             )
         )?;
 
-        caller.increment_nonce(&transaction.nonce());
+        caller.increment_nonce();
 
         self.add_account_to_batch(caller).await.map_err(|e| {
             BatcherError::Custom(e.to_string())
