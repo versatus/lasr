@@ -233,11 +233,9 @@ impl Actor for TaskScheduler {
             SchedulerMessage::CallTransactionFailure { transaction_hash, outputs, error } => {
                 if let Some(reply_port) = state.remove(&transaction_hash) {
                     let response = Ok(
-                        //TODO(asmith): Add more verbose and descriptive error options for RPC Response
-                        //Error
                         TransactionResponse::TransactionError(
                             RpcResponseError {
-                                description: format!("Transaction {} failed due to {}", transaction_hash, error)
+                                description: format!("Transaction {} failed due to {}: {}", transaction_hash, error, outputs)
                             }
                         )
                     );
