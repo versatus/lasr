@@ -165,7 +165,7 @@ impl ValidatorCore {
             }
 
             let instructions = outputs.instructions();
-            log::info!("call returned {} instruction", instructions.len());
+            log::warn!("call returned {} instruction", instructions.len());
             for instruction in instructions {
                 match instruction {
                     Instruction::Transfer(transfer) => {
@@ -245,12 +245,11 @@ impl ValidatorCore {
                                     amt.clone()
                                 ) { 
                                     Err(e) => {
-                                        
-                                    let error_string = format!("account {} has insufficient balance for token {}: Error: {}", tf_address, token_address.to_full_string(), e.to_string());
-                                    let err = Box::new(ValidatorError::Custom(error_string.clone()));
-                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
-                                    let _ = pending_transactions.cast(message);
-                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                        let error_string = format!("account {} has insufficient balance for token {}: Error: {}", tf_address, token_address.to_full_string(), e.to_string());
+                                        let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
                                     }
                                     _ => {}
                                 }
