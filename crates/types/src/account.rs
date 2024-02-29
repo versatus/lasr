@@ -826,6 +826,7 @@ impl Account {
     }
 
     pub fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
+        log::warn!("attempting to validate program_id");
         if let Some(_token) = self.programs.get(program_id) {
             return Ok(())
         }
@@ -844,6 +845,7 @@ impl Account {
     }
 
     pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
+        log::warn!("attempting to validate balance");
         if let Some(token) = self.programs.get(program_id) {
             log::warn!("token.balance() {} >= {} amount", &token.balance(), &amount);
             if token.balance() >= amount {
@@ -904,6 +906,7 @@ impl Account {
     }
 
     pub fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
+        log::warn!("attempting to validate an approved spend");
         if let Some(token) = self.programs.get(program_id) {
             if let Some(entry) = token.allowance().get(spender) {
                 if entry > amount {

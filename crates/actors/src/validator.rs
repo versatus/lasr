@@ -173,12 +173,12 @@ impl ValidatorCore {
                         let transfer_from = transfer.from(); 
                         // Get the program id of the program that was executed to 
                         // return this transfer instruction
-                        let program_id = transfer.token(); 
+                        let program_id = tx.to();
 
-                        log::warn!("validating caller information: {:?}", caller.programs().get(&program_id));
                         // get the program address of the token being transfered
                         let token_address = transfer.token(); 
 
+                        log::warn!("validating caller information: {:?}", caller.programs().get(&token_address));
                         // Check if the transferrer is the caller
                         if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
