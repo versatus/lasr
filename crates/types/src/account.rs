@@ -935,6 +935,19 @@ impl Account {
                 if &program_addr == program_id {
                     return Ok(())
                 } 
+            } else if let AccountType::Program(program_addr) = self.account_type() {
+                if spender == &program_addr {
+                    return Ok(())
+                }
+            } else {
+                return Err(
+                    Box::new(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "unable to verify approved spend"
+                        )
+                    )
+                )
             }
         }
 
