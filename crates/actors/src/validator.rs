@@ -182,7 +182,7 @@ impl ValidatorCore {
                         // Check if the transferrer is the caller
                         if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
-                                match caller.validate_balance(&program_id, amt.clone()) {
+                                match caller.validate_balance(&token_address, amt.clone()) {
                                     Err(e) => {
                                         let error_string = e.to_string();
                                         let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
@@ -380,7 +380,7 @@ impl ValidatorCore {
                         // Check if the transferrer is the caller
                         if burn_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = burn.amount() {
-                                match caller.validate_balance(&program_id, amt.clone()) {
+                                match caller.validate_balance(&token_address, amt.clone()) {
                                     Err(e) => {
                                         let error_string = e.to_string();
                                         let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
