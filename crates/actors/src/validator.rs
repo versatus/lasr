@@ -255,28 +255,56 @@ impl ValidatorCore {
                                 }
                                 // Check that the caller or the program being called 
                                 // is approved to spend this token
-                                if transfer_from_account.validate_approved_spend(
-                                    &token_address,
-                                    &caller.owner_address().clone(), 
-                                    amt
-                                ).is_err() {
-                                    match transfer_from_account.validate_approved_spend(
-                                        &token_address, 
-                                        &program_id, 
-                                        amt
-                                    ) {
-                                        Err(e) => {
-                                            let error_string = e.to_string();
-                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
-                                            let _ = pending_transactions.cast(message);
-                                            return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
-                                        }
-                                        _ => {
+                                if let AccountType::Program(program_addr) = transfer_from_account.account_type() {
+                                    if program_addr != tx.to() {
+                                        if transfer_from_account.validate_approved_spend(
+                                            &token_address,
+                                            &caller.owner_address().clone(), 
+                                            amt
+                                        ).is_err() {
+                                            match transfer_from_account.validate_approved_spend(
+                                                &token_address, 
+                                                &program_id, 
+                                                amt
+                                            ) {
+                                                Err(e) => {
+                                                    let error_string = e.to_string();
+                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                                    let _ = pending_transactions.cast(message);
+                                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                                }
+                                                _ => {
+                                                    log::info!("is approved spender");
+                                                }
+                                            };
+                                        } else {
                                             log::info!("is approved spender");
                                         }
-                                    };
+                                    }
                                 } else {
-                                    log::info!("is approved spender");
+                                    if transfer_from_account.validate_approved_spend(
+                                        &token_address,
+                                        &caller.owner_address().clone(), 
+                                        amt
+                                    ).is_err() {
+                                        match transfer_from_account.validate_approved_spend(
+                                            &token_address, 
+                                            &program_id, 
+                                            amt
+                                        ) {
+                                            Err(e) => {
+                                                let error_string = e.to_string();
+                                                let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                                let _ = pending_transactions.cast(message);
+                                                return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                            }
+                                            _ => {
+                                                log::info!("is approved spender");
+                                            }
+                                        };
+                                    } else {
+                                        log::info!("is approved spender");
+                                    }
                                 }
                             } else {
                                 // If non-fungible token check ids

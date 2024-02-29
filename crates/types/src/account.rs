@@ -908,6 +908,7 @@ impl Account {
     pub fn validate_approved_spend(&self, program_id: &Address, spender: &Address, amount: &crate::U256) -> AccountResult<()> {
         log::warn!("attempting to validate an approved spend");
         if let Some(token) = self.programs.get(program_id) {
+            log::warn!("found token: {}", &program_id);
             if let Some(entry) = token.allowance().get(spender) {
                 if entry > amount {
                     return Ok(())
