@@ -27,12 +27,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v2
 
-      - name: Setup interactive ssh session
-        # if: ${{ failure() }} # Pause only on failure
-        uses: Warpbuilds/gha-debug@v1.2
-        timeout-minutes: 15
-        with:
-          limit-access-to-actor: true
 
       # - name: Install Cross-Compilation Tools for aarch64-linux-musl
       #   if: matrix.target == 'aarch64-unknown-linux-musl'
@@ -79,6 +73,13 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
+
+      - name: Setup interactive ssh session
+        # if: ${{ failure() }} # Pause only on failure
+        uses: Warpbuilds/gha-debug@v1.2
+        timeout-minutes: 15
+        with:
+          limit-access-to-actor: true
 
       - name: Build lasr_cli
         run: |
