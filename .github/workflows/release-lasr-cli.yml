@@ -1,10 +1,10 @@
 name: Build and Release lasr-cli
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
-  build-and-release-wasm:
+  build-and-release-cli:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
