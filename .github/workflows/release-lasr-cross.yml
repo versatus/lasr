@@ -6,7 +6,8 @@ on:
 jobs:
   release:
     name: Release - ${{ matrix.platform.os_name }}
-    if: startsWith( github.ref, 'refs/tags/v' ) || github.ref == 'refs/tags/test-release'
+
+    # if: startsWith( github.ref, 'refs/tags/v' ) || github.ref == 'refs/tags/test-release'
     strategy:
       matrix:
         platform:
@@ -21,8 +22,8 @@ jobs:
           - os_name: Linux-x86_64
             os: warp-ubuntu-latest-x64-4x
             target: x86_64-unknown-linux-musl
-            bin: ubi
-            name: ubi-Linux-x86_64-musl.tar.gz
+            bin: lasr_cli
+            name: lasr_cli-Linux-x86_64-musl.tar.gz
             cross: false
             cargo_command: cargo
 
@@ -34,13 +35,13 @@ jobs:
           #   cross: false
           #   cargo_command: cargo
 
-          - os_name: macOS-x86_64
-            os: warp-macos-latest-arm64-6x
-            target: x86_64-apple-darwin
-            bin: ubi
-            name: ubi-Darwin-x86_64.tar.gz
-            cross: false
-            cargo_command: cargo
+          # - os_name: macOS-x86_64
+          #   os: warp-macos-latest-arm64-6x
+          #   target: x86_64-apple-darwin
+          #   bin: ubi
+          #   name: ubi-Darwin-x86_64.tar.gz
+          #   cross: false
+          #   cargo_command: cargo
 
     runs-on: ${{ matrix.platform.os }}
     steps:
@@ -57,16 +58,16 @@ jobs:
         run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
         if: contains(matrix.platform.os, 'ubuntu') && !matrix.platform.cross
 
-      - name: Install cross if cross-compiling (*nix)
-        id: cross-nix
-        shell: bash
-        run: |
-          set -e
-          export TARGET="$HOME/bin"
-          mkdir -p "$TARGET"
-          ./bootstrap/bootstrap-ubi.sh
-          "$HOME/bin/ubi" --project cross-rs/cross --matching musl --in .          
-        if: matrix.platform.cross && !contains(matrix.platform.os, 'windows')
+      # - name: Install cross if cross-compiling (*nix)
+      #   id: cross-nix
+      #   shell: bash
+      #   run: |
+      #     set -e
+      #     export TARGET="$HOME/bin"
+      #     mkdir -p "$TARGET"
+      #     ./bootstrap/bootstrap-ubi.sh
+      #     "$HOME/bin/ubi" --project cross-rs/cross --matching musl --in .          
+      #   if: matrix.platform.cross && !contains(matrix.platform.os, 'windows')
 
       # - name: Install cross if cross-compiling (Windows)
       #   id: cross-windows
@@ -79,7 +80,7 @@ jobs:
         shell: bash
         run: |
           ${{ matrix.platform.cargo_command }} build --locked --release --target ${{ matrix.platform.target }}          
-        if: ${{ !contains(matrix.platform.os, 'windows') }}
+        # if: ${{ !contains(matrix.platform.os, 'windows') }}
 
       # - name: Build binary (Windows)
       #   # We have to use the platform's native shell. If we use bash on
@@ -94,7 +95,7 @@ jobs:
         run: |
           strip target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}          
         # strip doesn't work with cross-arch binaries on Linux or Windows.
-        if: ${{ !(matrix.platform.cross || matrix.platform.target == 'aarch64-pc-windows-msvc') }}
+        # if: ${{ !(matrix.platform.cross || matrix.platform.target == 'aarch64-pc-windows-msvc') }}
 
       - name: Package as archive
         shell: bash
