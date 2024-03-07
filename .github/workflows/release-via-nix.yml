@@ -1,0 +1,33 @@
+name: Build and Release lasr-cli via Nix
+
+on:
+  workflow_dispatch: 
+
+  # nix-community/fenix#targets.x86_64-unknown-linux-musl
+
+jobs:
+  build-and-release-cli:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: warp-ubuntu-latest-x64-4x
+            target: x86_64-unknown-linux-musl
+          - os: warp-ubuntu-latest-x64-4x
+            target: aarch64-unknown-linux-musl
+          - os: warp-ubuntu-latest-x64-4x
+            target: x86_64-apple-darwin
+          - os: warp-ubuntu-latest-x64-4x
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - uses: cachix/install-nix-action@v22
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Enter Nix Shell and Build
+        run: |
+          nix-shell --run "cargo build --release --target ${{ matrix.target }}"
