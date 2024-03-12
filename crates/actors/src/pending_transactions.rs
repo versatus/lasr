@@ -346,11 +346,13 @@ impl Actor for PendingTransactionActor {
             }
             PendingTransactionMessage::ValidCall { transaction, .. } => {
                 let get_transactions = state.handle_valid(&transaction.hash_string());
+                log::warn!("received valid transactions in pending transaction in graph for transaction: {}", transaction.hash_string());
                 let transactions_ready_for_validation = state.get_transactions(
                     get_transactions
                 );
 
                 for (transaction, outputs) in transactions_ready_for_validation {
+                    log::warn!("scheduling: {} with validator", transaction.hash_string());
                     let _ = state.schedule_with_validator(transaction, outputs);
                 }
             }
