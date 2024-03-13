@@ -295,7 +295,7 @@ impl Engine {
     async fn handle_call_success(&self, transaction: Transaction, transaction_hash: String, outputs: &String) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
-        log::warn!("transaciton: {} received by engine as success", transaction_hash.clone());
+        log::warn!("transaction: {} received by engine as success", transaction_hash.clone());
         let outputs_json = serde_json::from_str(outputs).map_err(|e| {
             EngineError::Custom(e.to_string())
         });

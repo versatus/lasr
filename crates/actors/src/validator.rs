@@ -975,7 +975,7 @@ impl Actor for Validator {
                 }
             }
             ValidatorMessage::PendingCall { outputs, transaction } => {
-                log::info!("pending call received by validator for: {}", &transaction.hash_string());
+                log::warn!("pending call received by validator for: {}", &transaction.hash_string());
                 // Acquire all relevant accounts.
                 if let Some(outputs) = outputs {
 
