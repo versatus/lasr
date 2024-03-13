@@ -454,7 +454,9 @@ impl DependencyGraphs {
     }
 
     pub fn handle_completed_exec(&mut self, transaction_hash: &str) {
-        let _ = self.pre_call.handle_completed_exec(transaction_hash);
+        if let Err(e) = self.pre_call.handle_completed_exec(transaction_hash) { 
+            log::error!("Error in handle_completed_exec: {e}");
+        }
     }
 
     pub fn get_transactions(&self, transaction_ids: Vec<String>) -> Vec<(Transaction, Option<Outputs>)> {

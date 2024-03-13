@@ -1383,7 +1383,7 @@ impl Batcher {
             account 
         };
 
-        log::info!("Informing scheduler that the call transaction was applied");
+        log::warn!("Informing scheduler that the call transaction was applied");
         scheduler.cast(message);
 
         Ok(())

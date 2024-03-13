@@ -126,7 +126,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
-            log::info!("attempting to validate call: {}", tx.hash_string());
+            log::warn!("attempting to validate call: {}", tx.hash_string());
 
             match tx.verify_signature() {
                 Err(e) => {
@@ -138,8 +138,8 @@ impl ValidatorCore {
                 _ => {}
             }
 
-            log::info!("signature is valid");
-            log::info!("acquiring caller from account map");
+            log::warn!("signature is valid");
+            log::warn!("acquiring caller from account map");
             let caller = match account_map.get(&AddressOrNamespace::Address(tx.from())) {
                 Some(Some(account)) => {
                     account
@@ -153,7 +153,7 @@ impl ValidatorCore {
                 }
             };
 
-            log::info!("validating caller nonce");
+            log::warn!("validating caller nonce");
             match caller.clone().validate_nonce(tx.nonce()) {
                 Err(e) => {
                     let error_string = e.to_string();
@@ -801,7 +801,7 @@ impl ValidatorCore {
                 }
             }
             
-            log::info!("Completed the validation of all instruction");
+            log::warn!("Completed the validation of all instruction");
             let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
                 ActorType::Batcher.to_string()
             ).ok_or(
