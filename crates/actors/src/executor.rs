@@ -267,10 +267,12 @@ impl ExecutorActor {
             transaction: transaction.clone()
         };
 
+        log::warn!("call was sucessful, forwarding to pending transaction");
         pending_transactions_actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
 
+        log::warn!("call was successful, forwarding to engine");
         let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
@@ -285,6 +287,7 @@ impl ExecutorActor {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
 
+        log::warn!("informed both pending transactions and engine actors of successful call");
         Ok(())
     }
 
