@@ -35,6 +35,7 @@ impl Display for RpcResponseError {
 pub enum TransactionResponse {
     SendResponse(Token),
     CallResponse(Account),
+    AsyncCallResponse(String),
     GetAccountResponse(Account),
     RegisterProgramResponse(Option<String>),
     TransactionError(RpcResponseError)
@@ -107,6 +108,9 @@ pub enum SchedulerMessage {
         transaction_hash: String,
         outputs: String,
         error: String,
+    },
+    CallTransactionAsyncPending { 
+        transaction_hash: String 
     },
     RegistrationSuccess {
         transaction: Transaction,
@@ -399,6 +403,12 @@ pub enum PendingTransactionMessage {
         transaction: Transaction,
         outputs: Option<Outputs>,
     },
+    NewCall {
+        transaction: Transaction,
+    },
+    ExecSuccess {
+        transaction: Transaction
+    },
     Valid {
         transaction: Transaction,
         cert: Option<Certificate>
@@ -445,6 +455,7 @@ pub enum ExecutorMessage {
         content_id: String,
     },
     Start(String /*ContentId*/),
+    Set { transaction: Transaction },
     Exec {
         transaction: Transaction,
     },

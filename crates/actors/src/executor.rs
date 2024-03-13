@@ -5,8 +5,8 @@ use futures::stream::{FuturesOrdered, FuturesUnordered};
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
 use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver, SupervisionEvent};
 use async_trait::async_trait;
-use crate::get_account;
-use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage};
+use crate::{get_account, pending_transactions};
+use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage, PendingTransactionMessage};
 use lasr_types::{Inputs, Required, ProgramSchema, Transaction};
 #[cfg(feature = "local")]
 use lasr_compute::OciManager;
@@ -166,6 +166,20 @@ impl<C: ClientT> ExecutionEngine<C> {
         }
     }
 
+    fn set_pending_call(&self, transaction: Transaction) -> std::io::Result<()> {
+        let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(ActorType::PendingTransactions.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire PendingTransactions actor")
+        )?.into();
+
+        let message = PendingTransactionMessage::NewCall { 
+            transaction
+        };
+
+        let _ = pending_transactions.cast(message);
+        
+        Ok(())
+    }
+
     pub fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
         for req in pre_requisites {
             match req {
@@ -226,7 +240,7 @@ impl ExecutorActor {
         let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
 
         let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Batcher")
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Bratcher")
         )?.into();
 
         let _ = batcher.cast(message);
@@ -240,7 +254,24 @@ impl ExecutorActor {
         transaction: &Transaction,
         outputs: &String
     ) -> std::io::Result<()> {
-        let actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
+        let pending_transactions_actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to acquire PendingTransactions actor"
+            )
+        )?.into();
+
+        let message = PendingTransactionMessage::ExecSuccess {
+            transaction: transaction.clone()
+        };
+
+        pending_transactions_actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
@@ -250,7 +281,7 @@ impl ExecutorActor {
             outputs: outputs.clone() 
         };
 
-        actor.cast(message).map_err(|e| {
+        engine_actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
 
@@ -262,13 +293,27 @@ impl ExecutorActor {
         transaction_hash: &String,
         err: impl std::error::Error
     ) -> std::io::Result<()> {
-        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or( std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
         let message = SchedulerMessage::CallTransactionFailure { 
             transaction_hash: transaction_hash.to_string(),
             outputs: String::new(),
             error: err.to_string() 
+        };
+
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn call_queued_for_exec(&self, transaction: Transaction) -> std::io::Result<()> {
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Scheduler actor"))?.into();
+
+        let message = SchedulerMessage::CallTransactionAsyncPending {
+            transaction_hash: transaction.hash_string()
         };
 
         actor.cast(message).map_err(|e| {
@@ -369,6 +414,58 @@ impl Actor for ExecutorActor {
                     }
                 }
             },
+            ExecutorMessage::Set {
+                transaction
+            } => {
+                let program_id = transaction.program_id();
+                let op = transaction.op();
+                let inputs = transaction.inputs();
+                let transaction_hash = transaction.hash_string();
+                
+                match get_account(program_id).await {
+                    Some(_) => {
+                        match state.parse_inputs(
+                            /*&schema,*/
+                            &transaction, 
+                            op, 
+                            inputs
+                        ).await {
+                            Ok(_) => {
+                                // set in pending transactions 
+                                // will need to add optional inputs to pending 
+                                // transactions
+                                //
+                                // if the transaction is next up, simply execute
+                                // if not send response to user that the tx is pending
+                                match state.set_pending_call(
+                                    transaction.clone()
+                                ) {
+                                    Ok(()) => {
+                                        // return user the transaction_hash
+                                        let _ = self.call_queued_for_exec(transaction);
+                                    }
+                                    Err(e) => {
+                                        // return error to user
+                                        let error_string = format!("unable to set transaction in pending: {}", e);
+                                        log::error!("{}", error_string);
+                                        let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let error_string = format!("unable to set transaction in pending: {}", e);
+                                log::error!("{}", error_string);
+                                let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                            }
+                        }
+                    },
+                    None => {
+                        let error_string = "program account does not exist, unable to execute"; 
+                        log::error!("{}", &error_string);
+                        let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                    }
+                }
+            }
             ExecutorMessage::Exec {
                 transaction
             } => {

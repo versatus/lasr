@@ -218,6 +218,16 @@ impl Actor for TaskScheduler {
                     reply_port.send(message);
                 }
             },
+            SchedulerMessage::CallTransactionAsyncPending { transaction_hash } => {
+                if let Some(reply_port) = state.remove(&transaction_hash) {
+                    let response = Ok(
+                        TransactionResponse::AsyncCallResponse(transaction_hash)
+                    );
+
+                    let message = RpcMessage::Response { response, reply: None };
+                    reply_port.send(message);
+                };
+            }
             SchedulerMessage::CallTransactionApplied { transaction_hash, account } => {
                 if let Some(reply_port) = state.remove(&transaction_hash) {
                     let response = Ok(

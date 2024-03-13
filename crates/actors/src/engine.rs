@@ -224,7 +224,7 @@ impl Engine {
 
     async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
         log::info!("handling call transaction: {}", transaction.hash_string());
-        let message = ExecutorMessage::Exec {
+        let message = ExecutorMessage::Set {
             transaction
         };
         self.inform_executor(message).await?;
