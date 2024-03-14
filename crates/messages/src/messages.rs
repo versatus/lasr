@@ -430,7 +430,8 @@ pub enum PendingTransactionMessage {
         outputs: Outputs,
         transaction: Transaction,
         cert: Option<Certificate>
-    }
+    },
+    CleanGraph
 }
 
 #[derive(Debug, RactorMessage)]
