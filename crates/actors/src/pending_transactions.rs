@@ -272,7 +272,7 @@ impl PendingGraph {
             // Check if we can get read guard
             if let Ok(guard) = vtx.read() {
                 // Check if it is timed out
-                let elapsed = guard.timestamp - Utc::now().timestamp_millis() as u64;
+                let elapsed = Utc::now().timestamp_millis() as u64 - guard.timestamp;
                 if elapsed >= PENDING_TIMEOUT {
                     // Set timedout flag
                     log::warn!("{} has indeed timed out", &hash);
