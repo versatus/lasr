@@ -110,7 +110,7 @@ impl Actor for DaClient {
                         }
                     }
                 } else {
-                    log::error!("Error attemptint to retreive account: da_client.rs: Line 87: {:?}", res);
+                    log::error!("Error attempting to retreive account: da_client.rs: Line 87: {:?}", res);
                 }
             },
             DaClientMessage::RetrieveTransaction { .. } => {},

@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use ethereum_types::H256;
 use ractor::ActorRef;
 use ractor::concurrency::{OneshotReceiver, oneshot};
 use lasr_types::{Address, Account};
@@ -7,6 +10,7 @@ use lasr_messages::{
     EoMessage, 
     AccountCacheMessage
 };
+use tokio::time::timeout;
 use crate::{
     EngineError, 
     AccountCacheError,
@@ -237,29 +241,44 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
         ActorType::EoClient.to_string()
     )?.into();
 
-    let (tx, rx) = oneshot();
-    let message = EoMessage::GetAccountBlobIndex { address, sender: tx};
-
-    let _ = eo_actor.cast(message).ok()?;
-    let eo_handler = create_handler!(retrieve_blob_index);
-    let blob_index = handle_actor_response(rx, eo_handler).await.ok()?;
-
-    let (tx, rx) = oneshot();
     let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(
         ActorType::DaClient.to_string()
     )?.into();
 
-    let message = DaClientMessage::RetrieveAccount { 
-        address,
-        batch_header_hash: blob_index.1.into(), 
-        blob_index: blob_index.2, 
-        tx 
-    };
+    let blob_index = {
+        match timeout(
+            Duration::from_secs(5),
+            attempt_get_blob_index(
+                eo_actor,
+                address, 
+                Duration::from_secs(3)
+            )
+        ).await {
+            Ok(Some(blob_index)) => blob_index,
+            Ok(None) => return None,
+            Err(e) => {
+                log::error!("Error in attempting to get blob_index: {e}");
+                return None
+            }
+        }
+    }; 
 
-    da_actor.cast(message).ok()?;
-    let da_handler = create_handler!(retrieve_blob);
-
-    handle_actor_response(rx, da_handler).await.ok()?
+    match timeout(
+        Duration::from_secs(5), 
+        attempt_get_account_from_da(
+            da_actor,
+            address, 
+            Duration::from_secs(3), 
+            blob_index
+        )
+    ).await {
+        Ok(Some(account)) => return Some(account),
+        Ok(None) => return None,
+        Err(e) => {
+            log::error!("Error attempting to get account from DA: {e}");
+            return None
+        }
+    }
 }
 
 pub async fn get_account(address: Address) -> Option<Account> {
@@ -269,4 +288,70 @@ pub async fn get_account(address: Address) -> Option<Account> {
         account = check_da_for_account(address).await;
     }
     return account
+}
+
+pub async fn get_blob_index(
+    eo_actor: ActorRef<EoMessage>,
+    message: EoMessage, 
+    rx: OneshotReceiver<EoMessage>,
+) -> Option<(Address, H256, u128)> {
+    let _ = eo_actor.cast(message).ok()?;
+    let eo_handler = create_handler!(retrieve_blob_index);
+    handle_actor_response(rx, eo_handler).await.ok()
+}
+
+pub async fn attempt_get_blob_index(
+    eo_actor: ActorRef<EoMessage>,
+    address: Address,
+    max_duration: Duration,
+) -> Option<(Address, H256, u128)> {
+    let start_time = std::time::Instant::now();
+    loop {
+        let (tx, rx) = oneshot();
+        let message = EoMessage::GetAccountBlobIndex { address, sender: tx};
+        if let Some(blob_index) = get_blob_index(eo_actor.clone(), message, rx).await {
+            return Some(blob_index)
+        }
+
+        if start_time.elapsed() >= max_duration {
+            return None
+        }
+    }
+}
+
+pub async fn get_account_from_da(
+    da_actor: ActorRef<DaClientMessage>,
+    message: DaClientMessage,
+    rx: OneshotReceiver<Option<Account>>,
+) -> Option<Account> {
+    da_actor.cast(message).ok()?;
+    let da_handler = create_handler!(retrieve_blob);
+    handle_actor_response(rx, da_handler).await.ok()?
+}
+
+pub async fn attempt_get_account_from_da(
+    da_actor: ActorRef<DaClientMessage>,
+    address: Address,
+    max_duration: Duration,
+    blob_index: (Address, H256, u128)
+) -> Option<Account> {
+
+    let start_time = std::time::Instant::now();
+    loop {
+        let (tx, rx) = oneshot();
+        let message = DaClientMessage::RetrieveAccount { 
+            address,
+            batch_header_hash: blob_index.1.into(), 
+            blob_index: blob_index.2, 
+            tx 
+        };
+
+        if let Some(account) = get_account_from_da(da_actor.clone(), message, rx).await {
+            return Some(account)
+        }
+
+        if start_time.elapsed() >= max_duration {
+            return None
+        }
+    }
 }
