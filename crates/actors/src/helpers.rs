@@ -232,6 +232,7 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
 }
 
 pub async fn check_da_for_account(address: Address) -> Option<Account> {
+    log::warn!("checking DA for account");
     let eo_actor: ActorRef<EoMessage> = ractor::registry::where_is(
         ActorType::EoClient.to_string()
     )?.into();
