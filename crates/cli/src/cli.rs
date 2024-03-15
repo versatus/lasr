@@ -928,8 +928,8 @@ async fn handle_call_command(children: &ArgMatches) -> Result<(), Box<dyn std::e
     let amount = value.0 * unit;
 
     if *verbose { dbg!("submitting transaction"); }
-    let account = wallet.call(pid, to, amount, op, inputs).await.map_err(|e| { e as Box<dyn std::error::Error> })?;
-    println!("{}", serde_json::to_string_pretty(&account)?);
+    let tx_hash_string = wallet.call(pid, to, amount, op, inputs).await.map_err(|e| { e as Box<dyn std::error::Error> })?;
+    println!("{}", tx_hash_string);
     Ok(())
 }
 

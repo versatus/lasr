@@ -5,7 +5,7 @@ use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
 use std::collections::BTreeMap;
 use std::fmt::{LowerHex, Display};
-use secp256k1::PublicKey;
+use secp256k1::{PublicKey, Secp256k1};
 use thiserror::Error;
 use derive_builder::Builder;
 
@@ -356,9 +356,23 @@ impl Transaction {
         Ok(sig)
     }
 
-    pub fn recover(&self) -> Result<PublicKey, Box<dyn std::error::Error>> {
-        let pk = self.sig()?.recover(&self.as_bytes())?;
-        Ok(pk)
+    pub fn recover(&self) -> Result<Address, Box<dyn std::error::Error>> {
+        let r = self.r;
+        let s = self.s;
+        let v = self.v;
+
+        if v >= 27 && v <= 28 {
+            let sig = ethers_core::types::Signature {
+                r: ethers_core::abi::ethereum_types::U256::from(r), 
+                s: ethers_core::abi::ethereum_types::U256::from(s), 
+                v: v as u64
+            };
+            log::warn!("attempting to recover from {}", sig.to_string());
+            let addr = sig.recover(self.hash())?;
+            return Ok(addr.into());
+        }
+        let addr = self.sig()?.recover(&self.hash())?;
+        Ok(addr)
     }
 
     pub fn message(&self) -> String {
@@ -397,7 +411,13 @@ impl Transaction {
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.verify(&self.hash())
+        let addr = self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.recover(&self.hash())?;
+        if self.from() != addr {
+            log::error!("self.from() {} != addr {}", self.from().to_full_string(), addr.to_full_string());
+            return Err(secp256k1::Error::InvalidSignature)
+        }
+
+        Ok(())
     }
 
     pub fn get_accounts_involved(&self) -> Vec<Address> {

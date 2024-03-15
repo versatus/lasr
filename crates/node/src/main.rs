@@ -8,6 +8,7 @@ use eo_listener::EoServerError;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::AccountCacheSupervisor;
 use lasr_actors::LasrRpcServerImpl;
+use lasr_actors::graph_cleaner;
 use lasr_rpc::LasrRpcServer;
 use lasr_actors::AccountCacheActor;
 use lasr_messages::ActorType;
@@ -230,6 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
+    tokio::spawn(graph_cleaner());
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx));

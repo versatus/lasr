@@ -130,6 +130,9 @@ impl LasrRpcServer for LasrRpcServerImpl {
         }) {
             Ok(resp) => {
                 match resp {
+                    TransactionResponse::AsyncCallResponse(transaction_hash) => {
+                        Ok(transaction_hash)
+                    }
                     TransactionResponse::CallResponse(account) => {
                         let account_str = serde_json::to_string(&account).map_err(|e| {
                                 RpcError::Custom(e.to_string())

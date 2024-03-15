@@ -2,6 +2,7 @@ use std::{fmt::Display, time::Duration};
 
 use async_trait::async_trait;
 use eigenda_client::{client::EigenDaGrpcClient, response::BlobResponse, proof::BlobVerificationProof, status::{BlobStatus, BlobResult}, blob::EncodedBlob};
+use lasr_types::AccountType;
 use ractor::{ActorRef, Actor, ActorProcessingErr, concurrency::OneshotSender, SupervisionEvent};
 use thiserror::Error;
 use tokio::task::JoinHandle;
@@ -96,13 +97,20 @@ impl Actor for DaClient {
                             let account = batch.get_user_account(address);
                             let _ = tx.send(account.clone()).map_err(|e| Box::new(
                                     DaClientError::Custom(format!("{:?}", e))))?;
-                            log::info!("successfully decoded account blob: {:?}", account);
+                            log::warn!("successfully decoded account blob");
+                            if let Some(acct) = account {
+                                if let AccountType::Program(addr) = acct.account_type() {
+                                    log::warn!("found account: {}", addr.to_full_string());
+                                } else {
+                                    log::warn!("found account: {}", acct.owner_address().to_full_string());
+                                }
+                            }
                         } else {
                             log::error!("{:?}", res);
                         }
                     }
                 } else {
-                    log::error!("Error attemptint to retreive account: da_client.rs: Line 87: {:?}", res);
+                    log::error!("Error attempting to retreive account: da_client.rs: Line 87: {:?}", res);
                 }
             },
             DaClientMessage::RetrieveTransaction { .. } => {},

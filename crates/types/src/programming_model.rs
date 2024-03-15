@@ -36,7 +36,7 @@ pub struct Inputs {
     /// The compute agent version
     pub version: i32,
     /// An optional program/contract's account in the protocol
-    pub account_info: Option<Account>,
+    pub account_info: Account,
     /// The transaction that made the original call
     pub transaction: Transaction,
     /// The operation in the program being called
@@ -575,9 +575,11 @@ impl TokenUpdateFieldBuilder {
 
 impl Default for TokenUpdateField {
     fn default() -> Self {
+        let mut map = BTreeMap::new();
+        map.insert("some".to_string(), "data".to_string());
         TokenUpdateField {
             field: TokenField::Data,
-            value: TokenFieldValue::Data(DataValue::Insert("some".to_string(), "data".to_string())),
+            value: TokenFieldValue::Metadata(crate::MetadataValue::Extend(map)),
         }
     }
 }

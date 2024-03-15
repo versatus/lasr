@@ -20,7 +20,7 @@ use lasr_types::{
     Outputs, 
     Instruction, 
     TokenOrProgramUpdate, 
-    TokenFieldValue
+    TokenFieldValue, AccountType
 };
 
 #[derive(Debug)]
@@ -78,6 +78,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+
             match (account.validate_program_id(&tx.program_id()),
                 account.validate_balance(&tx.program_id(), tx.value()),
                 account.validate_nonce(tx.nonce()),
@@ -90,6 +91,7 @@ impl ValidatorCore {
                     let error_string = e.to_string();
                     let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
                     let _ = pending_transactions.cast(message);
+                    log::error!("{}", &error_string);
                     return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
                 }
                 _ => {}
@@ -105,6 +107,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
+
             let message = BatcherMessage::AppendTransaction { transaction: tx.clone(), outputs: None }; 
             batcher.cast(message).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
             Ok(())
@@ -123,7 +126,7 @@ impl ValidatorCore {
                     )
                 ) as Box<dyn std::error::Error + Send>
             )?.into();
-            log::info!("attempting to validate call: {}", tx.hash_string());
+            log::warn!("attempting to validate call: {}", tx.hash_string());
 
             match tx.verify_signature() {
                 Err(e) => {
@@ -135,8 +138,8 @@ impl ValidatorCore {
                 _ => {}
             }
 
-            log::info!("signature is valid");
-            log::info!("acquiring caller from account map");
+            log::warn!("signature is valid");
+            log::warn!("acquiring caller from account map");
             let caller = match account_map.get(&AddressOrNamespace::Address(tx.from())) {
                 Some(Some(account)) => {
                     account
@@ -150,8 +153,7 @@ impl ValidatorCore {
                 }
             };
 
-            log::info!("validating caller balance");
-            log::info!("validating caller nonce");
+            log::warn!("validating caller nonce");
             match caller.clone().validate_nonce(tx.nonce()) {
                 Err(e) => {
                     let error_string = e.to_string();
@@ -163,7 +165,7 @@ impl ValidatorCore {
             }
 
             let instructions = outputs.instructions();
-            log::info!("call returned {} instruction", instructions.len());
+            log::warn!("call returned {} instruction", instructions.len());
             for instruction in instructions {
                 match instruction {
                     Instruction::Transfer(transfer) => {
@@ -171,15 +173,16 @@ impl ValidatorCore {
                         let transfer_from = transfer.from(); 
                         // Get the program id of the program that was executed to 
                         // return this transfer instruction
-                        let program_id = tx.to(); 
+                        let program_id = tx.to();
 
                         // get the program address of the token being transfered
                         let token_address = transfer.token(); 
 
+                        log::warn!("validating caller information: {:?}", caller.programs().get(&token_address));
                         // Check if the transferrer is the caller
                         if transfer_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = transfer.amount() {
-                                match caller.validate_balance(&program_id, amt.clone()) {
+                                match caller.validate_balance(&token_address, amt.clone()) {
                                     Err(e) => {
                                         let error_string = e.to_string();
                                         let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
@@ -231,34 +234,77 @@ impl ValidatorCore {
 
                             // If fungible token, check balance
                             if let Some(amt) = transfer.amount() {
-                                transfer_from_account.validate_balance(
+                                let tf_address = if let AccountType::Program(program_address) = transfer_from_account.account_type() {
+                                    program_address.to_full_string()
+                                } else {
+                                    transfer_from_account.owner_address().to_full_string()
+                                };
+
+                                match transfer_from_account.validate_balance(
                                     &token_address,
                                     amt.clone()
-                                )?;
+                                ) { 
+                                    Err(e) => {
+                                        let error_string = format!("account {} has insufficient balance for token {}: Error: {}", tf_address, token_address.to_full_string(), e.to_string());
+                                        let err = Box::new(ValidatorError::Custom(error_string.clone()));
+                                        let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
+                                        let _ = pending_transactions.cast(message);
+                                        return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                    }
+                                    _ => {}
+                                }
                                 // Check that the caller or the program being called 
                                 // is approved to spend this token
-                                if transfer_from_account.validate_approved_spend(
-                                    &token_address,
-                                    &caller.owner_address().clone(), 
-                                    amt
-                                ).is_err() {
-                                    match transfer_from_account.validate_approved_spend(
-                                        &token_address, 
-                                        &program_id, 
-                                        amt
-                                    ) {
-                                        Err(e) => {
-                                            let error_string = e.to_string();
-                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
-                                            let _ = pending_transactions.cast(message);
-                                            return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
-                                        }
-                                        _ => {
+                                if let AccountType::Program(program_addr) = transfer_from_account.account_type() {
+                                    if program_addr != tx.to() {
+                                        if transfer_from_account.validate_approved_spend(
+                                            &token_address,
+                                            &caller.owner_address().clone(), 
+                                            amt
+                                        ).is_err() {
+                                            match transfer_from_account.validate_approved_spend(
+                                                &token_address, 
+                                                &program_id, 
+                                                amt
+                                            ) {
+                                                Err(e) => {
+                                                    let error_string = e.to_string();
+                                                    let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                                    let _ = pending_transactions.cast(message);
+                                                    return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                                }
+                                                _ => {
+                                                    log::info!("is approved spender");
+                                                }
+                                            };
+                                        } else {
                                             log::info!("is approved spender");
                                         }
-                                    };
+                                    }
                                 } else {
-                                    log::info!("is approved spender");
+                                    if transfer_from_account.validate_approved_spend(
+                                        &token_address,
+                                        &caller.owner_address().clone(), 
+                                        amt
+                                    ).is_err() {
+                                        match transfer_from_account.validate_approved_spend(
+                                            &token_address, 
+                                            &program_id, 
+                                            amt
+                                        ) {
+                                            Err(e) => {
+                                                let error_string = e.to_string();
+                                                let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
+                                                let _ = pending_transactions.cast(message);
+                                                return Err(Box::new(ValidatorError::Custom(error_string)) as Box<dyn std::error::Error + Send>);
+                                            }
+                                            _ => {
+                                                log::info!("is approved spender");
+                                            }
+                                        };
+                                    } else {
+                                        log::info!("is approved spender");
+                                    }
                                 }
                             } else {
                                 // If non-fungible token check ids
@@ -334,7 +380,7 @@ impl ValidatorCore {
                         // Check if the transferrer is the caller
                         if burn_from.clone() == AddressOrNamespace::Address(caller.clone().owner_address()) { 
                             if let Some(amt) = burn.amount() {
-                                match caller.validate_balance(&program_id, amt.clone()) {
+                                match caller.validate_balance(&token_address, amt.clone()) {
                                     Err(e) => {
                                         let error_string = e.to_string();
                                         let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e };
@@ -755,7 +801,7 @@ impl ValidatorCore {
                 }
             }
             
-            log::info!("Completed the validation of all instruction");
+            log::warn!("Completed the validation of all instruction");
             let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(
                 ActorType::Batcher.to_string()
             ).ok_or(
@@ -929,7 +975,7 @@ impl Actor for Validator {
                 }
             }
             ValidatorMessage::PendingCall { outputs, transaction } => {
-                log::info!("pending call received by validator for: {}", &transaction.hash_string());
+                log::warn!("pending call received by validator for: {}", &transaction.hash_string());
                 // Acquire all relevant accounts.
                 if let Some(outputs) = outputs {
 
@@ -985,8 +1031,14 @@ impl Actor for Validator {
                     });
                 } else {
                     log::error!("Call transactions must have an output associated with them");
-                    //TODO(asmith): CallFailed message back to pending transactions and up the
-                    //stack to the RPC client
+                    if let Some(actor) = ractor::registry::where_is(
+                        ActorType::PendingTransactions.to_string()
+                    ) {
+                        let pending_transactions: ActorRef<PendingTransactionMessage> = actor.into();
+                        let e = Box::new(ValidatorError::Custom("Call transaction missing associated outputs".to_string()));
+                        let message = PendingTransactionMessage::Invalid { transaction: transaction.clone(), e };
+                        let _ = pending_transactions.cast(message);
+                    }
                 }
             },
             ValidatorMessage::PendingRegistration { transaction } => {

@@ -194,7 +194,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         value: U256,
         op: &String,
         inputs: &String,
-    ) -> WalletResult<Account> {
+    ) -> WalletResult<String> {
 
         let account = self.account();
         let address = self.address();
@@ -230,17 +230,13 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let transaction: Transaction = (payload, sig.clone()).into();
 
         dbg!("submitting transaction to RPC");
-        let account_str = self.client.call(
+        let tx_hash_string = self.client.call(
             transaction.clone()
         ).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
-        let account = serde_json::from_str(&account_str).map_err(|e| {
-            Box::new(e) as Box<dyn std::error::Error + Send>
-        })?;
-
         self.get_account(&self.address()).await?;
 
-        Ok(account)
+        Ok(tx_hash_string)
     }
 
     pub async fn register_program(&mut self, inputs: &String) -> WalletResult<String> {
@@ -315,8 +311,8 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         &mut self.account
     }
 
-    fn increment_nonce(&mut self, new_nonce: &U256) {
-        self.account_mut().increment_nonce(new_nonce);
+    fn increment_nonce(&mut self) {
+        self.account_mut().increment_nonce();
     }
 
     pub(crate) fn account(&self) -> Account {

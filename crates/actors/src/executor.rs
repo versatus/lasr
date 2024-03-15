@@ -3,10 +3,10 @@ use std::{collections::HashMap, path::Path};
 use std::time::Duration;
 use futures::stream::{FuturesOrdered, FuturesUnordered};
 use jsonrpsee::{ws_client::WsClient, core::client::ClientT};
-use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver};
+use ractor::{Actor, ActorRef, ActorProcessingErr, concurrency::OneshotReceiver, SupervisionEvent};
 use async_trait::async_trait;
-use crate::get_account;
-use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage};
+use crate::{get_account, pending_transactions};
+use lasr_messages::{ExecutorMessage, SchedulerMessage, ActorType, EngineMessage, PendingTransactionMessage};
 use lasr_types::{Inputs, Required, ProgramSchema, Transaction};
 #[cfg(feature = "local")]
 use lasr_compute::OciManager;
@@ -141,6 +141,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         transaction_hash: &String 
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
         let handle = self.manager.run_container(content_id, program_id, Some(transaction), inputs, Some(transaction_hash.clone())).await?;
+        log::warn!("returning handle to executor");
         Ok(handle)
     }
 
@@ -151,14 +152,32 @@ impl<C: ClientT> ExecutionEngine<C> {
         self.manager.get_program_schema(content_id)
     }
 
-    pub fn parse_inputs(
+    pub async fn parse_inputs(
         &self, 
         /*_schema: &ProgramSchema,*/ 
         transaction: &Transaction, 
         op: String, 
         inputs: String
     ) -> std::io::Result<Inputs> {
-        return Ok(Inputs { version: 1, account_info: None, transaction: transaction.clone(), op, inputs } )
+        if let Some(program_account) = get_account(transaction.to()).await {
+            return Ok(Inputs { version: 1, account_info: program_account.clone(), transaction: transaction.clone(), op, inputs } )
+        } else {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("program account {} does not exist", transaction.to().to_full_string())))
+        }
+    }
+
+    fn set_pending_call(&self, transaction: Transaction) -> std::io::Result<()> {
+        let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(ActorType::PendingTransactions.to_string()).ok_or(
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire PendingTransactions actor")
+        )?.into();
+
+        let message = PendingTransactionMessage::NewCall { 
+            transaction
+        };
+
+        let _ = pending_transactions.cast(message);
+        
+        Ok(())
     }
 
     pub fn handle_prerequisites(&self, pre_requisites: &Vec<Required>) -> std::io::Result<Vec<String>> {
@@ -221,7 +240,7 @@ impl ExecutorActor {
         let message = BatcherMessage::AppendTransaction { transaction, outputs: None };
 
         let batcher: ActorRef<BatcherMessage> = ractor::registry::where_is(ActorType::Batcher.to_string()).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Batcher")
+            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire Bratcher")
         )?.into();
 
         let _ = batcher.cast(message);
@@ -235,7 +254,26 @@ impl ExecutorActor {
         transaction: &Transaction,
         outputs: &String
     ) -> std::io::Result<()> {
-        let actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
+        let pending_transactions_actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
+            ActorType::PendingTransactions.to_string()
+        ).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to acquire PendingTransactions actor"
+            )
+        )?.into();
+
+        let message = PendingTransactionMessage::ExecSuccess {
+            transaction: transaction.clone()
+        };
+
+        log::warn!("call was sucessful, forwarding to pending transaction");
+        pending_transactions_actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        log::warn!("call was successful, forwarding to engine");
+        let engine_actor: ActorRef<EngineMessage> = ractor::registry::where_is(ActorType::Engine.to_string()).ok_or(
             std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
@@ -245,10 +283,11 @@ impl ExecutorActor {
             outputs: outputs.clone() 
         };
 
-        actor.cast(message).map_err(|e| {
+        engine_actor.cast(message).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
 
+        log::warn!("informed both pending transactions and engine actors of successful call");
         Ok(())
     }
 
@@ -257,13 +296,27 @@ impl ExecutorActor {
         transaction_hash: &String,
         err: impl std::error::Error
     ) -> std::io::Result<()> {
-        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or( std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Engine actor")
         )?.into();
 
         let message = SchedulerMessage::CallTransactionFailure { 
             transaction_hash: transaction_hash.to_string(),
             outputs: String::new(),
             error: err.to_string() 
+        };
+
+        actor.cast(message).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn call_queued_for_exec(&self, transaction: Transaction) -> std::io::Result<()> {
+        let actor: ActorRef<SchedulerMessage> = ractor::registry::where_is(ActorType::Scheduler.to_string()).ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Unable to acquire Scheduler actor"))?.into();
+
+        let message = SchedulerMessage::CallTransactionAsyncPending {
+            transaction_hash: transaction.hash_string()
         };
 
         actor.cast(message).map_err(|e| {
@@ -364,24 +417,66 @@ impl Actor for ExecutorActor {
                     }
                 }
             },
-            ExecutorMessage::Exec {
+            ExecutorMessage::Set {
                 transaction
             } => {
-                // Run container
-                // parse inputs
-                // program_id, op, inputs, transaction_hash 
-                // get config
                 let program_id = transaction.program_id();
                 let op = transaction.op();
                 let inputs = transaction.inputs();
                 let transaction_hash = transaction.hash_string();
                 
-                //match state.get_program_schema(program_id.to_full_string()) {
-                //    Ok(schema) => {
-                //        match schema.get_prerequisites(&op) {
-                //            Ok(pre_requisites) => {
-                //                let _ = state.handle_prerequisites(&pre_requisites);
-
+                match get_account(program_id).await {
+                    Some(_) => {
+                        match state.parse_inputs(
+                            /*&schema,*/
+                            &transaction, 
+                            op, 
+                            inputs
+                        ).await {
+                            Ok(_) => {
+                                // set in pending transactions 
+                                // will need to add optional inputs to pending 
+                                // transactions
+                                //
+                                // if the transaction is next up, simply execute
+                                // if not send response to user that the tx is pending
+                                match state.set_pending_call(
+                                    transaction.clone()
+                                ) {
+                                    Ok(()) => {
+                                        // return user the transaction_hash
+                                        let _ = self.call_queued_for_exec(transaction);
+                                    }
+                                    Err(e) => {
+                                        // return error to user
+                                        let error_string = format!("unable to set transaction in pending: {}", e);
+                                        log::error!("{}", error_string);
+                                        let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let error_string = format!("unable to set transaction in pending: {}", e);
+                                log::error!("{}", error_string);
+                                let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                            }
+                        }
+                    },
+                    None => {
+                        let error_string = "program account does not exist, unable to execute"; 
+                        log::error!("{}", &error_string);
+                        let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
+                    }
+                }
+            }
+            ExecutorMessage::Exec {
+                transaction
+            } => {
+                let program_id = transaction.program_id();
+                let op = transaction.op();
+                let inputs = transaction.inputs();
+                let transaction_hash = transaction.hash_string();
+                
                 match get_account(program_id).await {
                     Some(account) => {
                         let content_id = account.program_account_metadata()
@@ -394,7 +489,7 @@ impl Actor for ExecutorActor {
                             &transaction, 
                             op, 
                             inputs
-                        ) {
+                        ).await {
                             Ok(inputs) => {
                                 match state.execute(
                                     content_id,
@@ -404,7 +499,7 @@ impl Actor for ExecutorActor {
                                     &transaction_hash
                                 ).await {
                                     Ok(handle) => {
-                                        log::info!("result successful, placing handle in handles");
+                                        log::warn!("result successful, placing handle in handles");
                                         state.handles.insert(
                                             (program_id.to_full_string(), transaction_hash), 
                                             handle
@@ -432,31 +527,18 @@ impl Actor for ExecutorActor {
                         let _ = self.execution_error(&transaction_hash, std::io::Error::new(std::io::ErrorKind::Other, error_string));
                     }
                 }
-                //    }
-                //},
-                //            Err(e) => {
-                //                log::error!(
-                //                    "Error calling schema.get_prerequisites: executor.rs: 260: {}", e
-                //                );
-                //            }
-                //        }
-                //    },
-                //    Err(e) => {
-                //        log::error!("Error calling state.get_program_schema: executor.rs: 259: {}", e);
-                //    }
-                //}
             },
             ExecutorMessage::Results { content_id, program_id, transaction_hash, transaction } => {
                 // Handle the results of an execution
-                log::info!("Received results for execution of container:"); 
-                log::info!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
+                log::warn!("content_id: {:?}, transaction_id: {:?}", content_id, transaction_hash);
                 match transaction_hash {
                     Some(hash) => {
                         match state.handles.remove(&(program_id.clone(), hash.clone())) {
                             Some(handle) => {
+                                log::warn!("discovered handle");
                                 match handle.await {
                                     Ok(Ok(output)) => {
-                                        log::info!("Outputs: {:#?}", &output);
+                                        log::warn!("Outputs: {:#?}", &output);
                                         match transaction {
                                             Some(tx) => { 
                                                 match self.execution_success(
@@ -702,6 +784,52 @@ impl Actor for ExecutorActor {
             _ => {}
         }
 
+        Ok(())
+    }
+}
+
+
+pub struct ExecutorSupervisor;
+
+#[async_trait]
+impl Actor for ExecutorSupervisor {
+    type Msg = ExecutorMessage;
+    type State = (); 
+    type Arguments = ();
+    
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        log::info!("Executor Supervisor running prestart routine");
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());
+            },
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            },
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            },
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
         Ok(())
     }
 }

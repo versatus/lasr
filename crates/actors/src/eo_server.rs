@@ -99,18 +99,19 @@ impl EoServer {
     }
 
     async fn handle_eo_event(&self, events: EoEvent) -> Result<(), EoServerError> {
+        log::warn!("discovered EO event: {:?}", events);
         let message = EngineMessage::EoEvent { event: events };
         let engine: ActorRef<EngineMessage> = ractor::registry::where_is(
             ActorType::Engine.to_string()
         ).ok_or(
             EoServerError::Custom("unable to acquire engine".to_string())
         )?.into();
-        engine.cast(message).map_err(|e| EoServerError::Custom(e.to_string()))?;
+        let _ = engine.cast(message).map_err(|e| EoServerError::Custom(e.to_string()));
         Ok(())
     }
     
     fn parse_bridge_log(&self, logs: Vec<Log>) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        log::info!("Parsing bridge event");
+        log::warn!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         for log in logs {
@@ -245,6 +246,7 @@ impl Actor for EoServer {
             EoMessage::Log { log, log_type } => {
                 match log_type {
                     EventType::Bridge(_) => {
+                        log::warn!("received bridge event");
                         let parsed_bridge_log_res = self.parse_bridge_log(log);
                         match parsed_bridge_log_res {
                             Ok(parsed_bridge_log) => {
