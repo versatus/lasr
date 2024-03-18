@@ -6,32 +6,32 @@ use std::str::FromStr;
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
-use lasr_actors::AccountCacheSupervisor;
-use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::graph_cleaner;
-use lasr_rpc::LasrRpcServer;
 use lasr_actors::AccountCacheActor;
-use lasr_messages::ActorType;
-use lasr_types::Address;
+use lasr_actors::AccountCacheSupervisor;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
 use lasr_actors::Engine;
-use lasr_clients::EoClient;
-use lasr_clients::EoClientActor;
 use lasr_actors::EoServer;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
 use lasr_actors::ExecutorActor;
 use lasr_actors::LasrRpcServerActor;
-use lasr_compute::OciManager;
-use lasr_compute::OciBundlerBuilder;
-use lasr_compute::OciBundler;
+use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
 use lasr_actors::Validator;
+use lasr_clients::EoClient;
+use lasr_clients::EoClientActor;
+use lasr_compute::OciBundler;
+use lasr_compute::OciBundlerBuilder;
+use lasr_compute::OciManager;
+use lasr_messages::ActorType;
+use lasr_rpc::LasrRpcServer;
+use lasr_types::Address;
 use ractor::Actor;
 
 use secp256k1::Secp256k1;
@@ -43,6 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());
+
+    log::warn!(
+        "Version, branch and hash: {} {}",
+        env!("CARGO_PKG_VERSION"),
+        env!("GIT_REV")
+    );
 
     dotenv::dotenv().ok();
 
@@ -83,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    
+
     #[cfg(feature = "local")]
     let oci_manager = OciManager::new(bundler, store);
 
@@ -139,9 +145,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| Box::new(e))?;
 
-    let (account_cache_supervisor, _) = Actor::spawn(Some("account_cache_supervisor".to_string()), account_cache_supervisor, ())
-        .await
-        .map_err(|e| Box::new(e))?;
+    let (account_cache_supervisor, _) = Actor::spawn(
+        Some("account_cache_supervisor".to_string()),
+        account_cache_supervisor,
+        (),
+    )
+    .await
+    .map_err(|e| Box::new(e))?;
 
     let (lasr_rpc_actor_ref, _) =
         Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
