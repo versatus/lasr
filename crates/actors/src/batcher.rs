@@ -961,7 +961,7 @@ impl Batcher {
                 }
             }
             AddressOrNamespace::Address(address) => {
-                if let Some(mut account) = batch_buffer.get_mut(&transaction.from()) {
+                if let Some(mut account) = batch_buffer.get_mut(&address) {
                     if let Some(program_account) = get_account(program_id.clone()).await {
                         account.apply_token_update(
                             &program_id, token_update.updates(), &program_account
@@ -976,7 +976,6 @@ impl Batcher {
                     }
                 } 
 
-                log::warn!("attempting to get account: {} from cache in batcher", &transaction.to());
                 if let Some(mut account) = get_account(address.clone()).await {
                     if let Some(program_account) = get_account(program_id.clone()).await {
                         account.apply_token_update(
