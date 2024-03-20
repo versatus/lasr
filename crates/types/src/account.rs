@@ -695,7 +695,9 @@ impl Account {
 
         if let Some(token) = self.programs.get_mut(&program_id) {
             for update in updates {
+                log::warn!("token data before update {:?}", token.data());
                 token.apply_token_update_field_values(update.value())?;
+                log::warn!("token data after update {:?}", token.data());
             }
             return Ok(token.clone())
         } else {
@@ -719,10 +721,9 @@ impl Account {
                 })?;
             
             for update in updates {
-                if let AccountType::Program(program_addr) = self.account_type() {
-                    log::warn!("applying {:?} to account: {}", &update, &program_addr.to_full_string());
-                }
+                log::warn!("applying {:?} to account: {}", &update, &owner_address.to_full_string());
                 token.apply_token_update_field_values(update.value())?;
+                log::warn!("token data after applying update: {:?}", token.data());
             }
 
             self.programs.insert(program_id.clone(), token.clone());
