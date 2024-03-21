@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::warn!(
         "Version, branch and hash: {} {}",
         env!("CARGO_PKG_VERSION"),
-        env!("GIT_REV")
+        option_env!("GIT_REV").unwrap_or("N/A")
     );
 
     dotenv::dotenv().ok();
