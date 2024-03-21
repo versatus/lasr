@@ -1,15 +1,16 @@
 //! This file contains types the protocol uses to prepare data, structure it
 //! and call out to a particular compute payload.
 use crate::{
-    Account, Address, Certificate, DataValue, Namespace, ProgramField, ProgramFieldValue,
-    TokenField, TokenFieldValue, TokenWitness, Transaction, TransactionFields, U256,
+    Account, Address, Certificate, Namespace, ProgramField, ProgramFieldValue, TokenField,
+    TokenFieldValue, TokenWitness, Transaction, TransactionFields, U256,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap},
-    hash::{Hash, Hasher}, io::ErrorKind,
+    hash::{Hash, Hasher},
+    io::ErrorKind,
 };
 
 /// The inputs type for a contract call. This is built from a combination of
@@ -83,17 +84,19 @@ pub struct Outputs {
     instructions: Vec<Instruction>,
 }
 
+/// This struct is a builder for the [`Outputs`] struct.
+/// It provides methods to set the inputs and add instructions to the Outputs struct.
 #[derive(Clone)]
 pub struct OutputsBuilder {
     pub inputs: Option<Inputs>,
-    pub instructions: Vec<Instruction>
+    pub instructions: Vec<Instruction>,
 }
 
 impl Default for OutputsBuilder {
     fn default() -> Self {
         Self {
             inputs: None,
-            instructions: vec![]
+            instructions: vec![],
         }
     }
 }
@@ -119,12 +122,13 @@ impl OutputsBuilder {
     }
 
     pub fn build(&self) -> std::io::Result<Outputs> {
-        Ok(
-            Outputs {
-                inputs: self.inputs.clone().ok_or(std::io::Error::new(ErrorKind::Other, "inputs is required"))?,
-                instructions: self.instructions.clone()
-            }
-        )
+        Ok(Outputs {
+            inputs: self
+                .inputs
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "inputs is required"))?,
+            instructions: self.instructions.clone(),
+        })
     }
 }
 
@@ -235,6 +239,7 @@ pub struct CreateInstruction {
     distribution: Vec<TokenDistribution>,
 }
 
+/// A builder struct for the [`CreationInstruction`].
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -384,6 +389,7 @@ impl CreateInstruction {
     }
 }
 
+/// Represents the distribution of tokens to a recipient.
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -396,6 +402,7 @@ pub struct TokenDistribution {
     update_fields: Vec<TokenUpdateField>,
 }
 
+/// A builder pattern implementation for creating instances of [`TokenDistribution`].
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -414,7 +421,7 @@ impl Default for TokenDistributionBuilder {
             to: None,
             amount: None,
             token_ids: vec![],
-            update_fields: vec![]
+            update_fields: vec![],
         }
     }
 }
@@ -453,7 +460,7 @@ impl TokenDistributionBuilder {
         self.update_fields.push(update_field);
         self
     }
-    
+
     pub fn extend_update_fields(mut self, update_fields: Vec<TokenUpdateField>) -> Self {
         self.update_fields.extend(update_fields);
         self
@@ -461,11 +468,17 @@ impl TokenDistributionBuilder {
 
     pub fn build(&self) -> std::io::Result<TokenDistribution> {
         Ok(TokenDistribution {
-            program_id: self.program_id.clone().ok_or(std::io::Error::new(ErrorKind::Other, "program id is required"))?,
-            to: self.to.clone().ok_or(std::io::Error::new(ErrorKind::Other, "to address is required"))?,
+            program_id: self.program_id.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "program id is required",
+            ))?,
+            to: self.to.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "to address is required",
+            ))?,
             amount: self.amount.clone(),
             token_ids: self.token_ids.clone(),
-            update_fields: self.update_fields.clone()
+            update_fields: self.update_fields.clone(),
         })
     }
 }
@@ -526,6 +539,7 @@ impl Default for TokenOrProgramUpdate {
     }
 }
 
+/// Represents a field to be updated in a token.
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -535,6 +549,7 @@ pub struct TokenUpdateField {
     value: TokenFieldValue,
 }
 
+/// Builder pattern for creating instances of [`TokenUpdateField`].
 #[derive(Clone)]
 pub struct TokenUpdateFieldBuilder {
     pub field: Option<TokenField>,
@@ -545,7 +560,7 @@ impl Default for TokenUpdateFieldBuilder {
     fn default() -> Self {
         Self {
             field: None,
-            value: None
+            value: None,
         }
     }
 }
@@ -567,8 +582,14 @@ impl TokenUpdateFieldBuilder {
 
     pub fn build(&self) -> std::io::Result<TokenUpdateField> {
         Ok(TokenUpdateField {
-            field: self.field.clone().ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
-            value: self.value.clone().ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?
+            field: self
+                .field
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
+            value: self
+                .value
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?,
         })
     }
 }
@@ -594,6 +615,7 @@ impl TokenUpdateField {
     }
 }
 
+/// Represents a field to be updated in a program.
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -603,6 +625,7 @@ pub struct ProgramUpdateField {
     value: ProgramFieldValue,
 }
 
+/// Builder pattern for creating instances of [`ProgramUpdateField`].
 #[derive(Clone)]
 pub struct ProgramUpdateFieldBuilder {
     pub field: Option<ProgramField>,
@@ -611,7 +634,10 @@ pub struct ProgramUpdateFieldBuilder {
 
 impl Default for ProgramUpdateFieldBuilder {
     fn default() -> Self {
-        Self { field: None, value: None }
+        Self {
+            field: None,
+            value: None,
+        }
     }
 }
 
@@ -632,8 +658,14 @@ impl ProgramUpdateFieldBuilder {
 
     pub fn build(&self) -> std::io::Result<ProgramUpdateField> {
         Ok(ProgramUpdateField {
-            field: self.field.clone().ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
-            value: self.value.clone().ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?,
+            field: self
+                .field
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "field is required"))?,
+            value: self
+                .value
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "value is required"))?,
         })
     }
 }
@@ -659,9 +691,10 @@ pub struct UpdateInstruction {
     updates: Vec<TokenOrProgramUpdate>,
 }
 
+/// Builder pattern for creating instances of [`UpdateInstruction`].
 #[derive(Clone)]
 pub struct UpdateInstructionBuilder {
-    pub updates: Vec<TokenOrProgramUpdate>
+    pub updates: Vec<TokenOrProgramUpdate>,
 }
 
 impl Default for UpdateInstructionBuilder {
@@ -686,8 +719,8 @@ impl UpdateInstructionBuilder {
     }
 
     pub fn build(&self) -> UpdateInstruction {
-        UpdateInstruction { 
-            updates: self.updates.clone() 
+        UpdateInstruction {
+            updates: self.updates.clone(),
         }
     }
 }
@@ -725,6 +758,7 @@ impl UpdateInstruction {
     }
 }
 
+/// Represents an update to a token, including the account, token address, and update fields.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUpdate {
@@ -743,6 +777,7 @@ impl Default for TokenUpdate {
     }
 }
 
+/// Builder pattern for creating instances of [`TokenUpdate`].
 #[derive(Clone)]
 pub struct TokenUpdateBuilder {
     pub account: Option<AddressOrNamespace>,
@@ -755,7 +790,7 @@ impl Default for TokenUpdateBuilder {
         Self {
             account: None,
             token: None,
-            updates: vec![]
+            updates: vec![],
         }
     }
 }
@@ -774,7 +809,7 @@ impl TokenUpdateBuilder {
         self.token = Some(token);
         self
     }
-    
+
     pub fn add_update(mut self, update: TokenUpdateField) -> Self {
         self.updates.push(update);
         self
@@ -786,13 +821,17 @@ impl TokenUpdateBuilder {
     }
 
     pub fn build(&self) -> std::io::Result<TokenUpdate> {
-        Ok(
-            TokenUpdate { 
-                account: self.account.clone().ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?, 
-                token: self.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?, 
-                updates: self.updates.clone() 
-            }
-        )
+        Ok(TokenUpdate {
+            account: self
+                .account
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?,
+            token: self
+                .token
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?,
+            updates: self.updates.clone(),
+        })
     }
 }
 
@@ -810,6 +849,7 @@ impl TokenUpdate {
     }
 }
 
+/// Represents an update to a program, including the account and update fields.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramUpdate {
@@ -817,6 +857,7 @@ pub struct ProgramUpdate {
     updates: Vec<ProgramUpdateField>,
 }
 
+/// Builder pattern for creating instances of [`ProgramUpdate`].
 #[derive(Clone)]
 pub struct ProgramUpdateBuilder {
     pub account: Option<AddressOrNamespace>,
@@ -827,7 +868,7 @@ impl Default for ProgramUpdateBuilder {
     fn default() -> Self {
         Self {
             account: None,
-            updates: vec![]
+            updates: vec![],
         }
     }
 }
@@ -853,12 +894,13 @@ impl ProgramUpdateBuilder {
     }
 
     pub fn build(&self) -> std::io::Result<ProgramUpdate> {
-        Ok(
-            ProgramUpdate {
-                account: self.account.clone().ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?,
-                updates: self.updates.clone()
-            }
-        )
+        Ok(ProgramUpdate {
+            account: self
+                .account
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "account is required"))?,
+            updates: self.updates.clone(),
+        })
     }
 }
 
@@ -888,6 +930,7 @@ pub struct TransferInstruction {
     ids: Vec<crate::U256>,
 }
 
+/// Builder pattern for creating instances of [`TransferInstruction`].
 #[derive(Clone)]
 pub struct TransferInstructionBuilder {
     pub token: Option<Address>,
@@ -904,7 +947,7 @@ impl Default for TransferInstructionBuilder {
             from: None,
             to: None,
             amount: None,
-            ids: vec![]
+            ids: vec![],
         }
     }
 }
@@ -957,15 +1000,22 @@ impl TransferInstructionBuilder {
     }
 
     pub fn build(&self) -> std::io::Result<TransferInstruction> {
-        Ok(
-            TransferInstruction { 
-                token: self.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token address is required"))?, 
-                from: self.from.clone().ok_or(std::io::Error::new(ErrorKind::Other, "from address is required"))?, 
-                to: self.to.clone().ok_or(std::io::Error::new(ErrorKind::Other, "to address is required"))?, 
-                amount: self.amount.clone(), 
-                ids: self.ids.clone() 
-            }
-        )
+        Ok(TransferInstruction {
+            token: self.token.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "token address is required",
+            ))?,
+            from: self.from.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "from address is required",
+            ))?,
+            to: self.to.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "to address is required",
+            ))?,
+            amount: self.amount.clone(),
+            ids: self.ids.clone(),
+        })
     }
 }
 
@@ -1046,6 +1096,7 @@ pub struct BurnInstruction {
     token_ids: Vec<crate::U256>,
 }
 
+/// Builder pattern for creating instances of [`BurnInstruction`].
 #[derive(Clone)]
 pub struct BurnInstructionBuilder {
     pub caller: Option<Address>,
@@ -1077,7 +1128,7 @@ impl Default for BurnInstructionBuilder {
             token: None,
             from: None,
             amount: None,
-            token_ids: vec![]
+            token_ids: vec![],
         }
     }
 }
@@ -1106,7 +1157,7 @@ impl BurnInstructionBuilder {
         self.from = Some(from);
         self
     }
-    
+
     pub fn amount(mut self, amount: crate::U256) -> Self {
         self.amount = Some(amount);
         self
@@ -1123,16 +1174,26 @@ impl BurnInstructionBuilder {
     }
 
     pub fn build(&self) -> std::io::Result<BurnInstruction> {
-        Ok(
-            BurnInstruction { 
-                caller: self.caller.clone().ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?, 
-                program_id: self.program_id.clone().ok_or(std::io::Error::new(ErrorKind::Other, "program id is required"))?, 
-                token: self.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?, 
-                from: self.from.clone().ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?, 
-                amount: self.amount.clone(), 
-                token_ids: self.token_ids.clone() 
-            }
-        )
+        Ok(BurnInstruction {
+            caller: self
+                .caller
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?,
+            program_id: self.program_id.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "program id is required",
+            ))?,
+            token: self
+                .token
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?,
+            from: self
+                .from
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?,
+            amount: self.amount.clone(),
+            token_ids: self.token_ids.clone(),
+        })
     }
 }
 
@@ -1195,6 +1256,8 @@ pub enum Instruction {
     Log(LogInstruction),
 }
 
+/// This trait serves as a marker trait for instruction types.
+/// It doesn't define any methods or behavior itself but is implemented by instruction builders.
 pub trait InnerInstruction {}
 
 impl InnerInstruction for CreateInstructionBuilder {}
@@ -1202,6 +1265,7 @@ impl InnerInstruction for UpdateInstructionBuilder {}
 impl InnerInstruction for TransferInstructionBuilder {}
 impl InnerInstruction for BurnInstructionBuilder {}
 
+/// Builder for constructing various [`Instruction`] types.
 #[derive(Clone)]
 pub struct InstructionBuilder<I: InnerInstruction> {
     pub inner: I,
@@ -1210,7 +1274,7 @@ pub struct InstructionBuilder<I: InnerInstruction> {
 impl Default for InstructionBuilder<CreateInstructionBuilder> {
     fn default() -> Self {
         Self {
-            inner: CreateInstructionBuilder::default()
+            inner: CreateInstructionBuilder::default(),
         }
     }
 }
@@ -1219,7 +1283,6 @@ impl InstructionBuilder<CreateInstructionBuilder> {
     pub fn new() -> Self {
         Default::default()
     }
-
 
     pub fn program_namespace(mut self, program_namespace: AddressOrNamespace) -> Self {
         self.inner.program_namespace = Some(program_namespace);
@@ -1257,43 +1320,49 @@ impl InstructionBuilder<CreateInstructionBuilder> {
     }
 
     pub fn build(&self) -> Result<Instruction, std::io::Error> {
-        Ok(
-            Instruction::Create(
-                CreateInstruction {
-                    program_namespace: self.inner.program_namespace.clone().ok_or(std::io::Error::new(
+        Ok(Instruction::Create(CreateInstruction {
+            program_namespace: self
+                .inner
+                .program_namespace
+                .clone()
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "programNamespace is required",
+                ))?,
+            program_id: self.inner.program_id.clone().ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "programId is required",
+            ))?,
+            program_owner: self.inner.program_owner.ok_or(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "programOwner is required",
+            ))?,
+            total_supply: self
+                .inner
+                .total_supply
+                .ok_or_else(|| U256::MAX)
+                .map_err(|_| {
+                    std::io::Error::new(
                         std::io::ErrorKind::NotFound,
-                        "programNamespace is required",
-                    ))?,
-                    program_id: self.inner.program_id.clone().ok_or(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "programId is required",
-                    ))?,
-                    program_owner: self.inner.program_owner.ok_or(std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "programOwner is required",
-                    ))?,
-                    total_supply: self.inner.total_supply.ok_or_else(|| U256::MAX).map_err(|_| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "totalSupply default is U256::MAX",
-                        )
-                    })?,
-                    initialized_supply: self.inner
-                        .initialized_supply
-                        .ok_or_else(|| U256::from(0))
-                        .map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::NotFound, "initSupply default is 0")
-                        })?,
-                    distribution: self.inner.distribution.clone(),
-            })
-        )
+                        "totalSupply default is U256::MAX",
+                    )
+                })?,
+            initialized_supply: self
+                .inner
+                .initialized_supply
+                .ok_or_else(|| U256::from(0))
+                .map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::NotFound, "initSupply default is 0")
+                })?,
+            distribution: self.inner.distribution.clone(),
+        }))
     }
 }
 
 impl Default for InstructionBuilder<UpdateInstructionBuilder> {
     fn default() -> Self {
         Self {
-            inner: UpdateInstructionBuilder::default()
+            inner: UpdateInstructionBuilder::default(),
         }
     }
 }
@@ -1314,18 +1383,16 @@ impl InstructionBuilder<UpdateInstructionBuilder> {
     }
 
     pub fn build(&self) -> Instruction {
-        Instruction::Update(
-            UpdateInstruction { 
-                updates: self.inner.updates.clone() 
-            }
-        )
+        Instruction::Update(UpdateInstruction {
+            updates: self.inner.updates.clone(),
+        })
     }
 }
 
 impl Default for InstructionBuilder<TransferInstructionBuilder> {
     fn default() -> Self {
         Self {
-            inner: TransferInstructionBuilder::default()
+            inner: TransferInstructionBuilder::default(),
         }
     }
 }
@@ -1366,23 +1433,30 @@ impl InstructionBuilder<TransferInstructionBuilder> {
     }
 
     pub fn build(&self) -> std::io::Result<Instruction> {
-        Ok(
-            Instruction::Transfer(
-                TransferInstruction { 
-                    token: self.inner.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token address is required"))?, 
-                    from: self.inner.from.clone().ok_or(std::io::Error::new(ErrorKind::Other, "from address is required"))?, 
-                    to: self.inner.to.clone().ok_or(std::io::Error::new(ErrorKind::Other, "to address is required"))?, 
-                    amount: self.inner.amount.clone(), 
-                    ids: self.inner.ids.clone() 
-                }
-            )
-        )
+        Ok(Instruction::Transfer(TransferInstruction {
+            token: self.inner.token.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "token address is required",
+            ))?,
+            from: self.inner.from.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "from address is required",
+            ))?,
+            to: self.inner.to.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "to address is required",
+            ))?,
+            amount: self.inner.amount.clone(),
+            ids: self.inner.ids.clone(),
+        }))
     }
 }
 
 impl Default for InstructionBuilder<BurnInstructionBuilder> {
     fn default() -> Self {
-        Self { inner: BurnInstructionBuilder::default() }
+        Self {
+            inner: BurnInstructionBuilder::default(),
+        }
     }
 }
 
@@ -1410,7 +1484,7 @@ impl InstructionBuilder<BurnInstructionBuilder> {
         self.inner.from = Some(from);
         self
     }
-    
+
     pub fn amount(mut self, amount: crate::U256) -> Self {
         self.inner.amount = Some(amount);
         self
@@ -1427,18 +1501,29 @@ impl InstructionBuilder<BurnInstructionBuilder> {
     }
 
     pub fn build(&self) -> std::io::Result<Instruction> {
-        Ok(
-            Instruction::Burn(
-                BurnInstruction { 
-                    caller: self.inner.caller.clone().ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?, 
-                    program_id: self.inner.program_id.clone().ok_or(std::io::Error::new(ErrorKind::Other, "program id is required"))?, 
-                    token: self.inner.token.clone().ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?, 
-                    from: self.inner.from.clone().ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?, 
-                    amount: self.inner.amount.clone(), 
-                    token_ids: self.inner.token_ids.clone() 
-                }
-            )
-        )
+        Ok(Instruction::Burn(BurnInstruction {
+            caller: self
+                .inner
+                .caller
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?,
+            program_id: self.inner.program_id.clone().ok_or(std::io::Error::new(
+                ErrorKind::Other,
+                "program id is required",
+            ))?,
+            token: self
+                .inner
+                .token
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?,
+            from: self
+                .inner
+                .from
+                .clone()
+                .ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?,
+            amount: self.inner.amount.clone(),
+            token_ids: self.inner.token_ids.clone(),
+        }))
     }
 }
 
@@ -1553,27 +1638,31 @@ impl Hash for OpParams {
     }
 }
 
+/// Serves as a high-level representation of the structure and content of a program.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ProgramSchema {
     pub contract: Contract,
 }
 
+/// Holds information about the contract defined within a program.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Contract {
     pub name: String,
     pub version: String,
     pub language: String,
-    pub ops: HashMap<String, Ops>,
+    pub ops: HashMap<String, Op>,
 }
 
+/// Represents an operation in a contract.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-pub struct Ops {
+pub struct Op {
     pub description: String,
     pub help: Option<String>,
     pub signature: Option<OpSignature>,
     pub required: Option<Vec<Required>>,
 }
 
+/// Represents the signature of an operation ([`Op`]).
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct OpSignature {
     #[serde(flatten)]
@@ -1581,6 +1670,7 @@ pub struct OpSignature {
     pub params_mapping: HashMap<String, ParamSource>,
 }
 
+/// Information pertaining to the source of a parameter in the [`OpSignature`] of an [`Op`] in a [`Contract`].
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ParamSource {
     pub source: String,
@@ -1589,15 +1679,19 @@ pub struct ParamSource {
     pub position: usize,
 }
 
+/// Represents the prerequisites for an operation ([`Op`]).
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", content = "details")]
 pub enum Required {
+    /// Represents a call mapping in the prerequisites.
     Call(CallMap),
+    /// Represents a read mapping in the prerequisites.
     Read(ReadMap),
     Lock(LockPair),
     Unlock(LockPair),
 }
 
+/// Represents a call mapping in the prerequisites.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct CallMap {
     calling_program: TransactionFields,
@@ -1607,12 +1701,14 @@ pub struct CallMap {
     inputs: String,
 }
 
+/// Represents a read mapping in the prerequisites.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ReadMap {
     items: Vec<(String, String, String)>,
     contract_blobs: Option<Vec<String>>,
 }
 
+/// Represents a lock pair in the prerequisites.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LockPair {
     account: String,
@@ -1636,11 +1732,11 @@ impl ProgramSchema {
         self.contract().language.clone()
     }
 
-    pub fn ops(&self) -> &HashMap<String, Ops> {
+    pub fn ops(&self) -> &HashMap<String, Op> {
         &self.contract().ops
     }
 
-    pub fn get_op(&self, name: &str) -> Option<&Ops> {
+    pub fn get_op(&self, name: &str) -> Option<&Op> {
         self.ops().get(name)
     }
 
@@ -1684,10 +1780,12 @@ impl ProgramSchema {
     }
 }
 
+/// Trait for converting types into operation parameters.
 pub trait Parameterize {
     fn into_op_params(self) -> Vec<OpParams>;
 }
 
+/// Trait for converting operation parameters.
 pub trait Parameter {
     type Err;
 
