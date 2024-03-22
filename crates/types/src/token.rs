@@ -1,22 +1,22 @@
-use hex::FromHexError;
-use serde::{Serialize, Deserialize, Serializer, Deserializer, de::Visitor};
-use ethereum_types::U256 as EthU256;
-use std::collections::BTreeMap;
-use std::fmt::{Display, Debug};
-use std::ops::{AddAssign, SubAssign};
-use schemars::JsonSchema;
-use uint::construct_uint;
 use derive_builder::Builder;
+use ethereum_types::U256 as EthU256;
+use hex::FromHexError;
+use schemars::JsonSchema;
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Display};
+use std::ops::{AddAssign, SubAssign};
+use uint::construct_uint;
 
-use crate::{Address, RecoverableSignature, Transaction, TokenUpdateField};
+use crate::{Address, RecoverableSignature, TokenUpdateField, Transaction};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
 construct_uint! {
-	/// 256-bit unsigned integer.
-    #[derive(JsonSchema)] 
+    /// 256-bit unsigned integer.
+    #[derive(JsonSchema)]
     #[serde(rename_all = "camelCase")]
-	pub struct U256(4);
+    pub struct U256(4);
 }
 
 impl Serialize for U256 {
@@ -51,12 +51,12 @@ impl<'de> Visitor<'de> for U256Visitor {
     where
         E: serde::de::Error,
     {
-
         let value = if v.starts_with("0x") { &v[2..] } else { v };
         if value.starts_with("[") && v.ends_with("]") {
             // Parse as a byte array
             let nums_str = &v[1..v.len() - 1];
-            let nums: Vec<u64> = nums_str.split(',')
+            let nums: Vec<u64> = nums_str
+                .split(',')
                 .map(str::trim)
                 .map(|s| s.parse::<u64>().map_err(E::custom))
                 .collect::<Result<Vec<u64>, E>>()?;
@@ -131,13 +131,14 @@ impl From<&EthU256> for U256 {
     }
 }
 
-
 /// Represents a generic data container.
 ///
 /// This structure is used to store arbitrary data as a vector of bytes (`Vec<u8>`).
 /// It provides a default, cloneable, serializable, and debuggable interface. It is
 /// typically used for storing data that doesn't have a fixed format or structure.
-#[derive(Clone, Default, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Default, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ArbitraryData(BTreeMap<String, String>);
 
@@ -159,7 +160,7 @@ impl ArbitraryData {
     pub fn remove(&mut self, key: &str) -> Option<String> {
         self.0.remove(key)
     }
-    
+
     pub fn extend(&mut self, iter: BTreeMap<String, String>) {
         self.0.extend(iter);
     }
@@ -182,9 +183,8 @@ impl ArbitraryData {
     }
 
     pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
-        Ok(serde_json::from_slice(&hex::decode(hex)?).map_err(|_| {
-            FromHexError::InvalidStringLength
-        }))?
+        Ok(serde_json::from_slice(&hex::decode(hex)?)
+            .map_err(|_| FromHexError::InvalidStringLength))?
     }
 }
 
@@ -193,7 +193,9 @@ impl ArbitraryData {
 /// This structure is designed to encapsulate metadata, stored as a vector of bytes.
 /// It supports cloning, serialization, and debugging. The metadata can be of any
 /// form that fits into a byte array, making it a flexible container.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata(BTreeMap<String, String>);
 
@@ -232,21 +234,23 @@ impl Metadata {
     }
 
     pub fn from_hex(hex: &str) -> Result<Self, FromHexError> {
-        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|_| {
-            FromHexError::InvalidStringLength
-        }))?
+        Ok(bincode::deserialize(&hex::decode(hex)?).map_err(|_| FromHexError::InvalidStringLength))?
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenType {
     Fungible,
     NonFungible,
-    Data
+    Data,
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Token {
     program_id: Address,
@@ -271,51 +275,50 @@ impl Token {
 
     pub(crate) fn debit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
         if amount > &self.balance {
-            return Err(
-                Box::new(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "transfer amount exceeds balance".to_string() 
-                    )
-                )
-            )
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "transfer amount exceeds balance".to_string(),
+            )));
         }
 
         self.balance -= *amount;
-        return Ok(())
+        return Ok(());
     }
 
-    pub(crate) fn credit(&mut self, amount: &U256) -> Result<(), Box<dyn std::error::Error + Send>> {
+    pub(crate) fn credit(
+        &mut self,
+        amount: &U256,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.balance += *amount;
-        return Ok(())
+        return Ok(());
     }
 
-    pub(crate) fn remove_token_ids(&mut self, token_ids: &Vec<U256>) -> Result<(), Box<dyn std::error::Error + Send>> {
-        let positions: Vec<usize> = { 
-            token_ids.iter().filter_map(|nft| {
-                self.token_ids.iter().position(|i| i == nft)
-            }).collect()
+    pub(crate) fn remove_token_ids(
+        &mut self,
+        token_ids: &Vec<U256>,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
+        let positions: Vec<usize> = {
+            token_ids
+                .iter()
+                .filter_map(|nft| self.token_ids.iter().position(|i| i == nft))
+                .collect()
         };
 
         if positions.len() != token_ids.len() {
-            return Err(
-                Box::new(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "one or more of the token ids is not owned by the from account"
-                    )
-                )
-            )
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "one or more of the token ids is not owned by the from account",
+            )));
         }
 
-        self.token_ids.retain(|i| !token_ids.contains(i)); 
+        self.token_ids.retain(|i| !token_ids.contains(i));
 
         Ok(())
     }
 
     pub(crate) fn add_token_ids(
-        &mut self, 
-        token_ids: &Vec<U256>
+        &mut self,
+        token_ids: &Vec<U256>,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.token_ids.extend(token_ids);
         Ok(())
@@ -323,10 +326,10 @@ impl Token {
 
     pub(crate) fn apply_token_update_field_values(
         &mut self,
-        token_update_value: &TokenFieldValue
+        token_update_value: &TokenFieldValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying TokenFieldValue: {:?}", token_update_value);
-        match token_update_value { 
+        match token_update_value {
             TokenFieldValue::Data(data_update) => {
                 self.apply_data_update(data_update)?;
             }
@@ -367,7 +370,10 @@ impl Token {
         Ok(())
     }
 
-    fn apply_data_update(&mut self, data_update: &DataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn apply_data_update(
+        &mut self,
+        data_update: &DataValue,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying data update: {:?}", data_update);
         match data_update {
             DataValue::Insert(key, value) => {
@@ -384,7 +390,10 @@ impl Token {
         Ok(())
     }
 
-    fn apply_metadata_update(&mut self, metadata_update: &MetadataValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn apply_metadata_update(
+        &mut self,
+        metadata_update: &MetadataValue,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying metadata update: {:?}", metadata_update);
         match metadata_update {
             MetadataValue::Insert(key, value) => {
@@ -402,7 +411,10 @@ impl Token {
         Ok(())
     }
 
-    fn apply_approvals_update(&mut self, approvals_update: &ApprovalsValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn apply_approvals_update(
+        &mut self,
+        approvals_update: &ApprovalsValue,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying approvals update: {:?}", approvals_update);
         match approvals_update {
             ApprovalsValue::Insert(key, value) => {
@@ -419,7 +431,7 @@ impl Token {
                 let mut is_empty = false;
                 if let Some(entry) = self.approvals.get_mut(key) {
                     entry.retain(|v| !values.contains(v));
-                    is_empty = entry.is_empty(); 
+                    is_empty = entry.is_empty();
                 }
                 if is_empty {
                     self.approvals.remove(key);
@@ -432,7 +444,10 @@ impl Token {
         Ok(())
     }
 
-    fn apply_allowance_update(&mut self, allowance_update: &AllowanceValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn apply_allowance_update(
+        &mut self,
+        allowance_update: &AllowanceValue,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying approvals update: {:?}", allowance_update);
         match allowance_update {
             AllowanceValue::Insert(key, value) => {
@@ -449,7 +464,7 @@ impl Token {
                 let mut is_empty = false;
                 if let Some(entry) = self.allowance.get_mut(key) {
                     *entry -= *value;
-                    is_empty = *entry == U256::from(EthU256::from(0)); 
+                    is_empty = *entry == U256::from(EthU256::from(0));
                 }
                 if is_empty {
                     self.approvals.remove(key);
@@ -460,10 +475,12 @@ impl Token {
             }
         }
         Ok(())
-
     }
 
-    fn apply_status_update(&mut self, status_update: &StatusValue) -> Result<(), Box<dyn std::error::Error + Send>> {
+    fn apply_status_update(
+        &mut self,
+        status_update: &StatusValue,
+    ) -> Result<(), Box<dyn std::error::Error + Send>> {
         log::warn!("applying status update: {:?}", status_update);
         match status_update {
             StatusValue::Lock => {
@@ -472,18 +489,18 @@ impl Token {
             StatusValue::Unlock => {
                 self.status = Status::Free;
             }
-            StatusValue::Reverse => {
-                match &self.status {
-                    Status::Locked => self.status = Status::Free,
-                    Status::Free => self.status = Status::Locked,
-                }
-            }
+            StatusValue::Reverse => match &self.status {
+                Status::Locked => self.status = Status::Free,
+                Status::Free => self.status = Status::Locked,
+            },
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenField {
     ProgramId,
@@ -497,7 +514,9 @@ pub enum TokenField {
     Status,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenFieldValue {
     Balance(BalanceValue),
@@ -509,14 +528,18 @@ pub enum TokenFieldValue {
     Status(StatusValue),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum BalanceValue {
     Credit(U256),
     Debit(U256),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum MetadataValue {
     Insert(String, String),
@@ -524,7 +547,9 @@ pub enum MetadataValue {
     Remove(String),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenIdValue {
     Push(U256),
@@ -534,7 +559,9 @@ pub enum TokenIdValue {
     Remove(U256),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum AllowanceValue {
     Insert(Address, U256),
@@ -543,7 +570,9 @@ pub enum AllowanceValue {
     Revoke(Address),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalsValue {
     Insert(Address, Vec<U256>),
@@ -552,7 +581,9 @@ pub enum ApprovalsValue {
     Revoke(Address),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum DataValue {
     Insert(String, String),
@@ -560,7 +591,9 @@ pub enum DataValue {
     Remove(String),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusValue {
     Reverse,
@@ -575,7 +608,7 @@ impl Token {
 
     pub fn owner_id(&self) -> Address {
         self.owner_id.clone()
-    } 
+    }
 
     pub fn balance(&self) -> U256 {
         self.balance.clone()
@@ -637,10 +670,11 @@ impl Token {
         self.balance += receive;
         self.balance -= send;
     }
-
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum Status {
     Locked,
@@ -661,7 +695,9 @@ impl SubAssign for Token {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenWitness {
     user: Address,
@@ -673,15 +709,19 @@ pub struct TokenWitness {
     version: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionGraph {
-    transactions: BTreeMap<[u8; 32], GraphEntry>
+    transactions: BTreeMap<[u8; 32], GraphEntry>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphEntry {
     transaction: Transaction,
-    dependencies: Vec<[u8; 32]> 
+    dependencies: Vec<[u8; 32]>,
 }
