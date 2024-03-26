@@ -325,39 +325,37 @@ impl ValidatorCore {
                                             log::info!("is approved spender");
                                         }
                                     }
+                                } else if transfer_from_account
+                                    .validate_approved_spend(
+                                        token_address,
+                                        &caller.owner_address().clone(),
+                                        amt,
+                                    )
+                                    .is_err()
+                                {
+                                    match transfer_from_account.validate_approved_spend(
+                                        token_address,
+                                        &program_id,
+                                        amt,
+                                    ) {
+                                        Err(e) => {
+                                            let error_string = e.to_string();
+                                            let message = PendingTransactionMessage::Invalid {
+                                                transaction: tx.clone(),
+                                                e,
+                                            };
+                                            let _ = pending_transactions.cast(message);
+                                            return Err(Box::new(ValidatorError::Custom(
+                                                error_string,
+                                            ))
+                                                as Box<dyn std::error::Error + Send>);
+                                        }
+                                        _ => {
+                                            log::info!("is approved spender");
+                                        }
+                                    };
                                 } else {
-                                    if transfer_from_account
-                                        .validate_approved_spend(
-                                            token_address,
-                                            &caller.owner_address().clone(),
-                                            amt,
-                                        )
-                                        .is_err()
-                                    {
-                                        match transfer_from_account.validate_approved_spend(
-                                            token_address,
-                                            &program_id,
-                                            amt,
-                                        ) {
-                                            Err(e) => {
-                                                let error_string = e.to_string();
-                                                let message = PendingTransactionMessage::Invalid {
-                                                    transaction: tx.clone(),
-                                                    e,
-                                                };
-                                                let _ = pending_transactions.cast(message);
-                                                return Err(Box::new(ValidatorError::Custom(
-                                                    error_string,
-                                                ))
-                                                    as Box<dyn std::error::Error + Send>);
-                                            }
-                                            _ => {
-                                                log::info!("is approved spender");
-                                            }
-                                        };
-                                    } else {
-                                        log::info!("is approved spender");
-                                    }
+                                    log::info!("is approved spender");
                                 }
                             } else {
                                 // If non-fungible token check ids
@@ -846,31 +844,33 @@ impl ValidatorCore {
                                         {
                                             match account_map.get(program_update.account()) {
                                                 Some(Some(acct)) => {
-                                                    if acct.owner_address() != tx.from() {
-                                                        if !acct
+                                                    if acct.owner_address() != tx.from()
+                                                        && !acct
                                                             .program_account_linked_programs()
                                                             .contains(&AddressOrNamespace::Address(
                                                                 tx.to(),
                                                             ))
-                                                        {
-                                                            let err = {
-                                                                Box::new(
-                                                                    ValidatorError::Custom(
-                                                                        "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
-                                                                    )
-                                                                ) as Box<dyn std::error::Error + Send>
+                                                    {
+                                                        let err = {
+                                                            Box::new(
+                                                                 ValidatorError::Custom(
+                                                                     "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
+                                                                 )
+                                                             ) as Box<dyn std::error::Error + Send>
+                                                        };
+                                                        let message =
+                                                            PendingTransactionMessage::Invalid {
+                                                                transaction: tx.clone(),
+                                                                e: err,
                                                             };
-                                                            let message = PendingTransactionMessage::Invalid { transaction: tx.clone(), e: err };
-                                                            let _ =
-                                                                pending_transactions.cast(message);
-                                                            return Err(
-                                                                Box::new(
-                                                                    ValidatorError::Custom(
-                                                                        "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
-                                                                    )
-                                                                ) as Box<dyn std::error::Error + Send>
-                                                            );
-                                                        }
+                                                        let _ = pending_transactions.cast(message);
+                                                        return Err(
+                                                             Box::new(
+                                                                 ValidatorError::Custom(
+                                                                     "program called must be called by program owner, be the program itself, or a linked program to update another program account".to_string()
+                                                                 )
+                                                             ) as Box<dyn std::error::Error + Send>
+                                                         );
                                                     }
                                                 }
                                                 _ => {

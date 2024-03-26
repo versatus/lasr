@@ -1,6 +1,5 @@
-use crate::{get_account, pending_transactions};
+use crate::get_account;
 use async_trait::async_trait;
-use futures::stream::{FuturesOrdered, FuturesUnordered};
 use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobState, ServiceJobType};
@@ -13,7 +12,7 @@ use lasr_messages::{
     ActorType, EngineMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
 };
 use lasr_types::{Inputs, ProgramSchema, Required, Transaction};
-use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
@@ -148,7 +147,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         self.manager.pin_object(content_id, recursive).await
     }
 
-    pub(super) async fn create_bundle(&self, content_id: impl AsRef<Path>) -> std::io::Result<()> {
+    pub(super) async fn _create_bundle(&self, content_id: impl AsRef<Path>) -> std::io::Result<()> {
         self.manager.bundle(&content_id).await?;
         Ok(())
     }

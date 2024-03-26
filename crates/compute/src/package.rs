@@ -61,16 +61,16 @@ pub enum DocumentFormat {
 impl Display for DocumentFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Pdf => write!(f, "{}", "pdf"),
-            Self::Word => write!(f, "{}", "doc"),
-            Self::Excel => write!(f, "{}", "xlsx"),
-            Self::Powerpoint => write!(f, "{}", "ppt"),
-            Self::Zip => write!(f, "{}", "zip"),
-            Self::Rar => write!(f, "{}", "rar"),
-            Self::SevenZ => write!(f, "{}", "7z"),
-            Self::Tar => write!(f, "{}", "tar"),
-            Self::Gzip => write!(f, "{}", "gz"),
-            Self::TarGzip => write!(f, "{}", "tar.gz"),
+            Self::Pdf => write!(f, "pdf"),
+            Self::Word => write!(f, "doc"),
+            Self::Excel => write!(f, "xlsx"),
+            Self::Powerpoint => write!(f, "ppt"),
+            Self::Zip => write!(f, "zip"),
+            Self::Rar => write!(f, "rar"),
+            Self::SevenZ => write!(f, "7z"),
+            Self::Tar => write!(f, "tar"),
+            Self::Gzip => write!(f, "gz"),
+            Self::TarGzip => write!(f, "tar.gz"),
         }
     }
 }
@@ -103,26 +103,26 @@ pub enum FileFormat {
 impl Display for FileFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileFormat::Document(document_format) => write!(f, "{}", document_format.to_string()),
-            FileFormat::PlainText => write!(f, "{}", "txt"),
-            FileFormat::Html => write!(f, "{}", "html"),
-            FileFormat::Xml => write!(f, "{}", "xml"),
-            FileFormat::Json => write!(f, "{}", "json"),
-            FileFormat::Toml => write!(f, "{}", "toml"),
-            FileFormat::Yaml => write!(f, "{}", "yaml"),
-            FileFormat::Csv => write!(f, "{}", "csv"),
-            FileFormat::Markdown => write!(f, "{}", "md"),
-            FileFormat::Sql => write!(f, "{}", "sql"),
-            FileFormat::Cad => write!(f, "{}", "dwg"),
-            FileFormat::Stl => write!(f, "{}", "stl"),
-            FileFormat::Blender => write!(f, "{}", "blend"),
-            FileFormat::Obj => write!(f, "{}", "obj"),
-            FileFormat::Fbx => write!(f, "{}", "fbx"),
-            FileFormat::Collada => write!(f, "{}", "dae"),
-            FileFormat::Ply => write!(f, "{}", "ply"),
-            FileFormat::ThreeDS => write!(f, "{}", "3ds"),
-            FileFormat::Gltf => write!(f, "{}", ".gltf"),
-            FileFormat::Glb => write!(f, "{}", ".glb"),
+            FileFormat::Document(document_format) => write!(f, "{}", document_format),
+            FileFormat::PlainText => write!(f, "txt"),
+            FileFormat::Html => write!(f, "html"),
+            FileFormat::Xml => write!(f, "xml"),
+            FileFormat::Json => write!(f, "json"),
+            FileFormat::Toml => write!(f, "toml"),
+            FileFormat::Yaml => write!(f, "yaml"),
+            FileFormat::Csv => write!(f, "csv"),
+            FileFormat::Markdown => write!(f, "md"),
+            FileFormat::Sql => write!(f, "sql"),
+            FileFormat::Cad => write!(f, "dwg"),
+            FileFormat::Stl => write!(f, "stl"),
+            FileFormat::Blender => write!(f, "blend"),
+            FileFormat::Obj => write!(f, "obj"),
+            FileFormat::Fbx => write!(f, "fbx"),
+            FileFormat::Collada => write!(f, "dae"),
+            FileFormat::Ply => write!(f, "ply"),
+            FileFormat::ThreeDS => write!(f, "3ds"),
+            FileFormat::Gltf => write!(f, ".gltf"),
+            FileFormat::Glb => write!(f, ".glb"),
         }
     }
 }
@@ -141,11 +141,11 @@ pub enum ImageFormat {
 impl Display for ImageFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Jpeg => write!(f, "{}", "jpeg"),
-            Self::Png => write!(f, "{}", "png"),
-            Self::Gif => write!(f, "{}", "gif"),
-            Self::Bmp => write!(f, "{}", "bmp"),
-            Self::Svg => write!(f, "{}", "svg"),
+            Self::Jpeg => write!(f, "jpeg"),
+            Self::Png => write!(f, "png"),
+            Self::Gif => write!(f, "gif"),
+            Self::Bmp => write!(f, "bmp"),
+            Self::Svg => write!(f, "svg"),
             Self::Other(ext) => write!(f, "{}", ext),
         }
     }
@@ -164,10 +164,10 @@ pub enum AudioFormat {
 impl Display for AudioFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Mp3 => write!(f, "{}", "mp3"),
-            Self::Wav => write!(f, "{}", "wav"),
-            Self::Aac => write!(f, "{}", "aac"),
-            Self::Flac => write!(f, "{}", "flac"),
+            Self::Mp3 => write!(f, "mp3"),
+            Self::Wav => write!(f, "wav"),
+            Self::Aac => write!(f, "aac"),
+            Self::Flac => write!(f, "flac"),
             Self::Other(ext) => write!(f, "{}", ext),
         }
     }
@@ -185,10 +185,10 @@ pub enum VideoFormat {
 impl Display for VideoFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Mp4 => write!(f, "{}", "mp4"),
-            Self::Avi => write!(f, "{}", "avi"),
-            Self::Mov => write!(f, "{}", "mov"),
-            Self::Wmv => write!(f, "{}", "wmv"),
+            Self::Mp4 => write!(f, "mp4"),
+            Self::Avi => write!(f, "avi"),
+            Self::Mov => write!(f, "mov"),
+            Self::Wmv => write!(f, "wmv"),
         }
     }
 }
