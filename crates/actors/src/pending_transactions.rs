@@ -1,24 +1,20 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, sync::{Arc, RwLock}, time::Duration};
 use lasr_messages::{
-    PendingTransactionMessage,
-    ActorType,
-    ValidatorMessage, SchedulerMessage, ExecutorMessage,
+    ActorType, ExecutorMessage, PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
+};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, RwLock},
+    time::Duration,
 };
 
-use lasr_types::{
-    Address,
-    Outputs,
-    AddressOrNamespace, 
-    TransactionType,
-    Transaction,
-};
 use async_trait::async_trait;
-use ractor::{Actor, ActorRef, ActorProcessingErr};
+use chrono::prelude::*;
+use lasr_types::{Address, AddressOrNamespace, Outputs, Transaction, TransactionType};
+use ractor::{Actor, ActorProcessingErr, ActorRef};
 use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use thiserror::Error;
-use chrono::prelude::*;
 
 pub const PENDING_TIMEOUT: u64 = 15000;
 
@@ -28,32 +24,26 @@ pub struct Vertex {
     timestamp: u64,
     outputs: Option<Outputs>,
     accounts_touched: HashSet<Address>,
-    dependent_transactions: Vec<String>
+    dependent_transactions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct PreCallVertex {
     transaction: Transaction,
     program_account: Address,
-    dependencies: Vec<String>
+    dependencies: Vec<String>,
 }
 
 impl Vertex {
-    pub fn new(
-        transaction: Transaction,
-        outputs: Option<Outputs>,
-    ) -> Vertex {
-        let accounts_touched = Vertex::extract_accounts_touched(
-            &transaction,
-            &outputs
-        );
+    pub fn new(transaction: Transaction, outputs: Option<Outputs>) -> Vertex {
+        let accounts_touched = Vertex::extract_accounts_touched(&transaction, &outputs);
 
         let timestamp = Utc::now().timestamp_millis() as u64;
-        Vertex { 
+        Vertex {
             transaction,
             timestamp,
-            outputs, 
-            accounts_touched, 
+            outputs,
+            accounts_touched,
             dependent_transactions: Vec::new(),
         }
     }
@@ -61,46 +51,49 @@ impl Vertex {
     pub fn accounts_touched(&self) -> &HashSet<Address> {
         &self.accounts_touched
     }
-    
+
     pub fn accounts_touched_mut(&mut self) -> &mut HashSet<Address> {
         &mut self.accounts_touched
     }
 
     fn extract_accounts_touched(
         transaction: &Transaction,
-        outputs: &Option<Outputs>
+        outputs: &Option<Outputs>,
     ) -> HashSet<Address> {
         let mut accounts_involved = HashSet::new();
         accounts_involved.extend(transaction.get_accounts_involved());
         if let Some(o) = outputs {
-            let involved: Vec<Address> = o.instructions().iter().map(|inst| {
-                let nested: Vec<Address> = inst.get_accounts_involved()
-                    .iter()
-                    .filter_map(|addr| {
-                        match addr {
+            let involved: Vec<Address> = o
+                .instructions()
+                .iter()
+                .map(|inst| {
+                    let nested: Vec<Address> = inst
+                        .get_accounts_involved()
+                        .iter()
+                        .filter_map(|addr| match addr {
                             AddressOrNamespace::This => Some(transaction.to()),
                             AddressOrNamespace::Address(address) => Some(address.clone()),
-                            AddressOrNamespace::Namespace(_namespace) => None
-                        }
-                    }).collect();
-                nested
-            }).flatten().collect();
+                            AddressOrNamespace::Namespace(_namespace) => None,
+                        })
+                        .collect();
+                    nested
+                })
+                .flatten()
+                .collect();
             accounts_involved.extend(involved);
-        } 
+        }
 
-        return accounts_involved
+        return accounts_involved;
     }
 }
 
 impl PreCallVertex {
-    pub fn new(
-        transaction: Transaction
-    ) -> PreCallVertex {
+    pub fn new(transaction: Transaction) -> PreCallVertex {
         let program_account = transaction.to();
-        PreCallVertex { 
+        PreCallVertex {
             transaction,
             program_account,
-            dependencies: Vec::new() 
+            dependencies: Vec::new(),
         }
     }
 }
@@ -108,60 +101,56 @@ impl PreCallVertex {
 #[derive(Clone, Debug)]
 pub struct PreCallGraph {
     vertices: HashMap<String, Arc<RwLock<PreCallVertex>>>,
-    program_index: HashMap<Address, Vec<String>>
+    program_index: HashMap<Address, Vec<String>>,
 }
 
 impl PreCallGraph {
-
     pub fn new() -> PreCallGraph {
-        PreCallGraph { 
+        PreCallGraph {
             vertices: HashMap::new(),
-            program_index: HashMap::new() 
+            program_index: HashMap::new(),
         }
     }
 
-    pub fn add_call(
-        &mut self,
-        transaction: Transaction
-    ) {
-        log::info!("adding call: {} to pre-call graph for program: {}", &transaction.hash_string(), &transaction.to());
+    pub fn add_call(&mut self, transaction: Transaction) {
+        log::info!(
+            "adding call: {} to pre-call graph for program: {}",
+            &transaction.hash_string(),
+            &transaction.to()
+        );
         let transaction_id = transaction.hash_string();
 
         // New transaction, new vertex, who dis
-        let vertex = Arc::new(
-            RwLock::new(
-                PreCallVertex::new(
-                    transaction.clone()
-                )
-            )
-        );
-        
+        let vertex = Arc::new(RwLock::new(PreCallVertex::new(transaction.clone())));
+
         // set has_dependencies flag to false
         let mut has_dependencies = false;
 
         // check if we can acquire the read guard
         if let Ok(guard) = vertex.read() {
-            // guard acquired, get the transaction its related to and 
+            // guard acquired, get the transaction its related to and
             // pull the to address, this is the address to the program
             // being called
             let vertex_program_id = guard.transaction.to();
 
             // Insert the vertex into the graph vertices map, with transaction id/hash as key
-            self.vertices.insert(
-                transaction_id.clone(),
-                vertex.clone()
-            );
-            
+            self.vertices.insert(transaction_id.clone(), vertex.clone());
+
             // Check if an entry for the program id exists in the program index.
             // if so this means it has dependencies
-            let dependencies = self.program_index.entry(
-                vertex_program_id.clone()
-            ).or_insert_with(Vec::new);
-            
+            let dependencies = self
+                .program_index
+                .entry(vertex_program_id.clone())
+                .or_insert_with(Vec::new);
+
             for dependency_id in dependencies.iter() {
-                // For each dependency it has, get the relevant transaction vertex 
+                // For each dependency it has, get the relevant transaction vertex
                 if let Some(dep_vertex) = self.vertices.get(dependency_id) {
-                    log::warn!("found pre-call dependencies: {} for transaction: {}", &dependency_id, &transaction_id);
+                    log::warn!(
+                        "found pre-call dependencies: {} for transaction: {}",
+                        &dependency_id,
+                        &transaction_id
+                    );
                     // For each dependent transaction vertex acquire a write guard
                     if let Ok(mut dep_guard) = dep_vertex.write() {
                         // check if the dependencies include the current transaction
@@ -169,7 +158,7 @@ impl PreCallGraph {
                             // If not, add it.
                             dep_guard.dependencies.push(transaction_id.clone());
                         }
-                        //If so don't add it, but set the has dependencies flag to true 
+                        //If so don't add it, but set the has dependencies flag to true
                         //in either case, as a dependency exists
                         has_dependencies = true;
                     }
@@ -177,7 +166,7 @@ impl PreCallGraph {
             }
         }
 
-        // If the transaction has dependencies, it can't be executed yet 
+        // If the transaction has dependencies, it can't be executed yet
         // if it does not, forward it to executor for execution
         if !has_dependencies {
             log::warn!("no dependencies found, executing");
@@ -186,32 +175,30 @@ impl PreCallGraph {
     }
 
     fn handle_completed_exec(&mut self, transaction_hash: &str) -> std::io::Result<()> {
-        // When a transaction has completed execution, get the next transaction 
+        // When a transaction has completed execution, get the next transaction
         // dependency
         let next = {
             if let Some(exec_vertex) = self.vertices.remove(transaction_hash) {
                 if let Ok(mut guard) = exec_vertex.write() {
-
                     if !guard.dependencies.is_empty() {
                         guard.dependencies.remove(0)
                     } else {
-                        return Ok(())
+                        return Ok(());
                     }
                 } else {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "unable to acquire write guard on vertex for executed transaction"
-                        )
-                    )
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "unable to acquire write guard on vertex for executed transaction",
+                    ));
                 }
             } else {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("unable to find vertex associated with transaction {}", transaction_hash)
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "unable to find vertex associated with transaction {}",
+                        transaction_hash
+                    ),
+                ));
             }
         };
 
@@ -221,12 +208,10 @@ impl PreCallGraph {
                 let _ = self.send_to_executor(transaction);
             } else {
                 //return error
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("unable to find vertex associated with transaction {}", next)
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unable to find vertex associated with transaction {}", next),
+                ));
             }
         };
 
@@ -234,9 +219,13 @@ impl PreCallGraph {
     }
 
     fn send_to_executor(&self, transaction: Transaction) -> std::io::Result<()> {
-        let executor: ActorRef<ExecutorMessage> = ractor::registry::where_is(ActorType::Executor.to_string()).ok_or(
-            std::io::Error::new(std::io::ErrorKind::Other, "unable to acquire executor actor")
-        )?.into();
+        let executor: ActorRef<ExecutorMessage> =
+            ractor::registry::where_is(ActorType::Executor.to_string())
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to acquire executor actor",
+                ))?
+                .into();
 
         let message = ExecutorMessage::Exec { transaction };
 
@@ -249,14 +238,14 @@ impl PreCallGraph {
 #[derive(Clone, Debug)]
 pub struct PendingGraph {
     vertices: HashMap<String, Arc<RwLock<Vertex>>>,
-    account_index: HashMap<Address, VecDeque<String>>
+    account_index: HashMap<Address, VecDeque<String>>,
 }
 
 impl PendingGraph {
     pub fn new() -> PendingGraph {
-        PendingGraph { 
+        PendingGraph {
             vertices: HashMap::new(),
-            account_index: HashMap::new() 
+            account_index: HashMap::new(),
         }
     }
 
@@ -286,7 +275,7 @@ impl PendingGraph {
                 if let Some(vtx) = self.vertices.remove(&hash) {
                     // get the vertex
                     if let Ok(guard) = vtx.read() {
-                        // get the dependent transaction hashes and push them into 
+                        // get the dependent transaction hashes and push them into
                         // a vector
                         for dep in &guard.dependent_transactions {
                             log::warn!("collecting dependent transaction hashes");
@@ -349,31 +338,30 @@ impl PendingGraph {
                             let outputs = guard.outputs.clone();
                             log::warn!("scheduling: {} with validator", transaction_hash);
                             let _ = self.schedule_with_validator(transaction, outputs);
-                        } 
-                        Err(e) => log::error!("Unable to acquire read guard on vertex: {}: {}", transaction_hash, e),
+                        }
+                        Err(e) => log::error!(
+                            "Unable to acquire read guard on vertex: {}: {}",
+                            transaction_hash,
+                            e
+                        ),
                     }
                 }
             }
         }
     }
 
-    pub fn add_transaction(
-        &mut self, 
-        transaction: Transaction,
-        outputs: Option<Outputs>,
-    ) {
-        log::info!("adding transaction: {} to dependency graph", &transaction.hash_string());
-        let transaction_id = transaction.hash_string(); 
+    pub fn add_transaction(&mut self, transaction: Transaction, outputs: Option<Outputs>) {
+        log::info!(
+            "adding transaction: {} to dependency graph",
+            &transaction.hash_string()
+        );
+        let transaction_id = transaction.hash_string();
 
         // Create a new vertex
-        let vertex = Arc::new(
-            RwLock::new(
-                Vertex::new(
-                    transaction.clone(), 
-                    outputs.clone()
-                )
-            )
-        );
+        let vertex = Arc::new(RwLock::new(Vertex::new(
+            transaction.clone(),
+            outputs.clone(),
+        )));
 
         // set dependency flag to false
         let mut has_dependencies = false;
@@ -381,33 +369,42 @@ impl PendingGraph {
         // get vertex read guard
         if let Ok(guard) = vertex.read() {
             // get accounts involved
-            let vertex_accounts = guard.accounts_touched.clone(); 
+            let vertex_accounts = guard.accounts_touched.clone();
 
             // insert the vertex into the vertices map
-            self.vertices.insert(
-                transaction_id.clone(), 
-                vertex.clone()
-            );
+            self.vertices.insert(transaction_id.clone(), vertex.clone());
 
             for account in vertex_accounts {
                 // for each account involved in the transaction
                 // check if the account has an entry in the account index
-                let dependencies = self.account_index.entry(
-                    account.clone()
-                    // If not insert a new VecDeque
-                ).or_insert_with(VecDeque::new);
+                let dependencies = self
+                    .account_index
+                    .entry(
+                        account.clone(), // If not insert a new VecDeque
+                    )
+                    .or_insert_with(VecDeque::new);
 
                 for dependency_id in dependencies.iter() {
                     // for each dependency in the account dependencies entry
                     if let Some(dep_vertex) = self.vertices.get(dependency_id) {
                         // get the vertex for the dependency
-                        log::warn!("found dependencies: {} for transaction: {}", &dependency_id, &transaction_id);
+                        log::warn!(
+                            "found dependencies: {} for transaction: {}",
+                            &dependency_id,
+                            &transaction_id
+                        );
                         if let Ok(mut dep_guard) = dep_vertex.write() {
                             // add the current transaction to the back of its dependent
-                            // transactionsvector if it does not already contain the 
+                            // transactionsvector if it does not already contain the
                             // dependent transaction
-                            if !dep_guard.dependent_transactions.clone().contains(&transaction_id) {
-                                dep_guard.dependent_transactions.push(transaction_id.clone());
+                            if !dep_guard
+                                .dependent_transactions
+                                .clone()
+                                .contains(&transaction_id)
+                            {
+                                dep_guard
+                                    .dependent_transactions
+                                    .push(transaction_id.clone());
                             }
                             // set the dependency flag to true
                             has_dependencies = true;
@@ -423,7 +420,7 @@ impl PendingGraph {
         }
 
         if !has_dependencies {
-            // If there are no dependencies, then go ahead and schedule the 
+            // If there are no dependencies, then go ahead and schedule the
             // transaction with the validator
             log::warn!("no dependencies found, scheduling with validator");
             let _ = self.schedule_with_validator(transaction, outputs);
@@ -437,10 +434,17 @@ impl PendingGraph {
             for (id, vertex) in self.vertices.iter() {
                 log::info!("checking for dependent transactions");
                 if let Ok(mut guard) = vertex.write() {
-                    if let Some(index) = guard.dependent_transactions.iter().position(|hash| hash == validated_transaction_hash) {
+                    if let Some(index) = guard
+                        .dependent_transactions
+                        .iter()
+                        .position(|hash| hash == validated_transaction_hash)
+                    {
                         let _ = guard.dependent_transactions.remove(index);
                         if guard.dependent_transactions.is_empty() {
-                            log::info!("marking dependent transaction: {} ready for validation", &id);
+                            log::info!(
+                                "marking dependent transaction: {} ready for validation",
+                                &id
+                            );
                             transactions_ready_for_validation.push(id.clone());
                         }
                     }
@@ -454,7 +458,10 @@ impl PendingGraph {
                             "removing validated transaction {:?} from dependency graph for account: {}", 
                             &validated_transaction_hash, &account
                         );
-                        if let Some(index) = &transactions.iter().position(|hash| hash == validated_transaction_hash) {
+                        if let Some(index) = &transactions
+                            .iter()
+                            .position(|hash| hash == validated_transaction_hash)
+                        {
                             transactions.remove(*index);
                         }
                     }
@@ -465,17 +472,28 @@ impl PendingGraph {
         transactions_ready_for_validation
     }
 
-    fn handle_invalid(&mut self, invalid_transaction_hash: &str, e: Box<dyn std::error::Error + Send>) -> Result<Vec<String>,PendingTransactionError> {
+    fn handle_invalid(
+        &mut self,
+        invalid_transaction_hash: &str,
+        e: Box<dyn std::error::Error + Send>,
+    ) -> Result<Vec<String>, PendingTransactionError> {
         log::info!("handling invalid transaction");
         let mut transactions_ready_for_validation = Vec::new();
         if let Some(invalid_vertex) = self.vertices.remove(invalid_transaction_hash) {
             for (id, vertex) in self.vertices.iter() {
                 log::info!("checking for dependenty transactions");
                 if let Ok(mut guard) = vertex.write() {
-                    if let Some(index) = guard.dependent_transactions.iter().position(|hash| hash == invalid_transaction_hash) {
+                    if let Some(index) = guard
+                        .dependent_transactions
+                        .iter()
+                        .position(|hash| hash == invalid_transaction_hash)
+                    {
                         let _ = guard.dependent_transactions.remove(index);
                         if guard.dependent_transactions.is_empty() {
-                            log::info!("marking dependent transaction: {} ready for validation", &id);
+                            log::info!(
+                                "marking dependent transaction: {} ready for validation",
+                                &id
+                            );
                             transactions_ready_for_validation.push(id.clone());
                         }
                     }
@@ -490,7 +508,10 @@ impl PendingGraph {
                             &invalid_transaction_hash, &account
                         );
 
-                        if let Some(index) = &transactions.iter().position(|hash| hash == invalid_transaction_hash) {
+                        if let Some(index) = &transactions
+                            .iter()
+                            .position(|hash| hash == invalid_transaction_hash)
+                        {
                             transactions.remove(*index);
                         }
                     }
@@ -498,15 +519,14 @@ impl PendingGraph {
             }
         }
 
-        let scheduler: ActorRef<SchedulerMessage> = ractor::registry::where_is(
-            ActorType::Scheduler.to_string()
-        ).ok_or(
-            PendingTransactionError
-        )?.into();
+        let scheduler: ActorRef<SchedulerMessage> =
+            ractor::registry::where_is(ActorType::Scheduler.to_string())
+                .ok_or(PendingTransactionError)?
+                .into();
 
-        let message = SchedulerMessage::SendTransactionFailure { 
-            transaction_hash: invalid_transaction_hash.to_string(), 
-            error: e 
+        let message = SchedulerMessage::SendTransactionFailure {
+            transaction_hash: invalid_transaction_hash.to_string(),
+            error: e,
         };
 
         let _ = scheduler.cast(message);
@@ -515,52 +535,51 @@ impl PendingGraph {
 
     fn get_transactions(
         &self,
-        transaction_ids: Vec<String>
+        transaction_ids: Vec<String>,
     ) -> Vec<(Transaction, Option<Outputs>)> {
         log::info!("acquiring transactions from the dependency graph");
-        transaction_ids.into_iter().filter_map(|id| {
-            if let Some(vertex) = self.vertices.get(&id) {
-                if let Ok(guard) = vertex.read() {
-                    Some((guard.transaction.clone(), guard.outputs.clone()))
+        transaction_ids
+            .into_iter()
+            .filter_map(|id| {
+                if let Some(vertex) = self.vertices.get(&id) {
+                    if let Ok(guard) = vertex.read() {
+                        Some((guard.transaction.clone(), guard.outputs.clone()))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            } else {
-                None
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     fn schedule_with_validator(
         &mut self,
         transaction: Transaction,
-        outputs: Option<Outputs>
+        outputs: Option<Outputs>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let validator: ActorRef<ValidatorMessage> = ractor::registry::where_is(
-            ActorType::Validator.to_string()
-        ).ok_or(
-            PendingTransactionError
-        ).map_err(|e| Box::new(e))?.into();
-        log::warn!("casting message to validator to validate transaction: {}", &transaction.hash_string());
+        let validator: ActorRef<ValidatorMessage> =
+            ractor::registry::where_is(ActorType::Validator.to_string())
+                .ok_or(PendingTransactionError)
+                .map_err(|e| Box::new(e))?
+                .into();
+        log::warn!(
+            "casting message to validator to validate transaction: {}",
+            &transaction.hash_string()
+        );
         let message = match transaction.transaction_type() {
-            TransactionType::Send(_) => { 
-                ValidatorMessage::PendingTransaction { transaction }
+            TransactionType::Send(_) => ValidatorMessage::PendingTransaction { transaction },
+            TransactionType::Call(_) => ValidatorMessage::PendingCall {
+                outputs,
+                transaction,
             },
-            TransactionType::Call(_) => {
-                ValidatorMessage::PendingCall { outputs, transaction }
-            },
-            TransactionType::BridgeIn(_) => {
-                ValidatorMessage::PendingTransaction { transaction }
-            }
+            TransactionType::BridgeIn(_) => ValidatorMessage::PendingTransaction { transaction },
             _ => {
-                return Err(
-                    Box::new(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "have not implemented validation for this transaction type"
-                        )
-                    ) as Box<dyn std::error::Error>
-                )
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "have not implemented validation for this transaction type",
+                )) as Box<dyn std::error::Error>)
             }
         };
         validator.cast(message)?;
@@ -578,7 +597,7 @@ impl DependencyGraphs {
     pub fn new() -> Self {
         Self {
             pending: PendingGraph::new(),
-            pre_call: PreCallGraph::new()
+            pre_call: PreCallGraph::new(),
         }
     }
 
@@ -591,16 +610,23 @@ impl DependencyGraphs {
     }
 
     pub fn handle_completed_exec(&mut self, transaction_hash: &str) {
-        if let Err(e) = self.pre_call.handle_completed_exec(transaction_hash) { 
+        if let Err(e) = self.pre_call.handle_completed_exec(transaction_hash) {
             log::error!("Error in handle_completed_exec: {e}");
         }
     }
 
-    pub fn get_transactions(&self, transaction_ids: Vec<String>) -> Vec<(Transaction, Option<Outputs>)> {
+    pub fn get_transactions(
+        &self,
+        transaction_ids: Vec<String>,
+    ) -> Vec<(Transaction, Option<Outputs>)> {
         self.pending.get_transactions(transaction_ids)
     }
 
-    pub fn schedule_with_validator(&mut self, transaction: Transaction, outputs: Option<Outputs>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn schedule_with_validator(
+        &mut self,
+        transaction: Transaction,
+        outputs: Option<Outputs>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.pending.schedule_with_validator(transaction, outputs)
     }
 
@@ -608,10 +634,14 @@ impl DependencyGraphs {
         self.pending.handle_valid(transaction_hash)
     }
 
-    pub fn handle_invalid(&mut self, transaction_hash: &str, e: Box<dyn std::error::Error + Send>) -> Result<Vec<String>, PendingTransactionError> {
+    pub fn handle_invalid(
+        &mut self,
+        transaction_hash: &str,
+        e: Box<dyn std::error::Error + Send>,
+    ) -> Result<Vec<String>, PendingTransactionError> {
         self.pending.handle_invalid(transaction_hash, e)
     }
-    
+
     pub fn clean_pending_graph(&mut self) {
         self.pending.clean_graph();
     }
@@ -625,7 +655,7 @@ impl DependencyGraphs {
 pub struct PendingTransactionActor;
 
 #[derive(Debug, Clone, Error)]
-pub struct  PendingTransactionError;
+pub struct PendingTransactionError;
 
 impl Display for PendingTransactionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -636,15 +666,15 @@ impl Display for PendingTransactionError {
 #[async_trait]
 impl Actor for PendingTransactionActor {
     type Msg = PendingTransactionMessage;
-    type State = DependencyGraphs; 
+    type State = DependencyGraphs;
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(DependencyGraphs::new()) 
+        Ok(DependencyGraphs::new())
     }
 
     async fn handle(
@@ -654,26 +684,42 @@ impl Actor for PendingTransactionActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            PendingTransactionMessage::New { transaction, outputs }  => {
+            PendingTransactionMessage::New {
+                transaction,
+                outputs,
+            } => {
                 log::warn!("received new transction {}", transaction.hash_string());
                 state.add_transaction(transaction.clone(), outputs);
-                log::warn!("added transaction: {} to dependency graph", transaction.hash_string());
+                log::warn!(
+                    "added transaction: {} to dependency graph",
+                    transaction.hash_string()
+                );
             }
             PendingTransactionMessage::NewCall { transaction } => {
-                log::warn!("received new call transaction {}", transaction.hash_string());
+                log::warn!(
+                    "received new call transaction {}",
+                    transaction.hash_string()
+                );
                 state.add_call(transaction.clone());
-                log::warn!("added call transaction: {} to pre-call dependency graph", transaction.hash_string());
+                log::warn!(
+                    "added call transaction: {} to pre-call dependency graph",
+                    transaction.hash_string()
+                );
             }
             PendingTransactionMessage::ExecSuccess { transaction } => {
-                log::warn!("received notice that transaction {} successfully executed", &transaction.hash_string());
+                log::warn!(
+                    "received notice that transaction {} successfully executed",
+                    &transaction.hash_string()
+                );
                 state.handle_completed_exec(&transaction.hash_string());
             }
             PendingTransactionMessage::Valid { transaction, .. } => {
-                log::info!("received notice transaction is valid: {}", transaction.hash_string());
-                let get_transactions = state.handle_valid(&transaction.hash_string());
-                let transactions_ready_for_validation = state.get_transactions(
-                    get_transactions
+                log::info!(
+                    "received notice transaction is valid: {}",
+                    transaction.hash_string()
                 );
+                let get_transactions = state.handle_valid(&transaction.hash_string());
+                let transactions_ready_for_validation = state.get_transactions(get_transactions);
 
                 for (transaction, outputs) in transactions_ready_for_validation {
                     let _ = state.schedule_with_validator(transaction, outputs);
@@ -681,34 +727,29 @@ impl Actor for PendingTransactionActor {
             }
             PendingTransactionMessage::Invalid { transaction, e } => {
                 log::error!("transaction: {} is invalid: {e}", transaction.hash_string());
-                let transactions_ready_for_validation = match state.handle_invalid(&transaction.hash_string(), e) {
-                    Ok(get_transactions) => {
-                        state.get_transactions(
-                            get_transactions
-                        )
-                    }
-                    Err(e) => {
-                        log::error!("Error handling invalid transaction {e}");
-                        vec![]
-                    }
-                };
+                let transactions_ready_for_validation =
+                    match state.handle_invalid(&transaction.hash_string(), e) {
+                        Ok(get_transactions) => state.get_transactions(get_transactions),
+                        Err(e) => {
+                            log::error!("Error handling invalid transaction {e}");
+                            vec![]
+                        }
+                    };
 
                 for (transaction, outputs) in transactions_ready_for_validation {
                     let _ = state.schedule_with_validator(transaction, outputs);
                 }
             }
-            PendingTransactionMessage::GetPendingTransaction { 
-                transaction_hash: _, 
-                sender: _ 
+            PendingTransactionMessage::GetPendingTransaction {
+                transaction_hash: _,
+                sender: _,
             } => {
                 log::info!("Pending transaction requested");
             }
             PendingTransactionMessage::ValidCall { transaction, .. } => {
                 let get_transactions = state.handle_valid(&transaction.hash_string());
                 log::warn!("received valid transactions in pending transaction in graph for transaction: {}", transaction.hash_string());
-                let transactions_ready_for_validation = state.get_transactions(
-                    get_transactions
-                );
+                let transactions_ready_for_validation = state.get_transactions(get_transactions);
 
                 for (transaction, outputs) in transactions_ready_for_validation {
                     log::warn!("scheduling: {} with validator", transaction.hash_string());
@@ -719,7 +760,7 @@ impl Actor for PendingTransactionActor {
                 log::warn!("Attempting to clean pending graph");
                 state.clean_pending_graph();
             }
-            PendingTransactionMessage::Confirmed { .. }=> {
+            PendingTransactionMessage::Confirmed { .. } => {
                 todo!()
             }
         }
@@ -727,16 +768,14 @@ impl Actor for PendingTransactionActor {
     }
 }
 
-
 pub async fn graph_cleaner() -> std::io::Result<()> {
-    let pt_actor: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
-        ActorType::PendingTransactions.to_string()
-    ).ok_or(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "unable to acquire PendingTransactions Actor"
-        )
-    )?.into();
+    let pt_actor: ActorRef<PendingTransactionMessage> =
+        ractor::registry::where_is(ActorType::PendingTransactions.to_string())
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to acquire PendingTransactions Actor",
+            ))?
+            .into();
 
     loop {
         tokio::time::sleep(Duration::from_millis(PENDING_TIMEOUT)).await;

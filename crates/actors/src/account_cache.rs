@@ -1,10 +1,8 @@
 use crate::MAX_BATCH_SIZE;
-use lasr_messages::{
-    AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse,
-};
-use lasr_types::{Account, Address, AccountType};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
+use lasr_messages::{AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse};
+use lasr_types::{Account, AccountType, Address};
 use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use std::{
     collections::HashMap,
@@ -215,7 +213,8 @@ impl Actor for AccountCacheActor {
                     // Pass along to EO
                     // EO passes along to DA if Account Blob discovered
                     let response = Err(RpcResponseError {
-                        description: "Unable to acquire account from DA or Protocol Cache".to_string()
+                        description: "Unable to acquire account from DA or Protocol Cache"
+                            .to_string(),
                     });
                     let _ = reply.send(RpcMessage::Response {
                         response,
@@ -233,9 +232,9 @@ pub struct AccountCacheSupervisor;
 #[async_trait]
 impl Actor for AccountCacheSupervisor {
     type Msg = AccountCacheMessage;
-    type State = (); 
+    type State = ();
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -249,22 +248,26 @@ impl Actor for AccountCacheSupervisor {
         &self,
         _myself: ActorRef<Self::Msg>,
         message: SupervisionEvent,
-        _state: &mut Self::State
+        _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         log::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!("actor started: {:?}, status: {:?}", actor.get_name(), actor.get_status());
-            },
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
-            },
+            }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
-            },
+            }
             SupervisionEvent::PidLifecycleEvent(event) => {
                 log::info!("pid lifecycle event: {:?}", event);
-            },
+            }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 log::warn!("process group changed: {:?}", m.get_group());
             }

@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, path::PathBuf, fmt::Display};
-use secp256k1::{SecretKey, Secp256k1, Message};
-use serde::{Serialize, Deserialize};
 use derive_builder::Builder;
+use secp256k1::{Message, Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
+use std::{collections::BTreeMap, fmt::Display, path::PathBuf};
 
 use lasr_types::RecoverableSignature;
 
@@ -55,7 +55,7 @@ pub enum DocumentFormat {
     SevenZ,
     Tar,
     Gzip,
-    TarGzip
+    TarGzip,
 }
 
 impl Display for DocumentFormat {
@@ -97,19 +97,19 @@ pub enum FileFormat {
     ThreeDS,
     Gltf,
     Glb,
-    Document(DocumentFormat)
+    Document(DocumentFormat),
 }
 
 impl Display for FileFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FileFormat::Document(document_format) => write!(f, "{}", document_format.to_string()),
-            FileFormat::PlainText => write!(f, "{}", "txt"), 
+            FileFormat::PlainText => write!(f, "{}", "txt"),
             FileFormat::Html => write!(f, "{}", "html"),
             FileFormat::Xml => write!(f, "{}", "xml"),
-            FileFormat::Json => write!(f, "{}", "json"), 
+            FileFormat::Json => write!(f, "{}", "json"),
             FileFormat::Toml => write!(f, "{}", "toml"),
-            FileFormat::Yaml => write!(f, "{}", "yaml"), 
+            FileFormat::Yaml => write!(f, "{}", "yaml"),
             FileFormat::Csv => write!(f, "{}", "csv"),
             FileFormat::Markdown => write!(f, "{}", "md"),
             FileFormat::Sql => write!(f, "{}", "sql"),
@@ -117,7 +117,7 @@ impl Display for FileFormat {
             FileFormat::Stl => write!(f, "{}", "stl"),
             FileFormat::Blender => write!(f, "{}", "blend"),
             FileFormat::Obj => write!(f, "{}", "obj"),
-            FileFormat::Fbx => write!(f, "{}", "fbx"), 
+            FileFormat::Fbx => write!(f, "{}", "fbx"),
             FileFormat::Collada => write!(f, "{}", "dae"),
             FileFormat::Ply => write!(f, "{}", "ply"),
             FileFormat::ThreeDS => write!(f, "{}", "3ds"),
@@ -135,7 +135,7 @@ pub enum ImageFormat {
     Gif,
     Bmp,
     Svg,
-    Other(String)
+    Other(String),
 }
 
 impl Display for ImageFormat {
@@ -158,7 +158,7 @@ pub enum AudioFormat {
     Wav,
     Aac,
     Flac,
-    Other(String)
+    Other(String),
 }
 
 impl Display for AudioFormat {
@@ -188,7 +188,7 @@ impl Display for VideoFormat {
             Self::Mp4 => write!(f, "{}", "mp4"),
             Self::Avi => write!(f, "{}", "avi"),
             Self::Mov => write!(f, "{}", "mov"),
-            Self::Wmv => write!(f, "{}", "wmv")
+            Self::Wmv => write!(f, "{}", "wmv"),
         }
     }
 }
@@ -245,18 +245,19 @@ impl From<&str> for LasrContentType {
             "mov" => LasrContentType::Video(VideoFormat::Mov),
             "wmv" => LasrContentType::Video(VideoFormat::Wmv),
             "" => LasrContentType::Program(ProgramFormat::Executable),
-            _ => LasrContentType::Program(ProgramFormat::Script(value.to_string()))
+            _ => LasrContentType::Program(ProgramFormat::Script(value.to_string())),
         }
     }
 }
 
 impl From<PathBuf> for LasrContentType {
     fn from(value: PathBuf) -> Self {
-        let extension = value.extension()
+        let extension = value
+            .extension()
             .and_then(|ext| ext.to_str())
             .unwrap_or_default()
             .to_lowercase();
- 
+
         match extension.as_str() {
             "txt" => LasrContentType::Document(FileFormat::PlainText),
             "html" => LasrContentType::Document(FileFormat::Html),
@@ -307,7 +308,7 @@ impl From<(&str, &str)> for LasrPackageType {
         match value.0 {
             "runtime" => LasrPackageType::Runtime(LasrObjectRuntime::from(value.1)),
             "content" => LasrPackageType::Content(LasrContentType::from(value.1)),
-            _ => LasrPackageType::Program(LasrObjectRuntime::from(value.1))
+            _ => LasrPackageType::Program(LasrObjectRuntime::from(value.1)),
         }
     }
 }
@@ -383,13 +384,12 @@ pub trait SignableObject: Serialize {
     fn sign(&self, sk: &SecretKey) -> Result<RecoverableSignature, std::io::Error> {
         let ctx = Secp256k1::new();
 
-        let bytes = self.hash().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?;
+        let bytes = self
+            .hash()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        let msg = Message::from_digest_slice(&bytes).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?;
+        let msg = Message::from_digest_slice(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         Ok(ctx.sign_ecdsa_recoverable(&msg, sk).into())
     }

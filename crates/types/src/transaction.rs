@@ -1,17 +1,17 @@
-use schemars::JsonSchema;
-use serde::{Serialize, Deserialize, Deserializer};
-use sha3::{Sha3_256, Digest, Keccak256};
-use crate::{Address, Token, TokenBuilder, Metadata, ArbitraryData, Status};
+use crate::{Address, ArbitraryData, Metadata, Status, Token, TokenBuilder};
 use crate::{RecoverableSignature, RecoverableSignatureBuilder};
-use std::collections::BTreeMap;
-use std::fmt::{LowerHex, Display};
-use secp256k1::{PublicKey, Secp256k1};
-use thiserror::Error;
 use derive_builder::Builder;
+use schemars::JsonSchema;
+use secp256k1::{PublicKey, Secp256k1};
+use serde::{Deserialize, Deserializer, Serialize};
+use sha3::{Digest, Keccak256, Sha3_256};
+use std::collections::BTreeMap;
+use std::fmt::{Display, LowerHex};
+use thiserror::Error;
 
 #[derive(Clone, Debug, Error)]
 pub enum ToTokenError {
-    Custom(String)
+    Custom(String),
 }
 
 impl Display for ToTokenError {
@@ -20,69 +20,63 @@ impl Display for ToTokenError {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TransactionType {
     BridgeIn(crate::U256),
     Send(crate::U256),
     Call(crate::U256),
     BridgeOut(crate::U256),
-    RegisterProgram(crate::U256)
+    RegisterProgram(crate::U256),
 }
 
 impl TransactionType {
     pub fn is_send(&self) -> bool {
         match self {
             TransactionType::Send(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_bridge_in(&self) -> bool {
         match self {
             TransactionType::BridgeIn(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_call(&self) -> bool {
         match self {
             TransactionType::Call(_) => true,
-            _ => false
+            _ => false,
         }
     }
-    
+
     pub fn is_bridge_out(&self) -> bool {
         match self {
             TransactionType::BridgeOut(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_register_program(&self) -> bool {
         match self {
             TransactionType::RegisterProgram(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            Self::BridgeIn(n) => {
-                return serde_json::json!({"bridgeIn": format!("0x{:064x}", n)})
-            }
-            Self::Send(n) => {
-                return serde_json::json!({"send": format!("0x{:064x}", n)})
-            }
-            Self::Call(n) => {
-                return serde_json::json!({"call": format!("0x{:064x}", n)})
-            }
+            Self::BridgeIn(n) => return serde_json::json!({"bridgeIn": format!("0x{:064x}", n)}),
+            Self::Send(n) => return serde_json::json!({"send": format!("0x{:064x}", n)}),
+            Self::Call(n) => return serde_json::json!({"call": format!("0x{:064x}", n)}),
             Self::RegisterProgram(n) => {
                 return serde_json::json!({"registerProgram": format!("0x{:064x}", n)})
             }
-            Self::BridgeOut(n) => {
-                return serde_json::json!({"bridgeOut": format!("0x{:064x}", n)})
-            }
+            Self::BridgeOut(n) => return serde_json::json!({"bridgeOut": format!("0x{:064x}", n)}),
         }
     }
 }
@@ -99,7 +93,9 @@ impl ToString for TransactionType {
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Payload {
     transaction_type: TransactionType,
@@ -174,7 +170,8 @@ impl Payload {
             "transactionInputs": self.inputs().clone(),
             "value": format!("0x{:064x}", self.value()),
             "nonce": format!("0x{:064x}", self.nonce())
-        }).to_string();
+        })
+        .to_string();
 
         log::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
@@ -185,7 +182,7 @@ impl Payload {
 #[serde(untagged)]
 pub enum HexOr20Bytes {
     Hex(String),
-    Bytes([u8; 20])
+    Bytes([u8; 20]),
 }
 
 // Custom serializer for byte arrays to hex strings
@@ -197,30 +194,40 @@ where
     serializer.serialize_str(&format!("0x{}", hex_string))
 }
 
-pub fn deserialize_address_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error> 
+pub fn deserialize_address_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 20], D::Error>
 where
-    D: Deserializer<'de>
+    D: Deserializer<'de>,
 {
     let input = HexOr20Bytes::deserialize(deserializer)?;
     match input {
         HexOr20Bytes::Hex(value) => {
             if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..]).map_err(|e| serde::de::Error::custom(e.to_string()))?;
-                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20-byte array")) 
+                let bytes = hex::decode(&value[2..])
+                    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| {
+                    serde::de::Error::custom("Hex string does not represent valid 20-byte array")
+                })
             } else if value.starts_with("[") && value.ends_with("]") {
                 let bytes_str = &value[1..value.len() - 1];
-                let bytes: Vec<u8> = bytes_str.split(',')
+                let bytes: Vec<u8> = bytes_str
+                    .split(',')
                     .map(str::trim)
-                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom)).collect::<Result<Vec<u8>, D::Error>>()?;
-                bytes.try_into().map_err(|_| serde::de::Error::custom("Bytes string does not represent a value 20-byte array"))
+                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom))
+                    .collect::<Result<Vec<u8>, D::Error>>()?;
+                bytes.try_into().map_err(|_| {
+                    serde::de::Error::custom(
+                        "Bytes string does not represent a value 20-byte array",
+                    )
+                })
             } else {
-                let bytes = hex::decode(&value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
-                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20 byte array"))
+                let bytes =
+                    hex::decode(&value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| {
+                    serde::de::Error::custom("Hex string does not represent valid 20 byte array")
+                })
             }
         }
-        HexOr20Bytes::Bytes(v) => {
-            Ok(v)
-        }
+        HexOr20Bytes::Bytes(v) => Ok(v),
     }
 }
 
@@ -228,44 +235,67 @@ where
 #[serde(untagged)]
 pub enum HexOr32Bytes {
     Hex(String),
-    Bytes([u8; 32])
+    Bytes([u8; 32]),
 }
 
-pub fn deserialize_sig_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error> 
+pub fn deserialize_sig_bytes_or_string<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
-    D: Deserializer<'de>
+    D: Deserializer<'de>,
 {
     let input = HexOr32Bytes::deserialize(deserializer)?;
     match input {
         HexOr32Bytes::Hex(value) => {
             if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..]).map_err(|e| serde::de::Error::custom(e.to_string()))?;
-                bytes.try_into().map_err(|_| serde::de::Error::custom("Hex string does not represent valid 20-byte array")) 
+                let bytes = hex::decode(&value[2..])
+                    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+                bytes.try_into().map_err(|_| {
+                    serde::de::Error::custom("Hex string does not represent valid 20-byte array")
+                })
             } else if value.starts_with("[") && value.ends_with("]") {
                 let bytes_str = &value[1..value.len() - 1];
-                let bytes: Vec<u8> = bytes_str.split(',')
+                let bytes: Vec<u8> = bytes_str
+                    .split(',')
                     .map(str::trim)
-                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom)).collect::<Result<Vec<u8>, D::Error>>()?;
-                bytes.try_into().map_err(|_| serde::de::Error::custom("Bytes string does not represent a value 20-byte array"))
+                    .map(|s| s.parse::<u8>().map_err(serde::de::Error::custom))
+                    .collect::<Result<Vec<u8>, D::Error>>()?;
+                bytes.try_into().map_err(|_| {
+                    serde::de::Error::custom(
+                        "Bytes string does not represent a value 20-byte array",
+                    )
+                })
             } else {
-                Err(serde::de::Error::custom("unable to deserialize as a string"))
+                Err(serde::de::Error::custom(
+                    "unable to deserialize as a string",
+                ))
             }
         }
-        HexOr32Bytes::Bytes(v) => {
-            Ok(v)
-        }
+        HexOr32Bytes::Bytes(v) => Ok(v),
     }
 }
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
     transaction_type: TransactionType,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_address_bytes_or_string"
+    )]
     from: [u8; 20],
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_address_bytes_or_string"
+    )]
     to: [u8; 20],
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_address_bytes_or_string", alias= "token", alias="token_address", alias="program_address")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_address_bytes_or_string",
+        alias = "token",
+        alias = "token_address",
+        alias = "program_address"
+    )]
     program_id: [u8; 20],
     op: String,
     #[serde(rename(serialize = "transactionInputs", deserialize = "transactionInputs"))]
@@ -273,9 +303,15 @@ pub struct Transaction {
     value: crate::U256,
     nonce: crate::U256,
     v: i32,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_sig_bytes_or_string"
+    )]
     r: [u8; 32],
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_sig_bytes_or_string"
+    )]
     s: [u8; 32],
 }
 
@@ -292,13 +328,15 @@ impl Default for Transaction {
             nonce: crate::U256::from(0),
             v: 0,
             r: [0u8; 32],
-            s: [0u8; 32]
+            s: [0u8; 32],
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(rename_all(deserialize="lowercase"))]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all(deserialize = "lowercase"))]
 pub enum TransactionFields {
     TransactionType,
     From,
@@ -346,12 +384,13 @@ impl Transaction {
         self.nonce
     }
 
-    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> { 
+    pub fn sig(&self) -> Result<RecoverableSignature, Box<dyn std::error::Error>> {
         let sig = RecoverableSignatureBuilder::default()
             .r(self.r)
             .s(self.s)
             .v(self.v)
-            .build().map_err(|e| Box::new(e))?;
+            .build()
+            .map_err(|e| Box::new(e))?;
 
         Ok(sig)
     }
@@ -363,9 +402,9 @@ impl Transaction {
 
         if v >= 27 && v <= 28 {
             let sig = ethers_core::types::Signature {
-                r: ethers_core::abi::ethereum_types::U256::from(r), 
-                s: ethers_core::abi::ethereum_types::U256::from(s), 
-                v: v as u64
+                r: ethers_core::abi::ethereum_types::U256::from(r),
+                s: ethers_core::abi::ethereum_types::U256::from(s),
+                v: v as u64,
             };
             log::warn!("attempting to recover from {}", sig.to_string());
             let addr = sig.recover(self.hash())?;
@@ -404,17 +443,25 @@ impl Transaction {
             "transactionInputs": self.inputs().clone(),
             "value": format!("0x{:064x}", self.value()),
             "nonce": format!("0x{:064x}", self.nonce())
-        }).to_string();
+        })
+        .to_string();
 
         log::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
     }
 
     pub fn verify_signature(&self) -> Result<(), secp256k1::Error> {
-        let addr = self.sig().map_err(|_| secp256k1::Error::InvalidMessage)?.recover(&self.hash())?;
+        let addr = self
+            .sig()
+            .map_err(|_| secp256k1::Error::InvalidMessage)?
+            .recover(&self.hash())?;
         if self.from() != addr {
-            log::error!("self.from() {} != addr {}", self.from().to_full_string(), addr.to_full_string());
-            return Err(secp256k1::Error::InvalidSignature)
+            log::error!(
+                "self.from() {} != addr {}",
+                self.from().to_full_string(),
+                addr.to_full_string()
+            );
+            return Err(secp256k1::Error::InvalidSignature);
         }
 
         Ok(())
@@ -436,17 +483,17 @@ impl LowerHex for Transaction {
 
 impl From<(Payload, RecoverableSignature)> for Transaction {
     fn from(value: (Payload, RecoverableSignature)) -> Self {
-        Transaction { 
-            transaction_type: value.0.transaction_type(), 
-            from: value.0.from(), 
-            to: value.0.to(), 
-            program_id: value.0.program_id(), 
+        Transaction {
+            transaction_type: value.0.transaction_type(),
+            from: value.0.from(),
+            to: value.0.to(),
+            program_id: value.0.program_id(),
             op: value.0.op(),
-            inputs: value.0.inputs(), 
-            value: value.0.value(), 
+            inputs: value.0.inputs(),
+            value: value.0.value(),
             nonce: value.0.nonce(),
-            v: value.1.get_v(), 
-            r: value.1.get_r(), 
+            v: value.1.get_v(),
+            r: value.1.get_r(),
             s: value.1.get_s(),
         }
     }
@@ -464,7 +511,8 @@ impl From<Transaction> for Token {
             .approvals(BTreeMap::new())
             .data(ArbitraryData::new())
             .status(Status::Free)
-            .build().unwrap()
+            .build()
+            .unwrap()
     }
 }
 
@@ -484,10 +532,7 @@ impl TryFrom<(Token, Transaction)> for Token {
                     .data(value.0.data())
                     .status(value.0.status())
                     .build()
-                    .map_err(|e| {
-                        Box::new(e) as Box<dyn std::error::Error + Send>
-                    })?
-                )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
             }
             return Ok(TokenBuilder::default()
                 .program_id(value.0.program_id())
@@ -499,8 +544,8 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .approvals(value.0.approvals())
                 .data(value.0.data())
                 .status(value.0.status())
-                .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-            );
+                .build()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
         }
 
         if value.1.to() == value.0.owner_id() {
@@ -514,16 +559,13 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .approvals(value.0.approvals())
                 .data(value.0.data())
                 .status(value.0.status())
-                .build().map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
-            );
+                .build()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
         }
 
-        return Err(
-            Box::new(
-                ToTokenError::Custom(
-                    "cannot convert into token, token owner_id does not match sender or receiver".to_string()
-                )
-            )
-        )
+        return Err(Box::new(ToTokenError::Custom(
+            "cannot convert into token, token owner_id does not match sender or receiver"
+                .to_string(),
+        )));
     }
 }

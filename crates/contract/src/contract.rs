@@ -1,4 +1,8 @@
-use lasr_types::{Instruction, AddressOrNamespace, U256};
+use lasr_types::{AddressOrNamespace, Instruction, U256};
 pub trait PayableContract {
-    fn receive_payment(from: AddressOrNamespace, amount: Option<U256>, token_ids: Vec<U256>) -> Vec<Instruction>;
+    fn receive_payment(
+        from: AddressOrNamespace,
+        amount: Option<U256>,
+        token_ids: Vec<U256>,
+    ) -> Vec<Instruction>;
 }
