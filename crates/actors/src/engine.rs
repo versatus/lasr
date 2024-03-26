@@ -62,7 +62,7 @@ impl Engine {
                 return account;
             }
 
-            if let Ok(mut account) = self.get_account_from_da(&address).await {
+            if let Ok(mut account) = self.get_account_from_da(address).await {
                 return account;
             }
         } else {
@@ -70,13 +70,12 @@ impl Engine {
                 return account;
             }
 
-            if let Ok(mut account) = self.get_account_from_da(&address).await {
+            if let Ok(mut account) = self.get_account_from_da(address).await {
                 return account;
             }
         }
 
-        let account = Account::new(account_type, None, address.clone(), None);
-        return account;
+        Account::new(account_type, None, *address, None)
     }
 
     async fn get_caller_account(&self, address: &Address) -> Result<Account, EngineError> {
@@ -84,13 +83,13 @@ impl Engine {
             return Ok(account);
         }
 
-        if let Ok(mut account) = self.get_account_from_da(&address).await {
+        if let Ok(mut account) = self.get_account_from_da(address).await {
             return Ok(account);
         }
 
-        return Err(EngineError::Custom(
+        Err(EngineError::Custom(
             "caller account does not exist".to_string(),
-        ));
+        ))
     }
 
     async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
@@ -104,9 +103,9 @@ impl Engine {
             }
         }
 
-        return Err(EngineError::Custom(
+        Err(EngineError::Custom(
             "caller account does not exist".to_string(),
-        ));
+        ))
     }
 
     async fn write_to_cache(&self, account: Account) -> Result<(), EngineError> {
@@ -123,7 +122,7 @@ impl Engine {
             "checking account cache for account: {} from engine",
             &address.to_full_string()
         );
-        Ok(check_account_cache(address.clone()).await)
+        Ok(check_account_cache(*address).await)
     }
 
     async fn handle_cache_response(
@@ -161,7 +160,7 @@ impl Engine {
     > {
         let (tx, rx) = oneshot();
         let message = EoMessage::GetAccountBlobIndex {
-            address: account.clone(),
+            address: *account,
             sender: tx,
         };
         let actor: ActorRef<EoMessage> =
@@ -183,7 +182,7 @@ impl Engine {
     }
 
     async fn get_account_from_da(&self, address: &Address) -> Result<Account, EngineError> {
-        check_da_for_account(address.clone())
+        check_da_for_account(*address)
             .await
             .ok_or(EngineError::Custom(format!(
                 "unable to find account 0x{:x}",
@@ -322,7 +321,7 @@ impl Engine {
         &self,
         transaction: Transaction,
         transaction_hash: String,
-        outputs: &String,
+        outputs: &str,
     ) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
@@ -344,7 +343,11 @@ impl Engine {
                     "Error: engine.rs: 336: Deserialization of outputs failed: {}",
                     e
                 );
-                self.respond_with_error(transaction.hash_string(), outputs.clone(), error_string);
+                self.respond_with_error(
+                    transaction.hash_string(),
+                    outputs.to_owned(),
+                    error_string,
+                );
                 return Err(e);
             }
         };

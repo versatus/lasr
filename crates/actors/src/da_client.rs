@@ -89,7 +89,7 @@ impl Actor for DaClient {
                 tx,
             } => {
                 log::warn!("Received a RetrieveAccount message");
-                let batch_header_hash = base64::encode(&batch_header_hash.0);
+                let batch_header_hash = base64::encode(batch_header_hash.0);
                 let res = self
                     .client
                     .retrieve_blob(&batch_header_hash.into(), blob_index);
@@ -134,10 +134,10 @@ impl Actor for DaClient {
 
 async fn get_blob_status(
     client: &EigenDaGrpcClient,
-    request_id: &String,
+    request_id: &str,
 ) -> Result<BlobStatus, std::io::Error> {
     log::info!("acquired blob status");
-    client.clone().get_blob_status(&request_id.clone()[..])
+    client.clone().get_blob_status(&request_id.to_owned()[..])
 }
 
 #[async_recursion::async_recursion]

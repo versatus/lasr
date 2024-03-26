@@ -238,7 +238,7 @@ impl Certificate {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
+        serde_json::from_str(&String::from_utf8_lossy(bytes).into_owned())
     }
 }
 

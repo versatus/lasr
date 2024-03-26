@@ -67,7 +67,7 @@ impl PendingBlobCache {
             ractor::registry::where_is(ActorType::DaClient.to_string())
                 .ok_or(Box::new(PendingBlobError) as Box<dyn std::error::Error>)?
                 .into();
-        let _ = da_actor.cast(DaClientMessage::ValidateBlob {
+        da_actor.cast(DaClientMessage::ValidateBlob {
             request_id: response.request_id(),
             tx,
         })?;
@@ -105,9 +105,7 @@ impl Actor for BlobCacheActor {
         message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        match message {
-            _ => {}
-        }
+        let _ = message;
         Ok(())
     }
 }

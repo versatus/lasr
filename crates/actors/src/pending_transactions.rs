@@ -66,24 +66,23 @@ impl Vertex {
             let involved: Vec<Address> = o
                 .instructions()
                 .iter()
-                .map(|inst| {
+                .flat_map(|inst| {
                     let nested: Vec<Address> = inst
                         .get_accounts_involved()
                         .iter()
                         .filter_map(|addr| match addr {
                             AddressOrNamespace::This => Some(transaction.to()),
-                            AddressOrNamespace::Address(address) => Some(address.clone()),
+                            AddressOrNamespace::Address(address) => Some(*address),
                             AddressOrNamespace::Namespace(_namespace) => None,
                         })
                         .collect();
                     nested
                 })
-                .flatten()
                 .collect();
             accounts_involved.extend(involved);
         }
 
-        return accounts_involved;
+        accounts_involved
     }
 }
 
@@ -138,10 +137,7 @@ impl PreCallGraph {
 
             // Check if an entry for the program id exists in the program index.
             // if so this means it has dependencies
-            let dependencies = self
-                .program_index
-                .entry(vertex_program_id.clone())
-                .or_insert_with(Vec::new);
+            let dependencies = self.program_index.entry(vertex_program_id).or_default();
 
             for dependency_id in dependencies.iter() {
                 // For each dependency it has, get the relevant transaction vertex
@@ -292,7 +288,7 @@ impl PendingGraph {
                         match vtx.write() {
                             Ok(mut guard) => {
                                 guard.accounts_touched_mut().iter().for_each(|account| {
-                                    let account_dependencies = self.account_index.get_mut(&account);
+                                    let account_dependencies = self.account_index.get_mut(account);
                                     if let Some(act_deps) = account_dependencies {
                                         if let Some(index) = &act_deps.iter().position(|h| h.clone() == hash) {
                                             act_deps.remove(*index);
@@ -304,11 +300,7 @@ impl PendingGraph {
                                 let act_next: VecDeque<String> = accounts_involved.iter().filter_map(|acct| {
                                     let account_dependencies = self.account_index.get(acct);
                                     if let Some(act_deps) = account_dependencies {
-                                        if let Some(first) = act_deps.get(0) {
-                                            Some(first.clone())
-                                        } else {
-                                            None
-                                        }
+                                        act_deps.front().cloned()
                                     } else {
                                         None
                                     }
@@ -380,9 +372,9 @@ impl PendingGraph {
                 let dependencies = self
                     .account_index
                     .entry(
-                        account.clone(), // If not insert a new VecDeque
+                        account, // If not insert a new VecDeque
                     )
-                    .or_insert_with(VecDeque::new);
+                    .or_default();
 
                 for dependency_id in dependencies.iter() {
                     // for each dependency in the account dependencies entry
@@ -562,7 +554,7 @@ impl PendingGraph {
         let validator: ActorRef<ValidatorMessage> =
             ractor::registry::where_is(ActorType::Validator.to_string())
                 .ok_or(PendingTransactionError)
-                .map_err(|e| Box::new(e))?
+                .map_err(Box::new)?
                 .into();
         log::warn!(
             "casting message to validator to validate transaction: {}",

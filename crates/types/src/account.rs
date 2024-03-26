@@ -994,7 +994,7 @@ impl Account {
                         "spender not approved by this account",
                     )));
                 } else {
-                    for nft in token_ids {
+                    if let Some(nft) = token_ids.iter().next() {
                         if !entry.contains(nft) {
                             return Err(Box::new(std::io::Error::new(
                                 std::io::ErrorKind::Other,

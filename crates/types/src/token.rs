@@ -51,8 +51,12 @@ impl<'de> Visitor<'de> for U256Visitor {
     where
         E: serde::de::Error,
     {
-        let value = if v.starts_with("0x") { &v[2..] } else { v };
-        if value.starts_with("[") && v.ends_with("]") {
+        let value = if let Some(value) = v.strip_prefix("0x") {
+            value
+        } else {
+            v
+        };
+        if value.starts_with('[') && v.ends_with(']') {
             // Parse as a byte array
             let nums_str = &v[1..v.len() - 1];
             let nums: Vec<u64> = nums_str
@@ -97,13 +101,13 @@ impl From<EthU256> for &U256 {
 
 impl From<&mut U256> for U256 {
     fn from(value: &mut U256) -> Self {
-        value.clone()
+        *value
     }
 }
 
 impl From<&mut U256> for EthU256 {
     fn from(value: &mut U256) -> Self {
-        EthU256(value.0.clone())
+        EthU256(value.0)
     }
 }
 
@@ -121,13 +125,13 @@ impl From<EthU256> for U256 {
 
 impl From<&U256> for EthU256 {
     fn from(value: &U256) -> Self {
-        EthU256(value.0.clone())
+        EthU256(value.0)
     }
 }
 
 impl From<&EthU256> for U256 {
     fn from(value: &EthU256) -> Self {
-        U256(value.0.clone())
+        U256(value.0)
     }
 }
 
@@ -175,7 +179,7 @@ impl ArbitraryData {
 
     pub fn to_hex(&self) -> Result<String, serde_json::Error> {
         let bytes = self.to_bytes()?;
-        Ok(hex::encode(&bytes))
+        Ok(hex::encode(bytes))
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
@@ -226,7 +230,7 @@ impl Metadata {
 
     pub fn to_hex(&self) -> Result<String, Box<bincode::ErrorKind>> {
         let bytes = self.to_bytes()?;
-        Ok(hex::encode(&bytes))
+        Ok(hex::encode(bytes))
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
@@ -282,7 +286,7 @@ impl Token {
         }
 
         self.balance -= *amount;
-        return Ok(());
+        Ok(())
     }
 
     pub(crate) fn credit(
@@ -290,7 +294,7 @@ impl Token {
         amount: &U256,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         self.balance += *amount;
-        return Ok(());
+        Ok(())
     }
 
     pub(crate) fn remove_token_ids(
@@ -421,11 +425,11 @@ impl Token {
                 if let Some(entry) = self.approvals.get_mut(key) {
                     entry.extend(value.clone());
                 } else {
-                    self.approvals.insert(key.clone(), value.clone());
+                    self.approvals.insert(*key, value.clone());
                 }
             }
             ApprovalsValue::Extend(values) => {
-                self.approvals.extend(values.into_iter().cloned());
+                self.approvals.extend(values.iter().cloned());
             }
             ApprovalsValue::Remove(key, values) => {
                 let mut is_empty = false;
@@ -454,11 +458,11 @@ impl Token {
                 if let Some(entry) = self.allowance.get_mut(key) {
                     *entry += *value;
                 } else {
-                    self.allowance.insert(key.clone(), value.clone());
+                    self.allowance.insert(*key, *value);
                 }
             }
             AllowanceValue::Extend(values) => {
-                self.allowance.extend(values.into_iter().cloned());
+                self.allowance.extend(values.iter().cloned());
             }
             AllowanceValue::Remove(key, value) => {
                 let mut is_empty = false;
@@ -603,15 +607,15 @@ pub enum StatusValue {
 
 impl Token {
     pub fn program_id(&self) -> Address {
-        self.program_id.clone()
+        self.program_id
     }
 
     pub fn owner_id(&self) -> Address {
-        self.owner_id.clone()
+        self.owner_id
     }
 
     pub fn balance(&self) -> U256 {
-        self.balance.clone()
+        self.balance
     }
 
     pub fn balance_mut(&mut self) -> &mut U256 {

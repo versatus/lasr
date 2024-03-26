@@ -37,9 +37,11 @@ impl Default for SchedulerError {
     }
 }
 
+pub type MethodResults = Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>;
+
 pub struct SchedulerState {
     pub reply_map: HashMap<String, RpcReplyPort<RpcMessage>>,
-    pub handle_method_results: Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>,
+    pub handle_method_results: MethodResults,
     pub scheduler_results_handler: JoinHandle<()>,
 }
 

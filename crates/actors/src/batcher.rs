@@ -1609,7 +1609,7 @@ impl Batcher {
             .map(|(k, _)| k.clone())
             .collect();
 
-        let decoded = base64::decode(&proof.batch_metadata().batch_header_hash().to_string())
+        let decoded = base64::decode(proof.batch_metadata().batch_header_hash().to_string())
             .map_err(|e| {
                 BatcherError::Custom("unable to decode batch_header_hash()".to_string())
             })?;
