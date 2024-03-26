@@ -1,11 +1,13 @@
-use schemars::JsonSchema;
-use serde::{Serialize, Deserialize};
-use ethers_core::types::Signature as ElectrumSignature;
-use std::collections::BTreeSet;
-use secp256k1::{PublicKey, ecdsa::{RecoverableSignature as Signature, RecoveryId}, Message};
 use crate::{deserialize_sig_bytes_or_string, Address};
 use derive_builder::Builder;
-
+use ethers_core::types::Signature as ElectrumSignature;
+use schemars::JsonSchema;
+use secp256k1::{
+    ecdsa::{RecoverableSignature as Signature, RecoveryId},
+    Message, PublicKey,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 // Custom serializer for byte arrays to hex strings
 fn serialize_as_hex<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
@@ -22,13 +24,21 @@ where
 /// two 32-byte arrays `r` and `s`, and a recovery id `v`. The signature can be
 /// used in cryptographic operations where the public key needs to be recovered
 /// from the signature and the original message.
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)] 
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct RecoverableSignature {
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_sig_bytes_or_string"
+    )]
     r: [u8; 32],
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_sig_bytes_or_string")]
+    #[serde(
+        serialize_with = "serialize_as_hex",
+        deserialize_with = "deserialize_sig_bytes_or_string"
+    )]
     s: [u8; 32],
-    v: i32
+    v: i32,
 }
 
 impl RecoverableSignature {
@@ -42,15 +52,17 @@ impl RecoverableSignature {
         let s_hex = hex::encode(self.get_s());
         log::warn!("attempting to recover from r: {}, s: {}", r_hex, s_hex);
         log::warn!("MessageBytes: {}", hex::encode(message_bytes));
-        if self.v >= 27 && self.v <=28 {
+        if self.v >= 27 && self.v <= 28 {
             log::warn!("v is >= 27, <= 28, using electrum signature");
             let esig = ElectrumSignature {
                 r: ethers_core::abi::ethereum_types::U256::from(self.get_r()),
                 s: ethers_core::abi::ethereum_types::U256::from(self.get_s()),
-                v: self.get_v() as u64
+                v: self.get_v() as u64,
             };
 
-            let eaddr = esig.recover(message_bytes).map_err(|_| secp256k1::Error::InvalidSignature)?; 
+            let eaddr = esig
+                .recover(message_bytes)
+                .map_err(|_| secp256k1::Error::InvalidSignature)?;
             log::warn!("{:?}", eaddr);
 
             Ok(Address::from(eaddr))
@@ -68,7 +80,11 @@ impl RecoverableSignature {
         let sig = Signature::try_from(self)?.to_standard();
         log::info!("reconstructing message: {}", hex::encode(message));
         let msg = Message::from_digest_slice(&message)?;
-        log::info!("verifying message: {} with pubkey: {}", hex::encode(message), pk.to_string());
+        log::info!(
+            "verifying message: {} with pubkey: {}",
+            hex::encode(message),
+            pk.to_string()
+        );
         sig.verify(&msg, &pk)
     }
 
@@ -118,7 +134,11 @@ impl From<Signature> for RecoverableSignature {
         r.copy_from_slice(&rs[0..32]);
         s.copy_from_slice(&rs[32..]);
 
-        Self { r, s, v: v.to_i32() }
+        Self {
+            r,
+            s,
+            v: v.to_i32(),
+        }
     }
 }
 
@@ -131,24 +151,24 @@ impl TryFrom<RecoverableSignature> for Signature {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else if recovery_id >= 27 && recovery_id <= 30 {
             recovery_id -= 27;
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else if recovery_id >= 35 && recovery_id <= 38 {
             recovery_id -= 35;
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         }
     }
 }
@@ -162,33 +182,34 @@ impl TryFrom<&RecoverableSignature> for Signature {
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else if recovery_id >= 27 && recovery_id <= 30 {
             recovery_id -= 27;
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else if recovery_id >= 35 && recovery_id <= 38 {
             recovery_id -= 35;
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         } else {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
         }
     }
 }
 
-
-#[derive(Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct Certificate {
     quorum_id: [u8; 20],
-    quorum_sigs: BTreeSet<RecoverableSignature>
+    quorum_sigs: BTreeSet<RecoverableSignature>,
 }
 
 impl Certificate {
@@ -200,12 +221,13 @@ impl Certificate {
 
         let sigs: &BTreeSet<RecoverableSignature> = &self.quorum_sigs;
         bytes.extend(
-            &sigs.iter()
+            &sigs
+                .iter()
                 .map(|sig| sig.to_vec())
                 .collect::<Vec<Vec<u8>>>()
                 .into_iter()
                 .flatten()
-                .collect::<Vec<u8>>()
+                .collect::<Vec<u8>>(),
         );
 
         bytes

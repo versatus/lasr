@@ -1,22 +1,25 @@
-use std::collections::{HashMap, HashSet};
 use async_trait::async_trait;
-use futures::stream::FuturesUnordered;
-use ractor::{concurrency::{OneshotReceiver, oneshot}, ActorProcessingErr};
-use lasr_messages::{DaClientMessage, BlobCacheMessage, ActorType};
-use lasr_types::{Address, Transaction};
-use eigenda_client::response::BlobResponse;
 use eigenda_client::proof::BlobVerificationProof;
-use thiserror::Error;
-use std::fmt::Display;
-use ractor::ActorRef;
+use eigenda_client::response::BlobResponse;
+use futures::stream::FuturesUnordered;
+use lasr_messages::{ActorType, BlobCacheMessage, DaClientMessage};
+use lasr_types::{Address, Transaction};
 use ractor::Actor;
+use ractor::ActorRef;
+use ractor::{
+    concurrency::{oneshot, OneshotReceiver},
+    ActorProcessingErr,
+};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use thiserror::Error;
 
 #[derive(Debug)]
 pub struct PendingBlobCache {
-    //TODO(asmith) create an ergonimical RequestId struct for EigenDa 
+    //TODO(asmith) create an ergonimical RequestId struct for EigenDa
     //Blob responses
-    queue: HashMap<String/*request_id*/, (HashSet<Address>, HashSet<Transaction>)>,
-    receivers: FuturesUnordered<OneshotReceiver<(String/*request_id*/, BlobVerificationProof)>>,
+    queue: HashMap<String /*request_id*/, (HashSet<Address>, HashSet<Transaction>)>,
+    receivers: FuturesUnordered<OneshotReceiver<(String /*request_id*/, BlobVerificationProof)>>,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -29,8 +32,7 @@ impl Display for PendingBlobError {
 }
 
 impl PendingBlobCache {
-    pub fn new(
-    ) -> Self {
+    pub fn new() -> Self {
         let queue = HashMap::new();
         let receivers = FuturesUnordered::new();
         Self { queue, receivers }
@@ -38,9 +40,9 @@ impl PendingBlobCache {
 
     #[allow(unused)]
     fn handle_queue_removal(
-        &mut self, 
+        &mut self,
         response: BlobResponse,
-        proof: BlobVerificationProof
+        proof: BlobVerificationProof,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.queue.remove(&response.request_id());
         Ok(())
@@ -56,19 +58,19 @@ impl PendingBlobCache {
         if let Some(entry) = self.queue.get_mut(&response.request_id()) {
             *entry = (accounts, transactions);
         } else {
-            self.queue.insert(response.request_id(), (accounts, transactions));
+            self.queue
+                .insert(response.request_id(), (accounts, transactions));
         }
         let (tx, rx) = oneshot();
         self.receivers.push(rx);
-        let da_actor: ActorRef<DaClientMessage> = ractor::registry::where_is(ActorType::DaClient.to_string()).ok_or(
-            Box::new(PendingBlobError) as Box<dyn std::error::Error>
-        )?.into();
-        let _ = da_actor.cast(
-            DaClientMessage::ValidateBlob { 
-                request_id: response.request_id(),
-                tx
-            }
-        )?;
+        let da_actor: ActorRef<DaClientMessage> =
+            ractor::registry::where_is(ActorType::DaClient.to_string())
+                .ok_or(Box::new(PendingBlobError) as Box<dyn std::error::Error>)?
+                .into();
+        let _ = da_actor.cast(DaClientMessage::ValidateBlob {
+            request_id: response.request_id(),
+            tx,
+        })?;
 
         Ok(())
     }
@@ -86,15 +88,15 @@ impl BlobCacheActor {
 #[async_trait]
 impl Actor for BlobCacheActor {
     type Msg = BlobCacheMessage;
-    type State = PendingBlobCache; 
+    type State = PendingBlobCache;
     type Arguments = ();
-    
+
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(PendingBlobCache::new()) 
+        Ok(PendingBlobCache::new())
     }
 
     async fn handle(
