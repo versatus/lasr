@@ -11,6 +11,7 @@ use lasr_actors::AccountCacheActor;
 use lasr_actors::AccountCacheSupervisor;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
+use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
@@ -35,6 +36,8 @@ use lasr_types::Address;
 use ractor::Actor;
 
 use secp256k1::Secp256k1;
+use tokio::sync::mpsc;
+use web3::futures::future::BoxFuture;
 use web3::types::BlockNumber;
 
 #[tokio::main]
@@ -119,6 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(compute_rpc_client, storage_rpc_client);
 
+    let (tx, mut rx) = mpsc::channel(100);
+
     let blob_cache_actor = BlobCacheActor::new();
     let account_cache_actor = AccountCacheActor::new();
     let pending_transaction_actor = PendingTransactionActor;
@@ -131,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
-    let batcher_actor = BatcherActor;
+    let batcher_actor = BatcherActor::new(tx);
     let executor_actor = ExecutorActor;
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(|e| Box::new(e))?;

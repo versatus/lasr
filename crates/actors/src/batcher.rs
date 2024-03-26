@@ -5,19 +5,19 @@ use sha3::{Digest, Keccak256};
 use async_trait::async_trait;
 use eigenda_client::{batch, proof::BlobVerificationProof, response::BlobResponse};
 use ethereum_types::H256;
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::{stream::{FuturesUnordered, StreamExt}, FutureExt};
 use ractor::{Actor, ActorRef, ActorProcessingErr, factory::CustomHashFunction, concurrency::{oneshot, OneshotReceiver}, ActorCell};
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use thiserror::Error;
-use tokio::{task::JoinHandle, sync::mpsc::{UnboundedSender, Sender, Receiver}};
-use web3::types::BlockNumber;
+use tokio::{task::JoinHandle, sync::mpsc::{self, UnboundedSender, Sender, Receiver}};
+use web3::{types::BlockNumber, futures::future::BoxFuture};
 use std::io::Write;
 use flate2::{Compression, write::{ZlibEncoder, ZlibDecoder}};
 
 use crate::{
     get_account, 
-    handle_actor_response, 
+    handle_actor_response, create_actor, 
 }; 
 use lasr_messages::{
     BatcherMessage, 
@@ -75,9 +75,6 @@ impl Display for BatcherError {
         write!(f, "{:?}", self)
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct BatcherActor;
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize)]
 pub struct Batch {
@@ -1502,12 +1499,7 @@ impl Batcher {
     }
 }
 
-impl BatcherActor {
-    pub fn new() -> Self {
-        BatcherActor
-    }
-}
-
+create_actor!(BatcherActor, Result<(), BatcherError>);
 #[async_trait]
 impl Actor for BatcherActor {
     type Msg = BatcherMessage;
@@ -1519,7 +1511,7 @@ impl Actor for BatcherActor {
         myself: ActorRef<Self::Msg>,
         args: Batcher,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(args) 
+        Ok(args)
     }
 
     async fn handle(
@@ -1530,8 +1522,7 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             BatcherMessage::GetNextBatch => {
-                let res = state.handle_next_batch_request().await;
-                if let Err(e) = res {
+                if let Err(e) = self.tx.send(state.handle_next_batch_request().boxed()).await {
                     log::error!("{e}");
                 }
             }
