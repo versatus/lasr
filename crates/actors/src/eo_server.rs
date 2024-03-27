@@ -21,7 +21,7 @@ use lasr_messages::{
     SchedulerMessage, SettlementEvent, SettlementEventBuilder, ValidatorMessage,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EoServer;
 
 pub struct EoServerWrapper {

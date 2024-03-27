@@ -76,7 +76,13 @@ impl PendingBlobCache {
     }
 }
 
-#[derive(Debug, Clone)]
+impl Default for PendingBlobCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct BlobCacheActor;
 
 impl BlobCacheActor {
@@ -96,7 +102,7 @@ impl Actor for BlobCacheActor {
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(PendingBlobCache::new())
+        Ok(PendingBlobCache::default())
     }
 
     async fn handle(

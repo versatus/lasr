@@ -46,7 +46,7 @@ pub struct SchedulerState {
 }
 
 /// The actor struct for the scheduler actor
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TaskScheduler;
 
 impl TaskScheduler {

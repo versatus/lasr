@@ -78,7 +78,7 @@ impl Actor for DaClient {
             }
             DaClientMessage::ValidateBlob { request_id, tx } => {
                 log::info!("DA Client asked to validate blob");
-                let _ = validate_blob(self.client.clone(), request_id, tx).await;
+                validate_blob(self.client.clone(), request_id, tx).await;
                 // Spawn a tokio task to poll EigenDa for the validated blob
             }
             // Optimistically and naively retreive account blobs

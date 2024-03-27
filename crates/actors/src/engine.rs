@@ -32,7 +32,7 @@ use lasr_types::{
 };
 use tokio::sync::mpsc::Sender;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Engine;
 
 #[derive(Clone, Debug, Error)]

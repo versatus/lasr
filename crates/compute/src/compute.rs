@@ -57,9 +57,7 @@ impl Display for BaseImage {
 
 impl BaseImage {
     pub fn path(&self) -> String {
-        match self {
-            _ => format!("./base_image/{}", self.to_string()),
-        }
+        format!("./base_image/{}", self)
     }
 }
 
@@ -367,7 +365,7 @@ impl OciManager {
             let mut stdin = child.stdin.take().ok_or({
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("unable to acquire child stdin, compute.rs: 120").to_string(),
+                    "unable to acquire child stdin, compute.rs: 120".to_string(),
                 )
             })?;
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
@@ -528,7 +526,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         match container_metadata.base_image() {
             BaseImage::Node => {
                 let mut args = Vec::new();
-                args.push(format!("node").to_string());
+                args.push("node".to_string());
                 args.push(format!(
                     "/{}/{}/{}",
                     content_id.as_ref().display(),
@@ -654,15 +652,14 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         if let Ok(entries) = std::fs::read_dir(payload_path.as_ref()) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                if path.is_file() {
-                    if path
+                if path.is_file()
+                    && path
                         .file_name()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .starts_with("schema")
-                    {
-                        return Some(path.to_string_lossy().into_owned());
-                    }
+                {
+                    return Some(path.to_string_lossy().into_owned());
                 }
             }
         }

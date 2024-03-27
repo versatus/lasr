@@ -16,7 +16,7 @@ pub struct LasrRpcServerImpl {
     proxy: ActorRef<RpcMessage>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LasrRpcServerActor;
 
 impl LasrRpcServerActor {

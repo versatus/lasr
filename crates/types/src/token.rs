@@ -8,7 +8,7 @@ use std::fmt::{Debug, Display};
 use std::ops::{AddAssign, SubAssign};
 use uint::construct_uint;
 
-use crate::{Address, RecoverableSignature, TokenUpdateField, Transaction};
+use crate::{Address, RecoverableSignature, Transaction};
 
 pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
 
@@ -198,7 +198,7 @@ impl ArbitraryData {
 /// It supports cloning, serialization, and debugging. The metadata can be of any
 /// form that fits into a byte array, making it a flexible container.
 #[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata(BTreeMap<String, String>);

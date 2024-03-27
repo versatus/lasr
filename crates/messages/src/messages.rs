@@ -201,12 +201,12 @@ pub struct BridgeEvent {
 impl BridgeEvent {
     /// A getter for the `user` field in a bridge event
     pub fn user(&self) -> EthereumAddress {
-        self.user.clone()
+        self.user
     }
 
     /// A getter for the `program_id` field in a bridge event
     pub fn program_id(&self) -> EthereumAddress {
-        self.program_id.clone()
+        self.program_id
     }
 
     /// A getter for the `amount` field in a bridge event

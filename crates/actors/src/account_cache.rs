@@ -11,7 +11,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
 
 #[derive(Debug, Clone, Error)]
@@ -30,7 +30,7 @@ impl Default for AccountCacheError {
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AccountCache {
     cache: HashMap<Address, Account>,
     receivers: FuturesUnordered<OneshotReceiver<Address>>,

@@ -61,10 +61,10 @@ impl Display for BatcherError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct BatcherActor;
 
-#[derive(Builder, Clone, Debug, Serialize, Deserialize)]
+#[derive(Builder, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Batch {
     transactions: HashMap<String, Transaction>,
     accounts: HashMap<String, Account>,
@@ -504,7 +504,7 @@ impl Batcher {
                     );
                     account
                 } else if transaction.program_id() == ETH_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else if transaction.program_id() == VERSE_ADDR {
                     let _ = account.apply_send_transaction(transaction.clone(), None);
@@ -535,7 +535,7 @@ impl Batcher {
                     );
                     account.clone()
                 } else if transaction.program_id() == ETH_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.apply_send_transaction(transaction.clone(), None);
                     account.clone()
                 } else if transaction.program_id() == VERSE_ADDR {
                     let _ = account.apply_send_transaction(transaction.clone(), None);
@@ -560,7 +560,7 @@ impl Batcher {
                     );
                     account.clone()
                 } else if transaction.program_id() == ETH_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.apply_send_transaction(transaction.clone(), None);
                     account.clone()
                 } else if transaction.program_id() == VERSE_ADDR {
                     let _ = account.apply_send_transaction(transaction.clone(), None);
@@ -1570,7 +1570,6 @@ impl Batcher {
         Ok(())
     }
 
-    #[allow(clippy::iter_kv_map)]
     pub(super) async fn handle_blob_verification_proof(
         &mut self,
         request_id: String,
@@ -1665,7 +1664,7 @@ impl Actor for BatcherActor {
                         let res = state.add_transaction_to_account(transaction.clone()).await;
                         if let Err(e) = res {
                             log::error!("{e}");
-                            let _ = state.handle_batcher_error(&transaction, e.to_string());
+                            state.handle_batcher_error(&transaction, e.to_string());
                         }
                     }
                     TransactionType::Call(_) => {
@@ -1673,7 +1672,9 @@ impl Actor for BatcherActor {
                             let res = state.apply_instructions_to_accounts(&transaction, &o).await;
                             if let Err(e) = res {
                                 log::error!("{e}");
-                                let _ = state.handle_batcher_error(&transaction, e.to_string());
+                                state
+                                    .handle_batcher_error(&transaction, e.to_string())
+                                    .await;
                             }
                         } else {
                             log::error!("Call transaction result did not contain outputs")
@@ -1683,7 +1684,9 @@ impl Actor for BatcherActor {
                         let res = state.apply_program_registration(&transaction).await;
                         if let Err(e) = res {
                             log::error!("{e}");
-                            let _ = state.handle_batcher_error(&transaction, e.to_string());
+                            state
+                                .handle_batcher_error(&transaction, e.to_string())
+                                .await;
                         }
                     }
                     TransactionType::BridgeOut(_) => {}

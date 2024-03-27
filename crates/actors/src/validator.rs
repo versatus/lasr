@@ -966,7 +966,7 @@ impl ValidatorCore {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Validator;
 
 #[derive(Clone, Debug, Error)]
