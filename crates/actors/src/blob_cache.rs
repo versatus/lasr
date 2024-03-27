@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PendingBlobCache {
     //TODO(asmith) create an ergonimical RequestId struct for EigenDa
     //Blob responses
@@ -76,12 +76,6 @@ impl PendingBlobCache {
     }
 }
 
-impl Default for PendingBlobCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct BlobCacheActor;
 
@@ -102,7 +96,7 @@ impl Actor for BlobCacheActor {
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(PendingBlobCache::default())
+        Ok(PendingBlobCache::new())
     }
 
     async fn handle(

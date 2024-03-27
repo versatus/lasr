@@ -4,11 +4,10 @@ use ethers_core::types::Signature as ElectrumSignature;
 use schemars::JsonSchema;
 use secp256k1::{
     ecdsa::{RecoverableSignature as Signature, RecoveryId},
-    ffi::recovery,
     Message, PublicKey,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, ptr::read_volatile};
+use std::collections::BTreeSet;
 
 // Custom serializer for byte arrays to hex strings
 fn serialize_as_hex<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>

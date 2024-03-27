@@ -97,7 +97,7 @@ impl PreCallVertex {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PreCallGraph {
     vertices: HashMap<String, Arc<RwLock<PreCallVertex>>>,
     program_index: HashMap<Address, Vec<String>>,
@@ -231,13 +231,7 @@ impl PreCallGraph {
     }
 }
 
-impl Default for PreCallGraph {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PendingGraph {
     vertices: HashMap<String, Arc<RwLock<Vertex>>>,
     account_index: HashMap<Address, VecDeque<String>>,
@@ -586,12 +580,7 @@ impl PendingGraph {
     }
 }
 
-impl Default for PendingGraph {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
+#[derive(Default)]
 pub struct DependencyGraphs {
     pub pending: PendingGraph,
     pub pre_call: PreCallGraph,
@@ -600,8 +589,8 @@ pub struct DependencyGraphs {
 impl DependencyGraphs {
     pub fn new() -> Self {
         Self {
-            pending: PendingGraph::default(),
-            pre_call: PreCallGraph::default(),
+            pending: PendingGraph::new(),
+            pre_call: PreCallGraph::new(),
         }
     }
 
@@ -655,12 +644,6 @@ impl DependencyGraphs {
     }
 }
 
-impl Default for DependencyGraphs {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct PendingTransactionActor;
 
@@ -684,7 +667,7 @@ impl Actor for PendingTransactionActor {
         _myself: ActorRef<Self::Msg>,
         _: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(DependencyGraphs::default())
+        Ok(DependencyGraphs::new())
     }
 
     async fn handle(
