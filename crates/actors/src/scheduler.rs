@@ -37,14 +37,16 @@ impl Default for SchedulerError {
     }
 }
 
+pub type MethodResults = Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>;
+
 pub struct SchedulerState {
     pub reply_map: HashMap<String, RpcReplyPort<RpcMessage>>,
-    pub handle_method_results: Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>,
+    pub handle_method_results: MethodResults,
     pub scheduler_results_handler: JoinHandle<()>,
 }
 
 /// The actor struct for the scheduler actor
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TaskScheduler;
 
 impl TaskScheduler {

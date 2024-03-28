@@ -16,7 +16,7 @@ pub struct LasrRpcServerImpl {
     proxy: ActorRef<RpcMessage>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LasrRpcServerActor;
 
 impl LasrRpcServerActor {
@@ -47,7 +47,7 @@ impl LasrRpcServerActor {
                 transaction,
                 rpc_reply: reply,
             })
-            .map_err(|e| Box::new(e))?)
+            .map_err(Box::new)?)
     }
 
     fn handle_send_request(
@@ -61,7 +61,7 @@ impl LasrRpcServerActor {
                 transaction,
                 rpc_reply: reply,
             })
-            .map_err(|e| Box::new(e))?)
+            .map_err(Box::new)?)
     }
 
     fn handle_register_program_request(
@@ -75,7 +75,7 @@ impl LasrRpcServerActor {
                 transaction,
                 rpc_reply: reply,
             })
-            .map_err(|e| Box::new(e))?)
+            .map_err(Box::new)?)
     }
 
     fn handle_get_account_request(
@@ -89,7 +89,7 @@ impl LasrRpcServerActor {
                 address,
                 rpc_reply: reply,
             })
-            .map_err(|e| Box::new(e))?)
+            .map_err(Box::new)?)
     }
 
     async fn handle_request_method(
@@ -100,11 +100,11 @@ impl LasrRpcServerActor {
         let scheduler = self
             .get_scheduler()
             .await
-            .map_err(|e| Box::new(e))?
+            .map_err(Box::new)?
             .ok_or(RpcError::Custom(
                 "Unable to acquire scheduler actor".to_string(),
             ))
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
         match method {
             RpcRequestMethod::Call { transaction } => {
                 self.handle_call_request(scheduler, transaction, reply)
@@ -182,8 +182,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
         {
             Ok(resp) => match resp {
                 TransactionResponse::SendResponse(token) => {
-                    return Ok(serde_json::to_string(&token)
-                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))?)
+                    return serde_json::to_string(&token)
+                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     log::error!("Returning error to client: {}", &rpc_response_error);
@@ -261,8 +261,8 @@ impl LasrRpcServer for LasrRpcServerImpl {
             Ok(resp) => match resp {
                 TransactionResponse::GetAccountResponse(account) => {
                     log::info!("received account response");
-                    return Ok(serde_json::to_string(&account)
-                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))?);
+                    return serde_json::to_string(&account)
+                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()));
                 }
                 _ => {
                     return Err(jsonrpsee::core::Error::Custom(

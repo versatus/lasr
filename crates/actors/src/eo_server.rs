@@ -21,7 +21,7 @@ use lasr_messages::{
     SchedulerMessage, SettlementEvent, SettlementEventBuilder, ValidatorMessage,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EoServer;
 
 pub struct EoServerWrapper {
@@ -48,7 +48,7 @@ impl EoServerWrapper {
         loop {
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
-                if log.len() > 0 {
+                if !log.is_empty() {
                     log::info!("non-empty log found: {:?}", log);
                     eo_actor
                         .cast(EoMessage::Log {

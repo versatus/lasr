@@ -11,7 +11,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
 
 #[derive(Debug, Clone, Error)]
@@ -30,7 +30,7 @@ impl Default for AccountCacheError {
 }
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AccountCache {
     cache: HashMap<Address, Account>,
     receivers: FuturesUnordered<OneshotReceiver<Address>>,
@@ -56,7 +56,7 @@ impl AccountCache {
         if let Some(account) = self.cache.get(address) {
             return Some(account);
         }
-        return None;
+        None
     }
 
     pub(crate) fn remove(
@@ -76,7 +76,7 @@ impl AccountCache {
             return Ok(());
         }
 
-        return Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>);
+        Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
     }
 
     pub(crate) fn handle_cache_write(
@@ -132,13 +132,13 @@ impl AccountCache {
     fn check_build_batch(&mut self) -> Result<(), Box<dyn std::error::Error + Send>> {
         let bytes = serde_json::to_vec(&self.cache)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-        if base64::encode(&bytes).len() >= MAX_BATCH_SIZE {
+        if base64::encode(bytes).len() >= MAX_BATCH_SIZE {
             self.build_batch()?;
         } else if let Some(instant) = self.last_batch {
             if Instant::now().duration_since(instant) > self.batch_interval {
                 self.build_batch()?;
             }
-        } else if let None = self.last_batch {
+        } else if self.last_batch.is_none() {
             self.last_batch = Some(Instant::now());
         }
 

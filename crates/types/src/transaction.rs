@@ -34,49 +34,34 @@ pub enum TransactionType {
 
 impl TransactionType {
     pub fn is_send(&self) -> bool {
-        match self {
-            TransactionType::Send(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionType::Send(_))
     }
 
     pub fn is_bridge_in(&self) -> bool {
-        match self {
-            TransactionType::BridgeIn(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionType::BridgeIn(_))
     }
 
     pub fn is_call(&self) -> bool {
-        match self {
-            TransactionType::Call(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionType::Call(_))
     }
 
     pub fn is_bridge_out(&self) -> bool {
-        match self {
-            TransactionType::BridgeOut(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionType::BridgeOut(_))
     }
 
     pub fn is_register_program(&self) -> bool {
-        match self {
-            TransactionType::RegisterProgram(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionType::RegisterProgram(_))
     }
 
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            Self::BridgeIn(n) => return serde_json::json!({"bridgeIn": format!("0x{:064x}", n)}),
-            Self::Send(n) => return serde_json::json!({"send": format!("0x{:064x}", n)}),
-            Self::Call(n) => return serde_json::json!({"call": format!("0x{:064x}", n)}),
+            Self::BridgeIn(n) => serde_json::json!({"bridgeIn": format!("0x{:064x}", n)}),
+            Self::Send(n) => serde_json::json!({"send": format!("0x{:064x}", n)}),
+            Self::Call(n) => serde_json::json!({"call": format!("0x{:064x}", n)}),
             Self::RegisterProgram(n) => {
-                return serde_json::json!({"registerProgram": format!("0x{:064x}", n)})
+                serde_json::json!({"registerProgram": format!("0x{:064x}", n)})
             }
-            Self::BridgeOut(n) => return serde_json::json!({"bridgeOut": format!("0x{:064x}", n)}),
+            Self::BridgeOut(n) => serde_json::json!({"bridgeOut": format!("0x{:064x}", n)}),
         }
     }
 }
@@ -201,13 +186,13 @@ where
     let input = HexOr20Bytes::deserialize(deserializer)?;
     match input {
         HexOr20Bytes::Hex(value) => {
-            if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..])
-                    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+            if let Some(value) = value.strip_prefix("0x") {
+                let bytes =
+                    hex::decode(value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
                 bytes.try_into().map_err(|_| {
                     serde::de::Error::custom("Hex string does not represent valid 20-byte array")
                 })
-            } else if value.starts_with("[") && value.ends_with("]") {
+            } else if value.starts_with('[') && value.ends_with(']') {
                 let bytes_str = &value[1..value.len() - 1];
                 let bytes: Vec<u8> = bytes_str
                     .split(',')
@@ -245,13 +230,13 @@ where
     let input = HexOr32Bytes::deserialize(deserializer)?;
     match input {
         HexOr32Bytes::Hex(value) => {
-            if value.starts_with("0x") {
-                let bytes = hex::decode(&value[2..])
-                    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+            if let Some(value) = value.strip_prefix("0x") {
+                let bytes =
+                    hex::decode(value).map_err(|e| serde::de::Error::custom(e.to_string()))?;
                 bytes.try_into().map_err(|_| {
                     serde::de::Error::custom("Hex string does not represent valid 20-byte array")
                 })
-            } else if value.starts_with("[") && value.ends_with("]") {
+            } else if value.starts_with('[') && value.ends_with(']') {
                 let bytes_str = &value[1..value.len() - 1];
                 let bytes: Vec<u8> = bytes_str
                     .split(',')
@@ -390,7 +375,7 @@ impl Transaction {
             .s(self.s)
             .v(self.v)
             .build()
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
         Ok(sig)
     }
@@ -400,7 +385,7 @@ impl Transaction {
         let s = self.s;
         let v = self.v;
 
-        if v >= 27 && v <= 28 {
+        if (27..=28).contains(&v) {
             let sig = ethers_core::types::Signature {
                 r: ethers_core::abi::ethereum_types::U256::from(r),
                 s: ethers_core::abi::ethereum_types::U256::from(s),
@@ -436,9 +421,9 @@ impl Transaction {
     pub fn as_bytes(&self) -> Vec<u8> {
         let transaction_json = serde_json::json!({
             "transactionType": self.transaction_type().to_json(),
-            "from": Address::from(self.from()).to_full_string(),
-            "to": Address::from(self.to()).to_full_string(),
-            "programId": Address::from(self.program_id()).to_full_string(),
+            "from": self.from().to_full_string(),
+            "to": self.to().to_full_string(),
+            "programId": self.program_id().to_full_string(),
             "op": self.op.clone(),
             "transactionInputs": self.inputs().clone(),
             "value": format!("0x{:064x}", self.value()),
@@ -521,7 +506,7 @@ impl TryFrom<(Token, Transaction)> for Token {
     fn try_from(value: (Token, Transaction)) -> Result<Self, Self::Error> {
         if value.1.from() == value.0.owner_id() {
             if value.1.transaction_type().is_bridge_in() {
-                return Ok(TokenBuilder::default()
+                return TokenBuilder::default()
                     .program_id(value.0.program_id())
                     .owner_id(value.0.owner_id())
                     .balance(value.0.balance() + value.1.value())
@@ -532,9 +517,9 @@ impl TryFrom<(Token, Transaction)> for Token {
                     .data(value.0.data())
                     .status(value.0.status())
                     .build()
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>);
             }
-            return Ok(TokenBuilder::default()
+            return TokenBuilder::default()
                 .program_id(value.0.program_id())
                 .owner_id(value.0.owner_id())
                 .balance(value.0.balance() - value.1.value())
@@ -545,11 +530,11 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .data(value.0.data())
                 .status(value.0.status())
                 .build()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>);
         }
 
         if value.1.to() == value.0.owner_id() {
-            return Ok(TokenBuilder::default()
+            return TokenBuilder::default()
                 .program_id(value.0.program_id())
                 .owner_id(value.0.owner_id())
                 .balance(value.0.balance() + value.1.value())
@@ -560,12 +545,12 @@ impl TryFrom<(Token, Transaction)> for Token {
                 .data(value.0.data())
                 .status(value.0.status())
                 .build()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?);
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>);
         }
 
-        return Err(Box::new(ToTokenError::Custom(
+        Err(Box::new(ToTokenError::Custom(
             "cannot convert into token, token owner_id does not match sender or receiver"
                 .to_string(),
-        )));
+        )))
     }
 }

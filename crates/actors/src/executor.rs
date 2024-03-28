@@ -1,6 +1,5 @@
-use crate::{get_account, pending_transactions};
+use crate::get_account;
 use async_trait::async_trait;
-use futures::stream::{FuturesOrdered, FuturesUnordered};
 use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobState, ServiceJobType};
@@ -13,7 +12,7 @@ use lasr_messages::{
     ActorType, EngineMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
 };
 use lasr_types::{Inputs, ProgramSchema, Required, Transaction};
-use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
@@ -148,7 +147,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         self.manager.pin_object(content_id, recursive).await
     }
 
-    pub(super) async fn create_bundle(&self, content_id: impl AsRef<Path>) -> std::io::Result<()> {
+    pub(super) async fn _create_bundle(&self, content_id: impl AsRef<Path>) -> std::io::Result<()> {
         self.manager.bundle(&content_id).await?;
         Ok(())
     }
@@ -159,7 +158,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         program_id: String,
         transaction: Transaction,
         inputs: Inputs,
-        transaction_hash: &String,
+        transaction_hash: &str,
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
         let handle = self
             .manager
@@ -168,7 +167,7 @@ impl<C: ClientT> ExecutionEngine<C> {
                 program_id,
                 Some(transaction),
                 inputs,
-                Some(transaction_hash.clone()),
+                Some(transaction_hash.to_owned()),
             )
             .await?;
         log::warn!("returning handle to executor");
@@ -190,21 +189,21 @@ impl<C: ClientT> ExecutionEngine<C> {
         inputs: String,
     ) -> std::io::Result<Inputs> {
         if let Some(program_account) = get_account(transaction.to()).await {
-            return Ok(Inputs {
+            Ok(Inputs {
                 version: 1,
                 account_info: program_account.clone(),
                 transaction: transaction.clone(),
                 op,
                 inputs,
-            });
+            })
         } else {
-            return Err(std::io::Error::new(
+            Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!(
                     "program account {} does not exist",
                     transaction.to().to_full_string()
                 ),
-            ));
+            ))
         }
     }
 
@@ -323,11 +322,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    fn execution_success(
-        &self,
-        transaction: &Transaction,
-        outputs: &String,
-    ) -> std::io::Result<()> {
+    fn execution_success(&self, transaction: &Transaction, outputs: &str) -> std::io::Result<()> {
         let pending_transactions_actor: ActorRef<PendingTransactionMessage> =
             ractor::registry::where_is(ActorType::PendingTransactions.to_string())
                 .ok_or(std::io::Error::new(
@@ -357,7 +352,7 @@ impl ExecutorActor {
         let message = EngineMessage::CallSuccess {
             transaction: transaction.clone(),
             transaction_hash: transaction.hash_string(),
-            outputs: outputs.clone(),
+            outputs: outputs.to_owned(),
         };
 
         engine_actor
@@ -470,15 +465,12 @@ impl Actor for ExecutorActor {
 
                         match program_id_result {
                             Ok(_program_id) => {
-                                match self.registration_success(transaction.clone()) {
-                                    Err(e) => {
-                                        log::error!("Error: executor.rs: 225: {e}");
-                                        let _ = self.registration_error(
-                                            transaction.hash_string(),
-                                            e.to_string(),
-                                        );
-                                    }
-                                    _ => {}
+                                if let Err(e) = self.registration_success(transaction.clone()) {
+                                    log::error!("Error: executor.rs: 225: {e}");
+                                    let _ = self.registration_error(
+                                        transaction.hash_string(),
+                                        e.to_string(),
+                                    );
                                 }
                             }
                             Err(e) => {
@@ -496,13 +488,12 @@ impl Actor for ExecutorActor {
                     }
                     Err(e) => {
                         log::error!("Error: executor.rs: 219: {}", &e);
-                        match self.registration_error(transaction.hash_string(), e.to_string()) {
-                            Err(e) => {
-                                log::error!("Error: executor.rs: 235: {}", &e);
-                                let _ = self
-                                    .registration_error(transaction.hash_string(), e.to_string());
-                            }
-                            _ => {}
+                        if let Err(e) =
+                            self.registration_error(transaction.hash_string(), e.to_string())
+                        {
+                            log::error!("Error: executor.rs: 235: {}", &e);
+                            let _ =
+                                self.registration_error(transaction.hash_string(), e.to_string());
                         }
                     }
                 }
@@ -678,13 +669,10 @@ impl Actor for ExecutorActor {
                                             "Error returned from `call` transaction: {}, program: {}: {}",
                                             &hash, &content_id, &e
                                         );
-                                    match self.execution_error(&hash, e) {
-                                        Err(e) => {
-                                            log::error!(
+                                    if let Err(e) = self.execution_error(&hash, e) {
+                                        log::error!(
                                                     "Error calling self.execution_error: executor.rs: 338: {}", e
                                                 );
-                                        }
-                                        _ => {}
                                     }
                                 }
                                 Err(e) => {
@@ -692,13 +680,10 @@ impl Actor for ExecutorActor {
                                             "Error inside program call thread: {}: transaction: {}, program: {}",
                                             &e, &hash, &content_id
                                         );
-                                    match self.execution_error(&hash, e) {
-                                        Err(e) => {
-                                            log::error!(
+                                    if let Err(e) = self.execution_error(&hash, e) {
+                                        log::error!(
                                                     "Error calling self.exeuction_error: executor.rs: 357: {}", e
                                                 );
-                                        }
-                                        _ => {}
                                     }
                                 }
                             }

@@ -69,19 +69,13 @@ impl std::ops::Mul<&Unit> for U256 {
     type Output = U256;
     fn mul(self, rhs: &Unit) -> Self::Output {
         match rhs {
-            Unit::Echo => return (U256::from(self) * U256::from(1 as u128)).into(),
-            Unit::Beat => return (U256::from(self) * U256::from(1_000 as u128)).into(),
-            Unit::Note => return (U256::from(self) * U256::from(1_000_000 as u128)).into(),
-            Unit::Chord => return (U256::from(self) * U256::from(1_000_000_000 as u128)).into(),
-            Unit::Harmony => {
-                return (U256::from(self) * U256::from(1_000_000_000_000 as u128)).into()
-            }
-            Unit::Melody => {
-                return (U256::from(self) * U256::from(1_000_000_000_000_000 as u128)).into()
-            }
-            Unit::Verse => {
-                return (U256::from(self) * U256::from(1_000_000_000_000_000_000 as u128)).into()
-            }
+            Unit::Echo => (self * U256::from(1_u128)),
+            Unit::Beat => (self * U256::from(1_000_u128)),
+            Unit::Note => (self * U256::from(1_000_000_u128)),
+            Unit::Chord => (self * U256::from(1_000_000_000_u128)),
+            Unit::Harmony => (self * U256::from(1_000_000_000_000_u128)),
+            Unit::Melody => (self * U256::from(1_000_000_000_000_000_u128)),
+            Unit::Verse => (self * U256::from(1_000_000_000_000_000_000_u128)),
         }
     }
 }
@@ -170,13 +164,12 @@ fn handle_new_wallet_command(children: &ArgMatches) -> Result<(), Box<dyn std::e
                 .expect("file cant be opened")
                 .read_to_end(&mut file_buffer)
                 .expect("file should exist");
-            let mut inner = if &file_buffer.len() > &0 {
+            if !file_buffer.is_empty() {
                 serde_json::from_slice::<Vec<WalletInfo>>(&file_buffer)
                     .expect("keypair file has been corrupted")
             } else {
                 Vec::new()
-            };
-            inner
+            }
         } else {
             Vec::new()
         };
@@ -817,7 +810,7 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
         };
 
         let mut package_builder = LasrPackagePayloadBuilder::default();
-        let (cids, lasr_objects) = if let None = cids {
+        let (cids, lasr_objects) = if cids.is_none() {
             let mut cids = Vec::new();
             let mut lasr_objects = Vec::new();
             recursively_publish_objects(
@@ -851,7 +844,7 @@ async fn handle_publish_command(children: &ArgMatches) -> Result<(), Box<dyn std
             .package_objects(lasr_objects);
 
         if let Some(replaces) = replaces {
-            if let Ok(r) = serde_json::from_str(&replaces) {
+            if let Ok(r) = serde_json::from_str(replaces) {
                 package_builder.package_replaces(r);
             } else {
                 package_builder.package_replaces(vec![]);
@@ -912,10 +905,7 @@ async fn recursively_publish_objects(
         let path = entry.path();
         if path.is_file() {
             if *verbose {
-                println!(
-                    "writing {} to Web3Store",
-                    path.to_string_lossy().to_string()
-                );
+                println!("writing {} to Web3Store", path.to_string_lossy());
             }
             let cid = store.write_object(std::fs::read(path)?).await?;
             cid_buffer.push(cid.clone());
@@ -923,7 +913,7 @@ async fn recursively_publish_objects(
             if *verbose {
                 println!(
                     "published {} to Web3Store, CID: {}",
-                    path.to_string_lossy().to_string(),
+                    path.to_string_lossy(),
                     &cid
                 );
             }
@@ -948,7 +938,7 @@ async fn recursively_publish_objects(
             if *verbose {
                 println!(
                     "Successfully published: {}, CID: {}",
-                    path.to_string_lossy().to_string(),
+                    path.to_string_lossy(),
                     &cid
                 )
             };
@@ -1226,7 +1216,7 @@ fn handle_parse_outputs_command(children: &ArgMatches) -> Result<(), Box<dyn std
         let json_str = children
             .get_one::<String>("json")
             .expect("unable to acquire json from command line");
-        let outputs: Outputs = serde_json::from_str(&json_str)
+        let outputs: Outputs = serde_json::from_str(json_str)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
         println!("{:#?}", outputs);
     }
@@ -1248,7 +1238,7 @@ fn handle_parse_transaction_command(
         .get_one::<String>("json")
         .expect("unable to acquire json from command line");
     let transaction: Transaction =
-        serde_json::from_str(&json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        serde_json::from_str(json_str).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     println!("{:#?}", transaction);
     Ok(())
 }
@@ -1262,7 +1252,7 @@ fn hex_or_bytes() -> Command {
 }
 
 fn handle_hex_or_bytes_command(children: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    let hex = HexOr20Bytes::Hex(hex::encode(&[2; 20]));
+    let hex = HexOr20Bytes::Hex(hex::encode([2; 20]));
     let bytes = HexOr20Bytes::Bytes([2; 20]);
     println!(
         "{:?}",
@@ -1401,7 +1391,7 @@ fn get_keypair(
         let phrase = children
             .get_one::<String>("mnemonic")
             .expect("required if from-mnemonic flag");
-        let mnemonic = Mnemonic::parse_in_normalized(Language::English, &phrase)?;
+        let mnemonic = Mnemonic::parse_in_normalized(Language::English, phrase)?;
         let seed = mnemonic.to_seed("");
         let secp = Secp256k1::new();
         let master = SecretKey::from_slice(&seed[0..32])?;
@@ -1412,7 +1402,7 @@ fn get_keypair(
             .get_one::<String>("secret-key")
             .expect("required if from-secret-key flag");
         let secp = Secp256k1::new();
-        let master = SecretKey::from_str(&sk)?;
+        let master = SecretKey::from_str(sk)?;
         let pubkey = master.public_key(&secp);
         let address: Address = pubkey.into();
         let eaddr: EthereumAddress = address.into();
@@ -1434,10 +1424,10 @@ fn get_keypair(
         return Ok((master, pubkey));
     }
 
-    return Err(Box::new(std::io::Error::new(
+    Err(Box::new(std::io::Error::new(
         std::io::ErrorKind::Other,
         "unable to derive secret and public key",
-    )));
+    )))
 }
 
 async fn get_wallet(
@@ -1451,7 +1441,7 @@ async fn get_wallet(
     let res = &client.get_account(format!("{:x}", address)).await;
     let account = if let Ok(account_str) = res {
         println!("{}", account_str);
-        let account: Account = serde_json::from_str(&account_str)?;
+        let account: Account = serde_json::from_str(account_str)?;
         account
     } else {
         Account::new(AccountType::User, None, address, None)
@@ -1460,7 +1450,7 @@ async fn get_wallet(
     WalletBuilder::default()
         .sk(secret_key)
         .client(client.clone())
-        .address(address.clone())
+        .address(address)
         .builder(PayloadBuilder::default())
         .account(account)
         .build()

@@ -161,7 +161,7 @@ where
 {
     tokio::select! {
         response = rx => {
-            let resp = response.map_err(|e| channel_closed_unexpectedly(e))?;
+            let resp = response.map_err(channel_closed_unexpectedly)?;
             handler(resp)
         }
     }
@@ -174,7 +174,7 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
     let (tx, rx) = oneshot();
     let message = AccountCacheMessage::Read { address, tx };
 
-    let _ = actor.cast(message).ok()?;
+    actor.cast(message).ok()?;
 
     let handler = create_handler!(account_cache_response);
     let account = handle_actor_response(rx, handler).await.ok()?;
@@ -212,11 +212,11 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
     )
     .await
     {
-        Ok(Some(account)) => return Some(account),
-        Ok(None) => return None,
+        Ok(Some(account)) => Some(account),
+        Ok(None) => None,
         Err(e) => {
             log::error!("Error attempting to get account from DA: {e}");
-            return None;
+            None
         }
     }
 }
@@ -227,10 +227,10 @@ pub async fn get_account(address: Address) -> Option<Account> {
         address.to_full_string()
     );
     let mut account = check_account_cache(address).await;
-    if let None = &mut account {
+    if account.is_none() {
         account = check_da_for_account(address).await;
     }
-    return account;
+    account
 }
 
 pub async fn get_blob_index(
@@ -238,7 +238,7 @@ pub async fn get_blob_index(
     message: EoMessage,
     rx: OneshotReceiver<EoMessage>,
 ) -> Option<(Address, H256, u128)> {
-    let _ = eo_actor.cast(message).ok()?;
+    eo_actor.cast(message).ok()?;
     let eo_handler = create_handler!(retrieve_blob_index);
     handle_actor_response(rx, eo_handler).await.ok()
 }
@@ -286,7 +286,7 @@ pub async fn attempt_get_account_from_da(
         let (tx, rx) = oneshot();
         let message = DaClientMessage::RetrieveAccount {
             address,
-            batch_header_hash: blob_index.1.into(),
+            batch_header_hash: blob_index.1,
             blob_index: blob_index.2,
             tx,
         };
