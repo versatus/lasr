@@ -102,10 +102,9 @@ impl Actor for BlobCacheActor {
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
+        _message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        let _ = message;
         Ok(())
     }
 }
