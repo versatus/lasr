@@ -4,19 +4,19 @@ kill_signal = "SIGINT"
 kill_timeout = 5
 
 [env]
-  DATA = "/data"
-  GOLOG_LOG_LEVEL = "info"
-  GOLOG_LOG_FMT = "json"
-  IPFS_PATH = "/data/ipfs"
-  IPFS_PROFILE = "server"
+DATA = "/data"
+GOLOG_LOG_LEVEL = "info"
+GOLOG_LOG_FMT = "json"
+IPFS_PATH = "/data/ipfs"
+IPFS_PROFILE = "server"
 
 [experimental]
-  allowed_public_ports = []
-  auto_rollback = true
+allowed_public_ports = []
+auto_rollback = true
 
 [mounts]
-  destination = "/data/ipfs"
-  source = "ipfs_data"
+destination = "/data/ipfs"
+source = "ipfs_data"
 
 # [[services]]
 #   http_checks = []
@@ -40,43 +40,42 @@ kill_timeout = 5
 #     timeout = "2s"
 
 [[services]]
-  internal_port = 4001
-  protocol = "tcp"
-  [services.concurrency]
-    hard_limit = 1000
-    type = "connections"
+internal_port = 4001
+protocol = "tcp"
+[services.concurrency]
+hard_limit = 1000
+type = "connections"
 
-  [[services.ports]]
-    port = 4001
-
-[[services]]
-  internal_port = 4002
-  protocol = "tcp"
-
-  [services.concurrency]
-    hard_limit = 1000
-    type = "connections"
-
-  [[services.ports]]
-    handlers = ["http", "tls"]
-    port = 443
+[[services.ports]]
+port = 4001
 
 [[services]]
-  internal_port = 4001
-  protocol = "udp"
-  [services.concurrency]
-    hard_limit = 1000
-    type = "connections"
+internal_port = 4002
+protocol = "tcp"
+[services.concurrency]
+hard_limit = 1000
+type = "connections"
 
-  [[services.ports]]
-    port = 4001
+[[services.ports]]
+handlers = ["http", "tls"]
+port = 443
 
 [[services]]
-  internal_port = 4003
-  protocol = "udp"
-  [services.concurrency]
-    hard_limit = 1000
-    type = "connections"
+internal_port = 4001
+protocol = "udp"
+[services.concurrency]
+hard_limit = 1000
+type = "connections"
 
-  [[services.ports]]
-    port = 4003
+[[services.ports]]
+port = 4001
+
+[[services]]
+internal_port = 4003
+protocol = "udp"
+[services.concurrency]
+hard_limit = 1000
+type = "connections"
+
+[[services.ports]]
+port = 4003

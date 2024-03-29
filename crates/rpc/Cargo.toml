@@ -10,6 +10,6 @@ jsonrpsee = { version = "0.16.2", features = [
     "server-core",
     "server",
     "http-client",
-    "ws-client"
+    "ws-client",
 ] }
 lasr_types = { path = "../types" }

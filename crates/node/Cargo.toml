@@ -15,7 +15,13 @@ name = "lasr_node"
 path = "src/main.rs"
 
 [dependencies]
-secp256k1 = { version = "0.28.0", features = [ "serde", "recovery", "global-context", "rand", "hashes" ] }
+secp256k1 = { version = "0.28.0", features = [
+    "serde",
+    "recovery",
+    "global-context",
+    "rand",
+    "hashes",
+] }
 web3 = { version = "0.19.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tokio-stream = "0.1.14"
@@ -25,23 +31,22 @@ jsonrpsee = { version = "0.16.2", features = [
     "server-core",
     "server",
     "http-client",
-    "ws-client"
+    "ws-client",
 ] }
 eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
-ractor = { version = "0.9.3", features = [ "async-std", "cluster" ]}
+ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
 eo_listener = { git = "https://github.com/versatus/eo_listener" }
 log = "0.4.20"
 simple_logger = "4.3.0"
 dotenv = "0.15.0"
-rand = { version = "0.8.5", features = [ "std", "std_rng" ] }
-web3_pkg = { git = "https://github.com/versatus/versatus.git" } 
-lasr_actors = { path = "../actors", features = [ "local" ] }
-lasr_compute = { path = "../compute", features = [ "local" ]}
-lasr_types = { path = "../types"}
+rand = { version = "0.8.5", features = ["std", "std_rng"] }
+web3_pkg = { git = "https://github.com/versatus/versatus.git" }
+lasr_actors = { path = "../actors", features = ["local"] }
+lasr_compute = { path = "../compute", features = ["local"] }
+lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
-lasr_clients = { path = "../clients", features = [ "local" ]  }
+lasr_clients = { path = "../clients", features = ["local"] }
 lasr_rpc = { path = "../rpc" }
 
 [dev-dependencies]
 simple_logger = "4.3.0"
-
