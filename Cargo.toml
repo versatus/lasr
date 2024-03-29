@@ -1,13 +1,13 @@
 [workspace]
 members = [
-    "crates/actors",
-    "crates/cli",
-    "crates/clients",
-    "crates/compute",
-    "crates/contract",
-    "crates/messages",
-    "crates/node",
-    "crates/rpc",
-    "crates/types",
-    "crates/wallet",
+  "crates/actors",
+  "crates/cli",
+  "crates/clients",
+  "crates/compute",
+  "crates/contract",
+  "crates/messages",
+  "crates/node",
+  "crates/rpc",
+  "crates/types",
+  "crates/wallet",
 ]
