@@ -1,8 +1,8 @@
 use std::process::Command;
 fn main() {
-    let git_hash_output = Command::new("git").args(&["rev-parse", "HEAD"]).output();
+    let git_hash_output = Command::new("git").args(["rev-parse", "HEAD"]).output();
     let git_branch_output = Command::new("git")
-        .args(&["branch", "--show-current"])
+        .args(["branch", "--show-current"])
         .output();
 
     if let (Ok(hash_output), Ok(branch_output)) = (git_hash_output, git_branch_output) {
