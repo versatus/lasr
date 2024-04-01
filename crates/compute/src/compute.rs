@@ -45,21 +45,19 @@ impl From<LasrObjectRuntime> for BaseImage {
 impl Display for BaseImage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BaseImage::Bin => write!(f, "{}", "bin"),
-            BaseImage::Wasm => write!(f, "{}", "wasm"),
-            BaseImage::Python => write!(f, "{}", "python"),
-            BaseImage::Node => write!(f, "{}", "node"),
-            BaseImage::Java => write!(f, "{}", "java"),
-            BaseImage::Bun => write!(f, "{}", "bun"),
+            BaseImage::Bin => write!(f, "bin"),
+            BaseImage::Wasm => write!(f, "wasm"),
+            BaseImage::Python => write!(f, "python"),
+            BaseImage::Node => write!(f, "node"),
+            BaseImage::Java => write!(f, "java"),
+            BaseImage::Bun => write!(f, "bun"),
         }
     }
 }
 
 impl BaseImage {
     pub fn path(&self) -> String {
-        match self {
-            _ => format!("./base_image/{}", self.to_string()),
-        }
+        format!("./base_image/{}", self)
     }
 }
 
@@ -116,7 +114,7 @@ impl OciManager {
 
     pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
         let store = if let Some(addr) = &self.store {
-            Web3Store::from_multiaddr(&addr)
+            Web3Store::from_multiaddr(addr)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
         } else {
             Web3Store::local()
@@ -206,10 +204,10 @@ impl OciManager {
 
         f.write_all(&package_data)?;
 
-        let mut package_object_iter = package.package_payload.package_objects.into_iter();
+        let package_object_iter = package.package_payload.package_objects.into_iter();
 
         //TODO(asmith) convert into a parallel iterator
-        while let Some(obj) = package_object_iter.next() {
+        for obj in package_object_iter {
             log::info!("getting object: {} from Web3Store", &obj.object_cid());
             let object_data = store
                 .read_object(obj.object_cid())
@@ -263,7 +261,7 @@ impl OciManager {
             f.write_all(&object_data)?;
 
             if exec {
-                let mut permissions = std::fs::metadata(&object_path)?.permissions();
+                let mut permissions = std::fs::metadata(object_path)?.permissions();
                 permissions.set_mode(0o755);
                 std::fs::set_permissions(object_path, permissions)?;
             }
@@ -273,7 +271,11 @@ impl OciManager {
     }
 
     pub async fn bundle(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
-        let cid = content_id.as_ref().to_string_lossy().to_owned().to_string();
+        let cid = content_id
+            .as_ref()
+            .to_string_lossy()
+            .into_owned()
+            .to_string();
         log::info!("attempting to create bundle for {}", cid);
         let container_metadata = self.create_payload_package(content_id).await?;
         if let Some(metadata) = container_metadata {
@@ -293,10 +295,10 @@ impl OciManager {
             return Ok(());
         }
 
-        return Err(std::io::Error::new(
+        Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "BaseImage not found, unsuported runtime or content type",
-        ));
+        ))
     }
 
     pub async fn add_payload(&self, content_id: impl AsRef<Path>) -> Result<(), std::io::Error> {
@@ -363,7 +365,7 @@ impl OciManager {
             let mut stdin = child.stdin.take().ok_or({
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("unable to acquire child stdin, compute.rs: 120"),
+                    "unable to acquire child stdin, compute.rs: 120".to_string(),
                 )
             })?;
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
@@ -524,7 +526,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         match container_metadata.base_image() {
             BaseImage::Node => {
                 let mut args = Vec::new();
-                args.push(format!("node"));
+                args.push("node".to_string());
                 args.push(format!(
                     "/{}/{}/{}",
                     content_id.as_ref().display(),
@@ -607,8 +609,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 
     pub fn container_bin_path(&self, container_path: impl AsRef<Path>) -> impl AsRef<Path> {
         let container_root_path = container_path.as_ref().join(Self::CONTAINER_ROOT);
-        let container_bin_path = container_root_path.join(Self::CONTAINER_BIN);
-        container_bin_path
+        container_root_path.join(Self::CONTAINER_BIN)
     }
 
     pub fn get_program_schema(
@@ -651,15 +652,14 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         if let Ok(entries) = std::fs::read_dir(payload_path.as_ref()) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                if path.is_file() {
-                    if path
+                if path.is_file()
+                    && path
                         .file_name()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .starts_with("schema")
-                    {
-                        return Some(path.to_string_lossy().into_owned());
-                    }
+                {
+                    return Some(path.to_string_lossy().into_owned());
                 }
             }
         }

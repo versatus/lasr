@@ -135,15 +135,14 @@ impl EoClient {
         let checksum_address: String = hex_address
             .char_indices()
             .map(|(i, c)| {
-                if c >= '0' && c <= '9' {
+                if c.is_ascii_digit() {
                     c.to_string()
+                } else if hash[i / 2] >> 4 >= 8 && i % 2 == 0
+                    || hash[i / 2] & 0x0f >= 8 && i % 2 != 0
+                {
+                    c.to_uppercase().to_string()
                 } else {
-                    if hash[i / 2] >> 4 >= 8 && i % 2 == 0 || hash[i / 2] & 0x0f >= 8 && i % 2 != 0
-                    {
-                        c.to_uppercase().to_string()
-                    } else {
-                        c.to_lowercase().to_string()
-                    }
+                    c.to_lowercase().to_string()
                 }
             })
             .collect();
@@ -165,7 +164,7 @@ impl EoClient {
                 )) as Box<dyn std::error::Error>)?
                 .into();
 
-        let mut sk = self.sk.clone();
+        let mut sk = self.sk;
         let mut contract = self.contract.clone();
         let mut web3 = self.web3.clone();
 
@@ -175,8 +174,8 @@ impl EoClient {
                 .clone()
                 .iter()
                 .filter_map(|a| {
-                    if let Some(addr) = Address::from_hex(a).ok() {
-                        EoClient::parse_checksum_address(addr.clone()).ok()
+                    if let Ok(addr) = Address::from_hex(a) {
+                        EoClient::parse_checksum_address(addr).ok()
                     } else {
                         None
                     }
@@ -186,7 +185,7 @@ impl EoClient {
             log::info!("parsed addresses for batch settlement");
             let addresses: Vec<EthAbiToken> = eth_addresses
                 .iter()
-                .map(|a| EthAbiToken::Address(a.clone()))
+                .map(|a| EthAbiToken::Address(*a))
                 .collect();
 
             let n_accounts = addresses.len();
@@ -194,8 +193,8 @@ impl EoClient {
             let eth_accounts = EthAbiToken::Array(addresses.clone());
 
             let blob_info = EthAbiToken::Tuple(vec![
-                EthAbiToken::FixedBytes(batch_header_hash.clone().0.to_vec()),
-                EthAbiToken::Uint(blob_index.clone().into()),
+                EthAbiToken::FixedBytes(batch_header_hash.0.to_vec()),
+                EthAbiToken::Uint(blob_index.into()),
             ]);
 
             let gas = ethereum_types::U256::from(50000 * n_accounts)
@@ -233,7 +232,7 @@ impl EoClient {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         receipt = web3
                             .eth()
-                            .transaction_receipt(hash.clone())
+                            .transaction_receipt(hash)
                             .await
                             .unwrap_or_else(|e| {
                                 log::error!("{}", e);
@@ -243,30 +242,26 @@ impl EoClient {
 
                     let message =
                         if receipt.clone().unwrap().status == Some(web3::types::U64::from(1)) {
-                            let message = EoMessage::SettleSuccess {
+                            EoMessage::SettleSuccess {
                                 batch_header_hash,
                                 blob_index,
                                 accounts,
                                 hash: HashOrError::Hash(hash),
                                 receipt,
-                            };
-
-                            message
+                            }
                         } else {
-                            let message = EoMessage::SettleFailure {
+                            EoMessage::SettleFailure {
                                 batch_header_hash,
                                 blob_index,
                                 accounts,
                                 hash: HashOrError::Hash(hash),
                                 receipt,
-                            };
-                            message
+                            }
                         };
 
                     let res = eo_client.cast(message);
-                    match res {
-                        Err(e) => log::error!("{}", e),
-                        _ => {}
+                    if let Err(e) = res {
+                        log::error!("{}", e)
                     }
                 }
                 Ok(Err(e)) => {
@@ -279,9 +274,8 @@ impl EoClient {
                         receipt: None,
                     };
                     let res = eo_client.cast(message);
-                    match res {
-                        Err(e) => log::error!("{}", e),
-                        _ => {}
+                    if let Err(e) = res {
+                        log::error!("{}", e)
                     }
                 }
                 Err(timeout) => {
@@ -293,9 +287,8 @@ impl EoClient {
                         elapsed: timeout,
                     };
                     let res = eo_client.cast(message);
-                    match res {
-                        Err(e) => log::error!("{}", e),
-                        _ => {}
+                    if let Err(e) = res {
+                        log::error!("{}", e)
                     }
                 }
             }
@@ -357,11 +350,7 @@ impl Actor for EoClientActor {
             } => {
                 if token_type == 0 {
                     let balance = state.get_eth_balance(address.into()).await;
-                    let balance = if let Some(b) = balance {
-                        Some(b.into())
-                    } else {
-                        None
-                    };
+                    let balance = balance.map(|b| b.into());
                     let res = sender.send(EoMessage::AccountBalanceAcquired {
                         program_id,
                         address,
@@ -374,11 +363,7 @@ impl Actor for EoClientActor {
                     let balance = state
                         .get_erc20_balance(program_id.into(), address.into())
                         .await;
-                    let balance = if let Some(b) = balance {
-                        Some(b.into())
-                    } else {
-                        None
-                    };
+                    let balance = balance.map(|b| b.into());
                     let res = sender.send(EoMessage::AccountBalanceAcquired {
                         program_id,
                         address,
@@ -391,18 +376,14 @@ impl Actor for EoClientActor {
                     let holdings = state
                         .get_erc721_holdings(program_id.into(), address.into())
                         .await;
-                    let holdings: Option<Vec<U256>> = if let Some(h) = holdings {
-                        Some(
-                            h.iter()
-                                .map(|eth_u256| {
-                                    let internal_u256: U256 = eth_u256.into();
-                                    internal_u256
-                                })
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    };
+                    let holdings: Option<Vec<U256>> = holdings.map(|h| {
+                        h.iter()
+                            .map(|eth_u256| {
+                                let internal_u256: U256 = eth_u256.into();
+                                internal_u256
+                            })
+                            .collect()
+                    });
                     let res = sender.send(EoMessage::NftHoldingsAcquired {
                         program_id,
                         address,

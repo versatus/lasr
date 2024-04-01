@@ -1177,7 +1177,6 @@ impl BurnInstructionBuilder {
         Ok(BurnInstruction {
             caller: self
                 .caller
-                .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?,
             program_id: self.program_id.clone().ok_or(std::io::Error::new(
                 ErrorKind::Other,
@@ -1185,13 +1184,12 @@ impl BurnInstructionBuilder {
             ))?,
             token: self
                 .token
-                .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?,
             from: self
                 .from
                 .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?,
-            amount: self.amount.clone(),
+            amount: self.amount,
             token_ids: self.token_ids.clone(),
         })
     }
@@ -1337,16 +1335,12 @@ impl InstructionBuilder<CreateInstructionBuilder> {
                 std::io::ErrorKind::NotFound,
                 "programOwner is required",
             ))?,
-            total_supply: self
-                .inner
-                .total_supply
-                .ok_or_else(|| U256::MAX)
-                .map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "totalSupply default is U256::MAX",
-                    )
-                })?,
+            total_supply: self.inner.total_supply.ok_or(U256::MAX).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "totalSupply default is U256::MAX",
+                )
+            })?,
             initialized_supply: self
                 .inner
                 .initialized_supply
@@ -1434,7 +1428,7 @@ impl InstructionBuilder<TransferInstructionBuilder> {
 
     pub fn build(&self) -> std::io::Result<Instruction> {
         Ok(Instruction::Transfer(TransferInstruction {
-            token: self.inner.token.clone().ok_or(std::io::Error::new(
+            token: self.inner.token.ok_or(std::io::Error::new(
                 ErrorKind::Other,
                 "token address is required",
             ))?,
@@ -1446,7 +1440,7 @@ impl InstructionBuilder<TransferInstructionBuilder> {
                 ErrorKind::Other,
                 "to address is required",
             ))?,
-            amount: self.inner.amount.clone(),
+            amount: self.inner.amount,
             ids: self.inner.ids.clone(),
         }))
     }
@@ -1505,7 +1499,6 @@ impl InstructionBuilder<BurnInstructionBuilder> {
             caller: self
                 .inner
                 .caller
-                .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "caller is required"))?,
             program_id: self.inner.program_id.clone().ok_or(std::io::Error::new(
                 ErrorKind::Other,
@@ -1514,14 +1507,13 @@ impl InstructionBuilder<BurnInstructionBuilder> {
             token: self
                 .inner
                 .token
-                .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "token is required"))?,
             from: self
                 .inner
                 .from
                 .clone()
                 .ok_or(std::io::Error::new(ErrorKind::Other, "from is required"))?,
-            amount: self.inner.amount.clone(),
+            amount: self.inner.amount,
             token_ids: self.inner.token_ids.clone(),
         }))
     }

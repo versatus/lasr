@@ -64,7 +64,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         size: Option<&usize>,
     ) -> WalletResult<WalletInfo> {
         let unwrapped_seed = if let Some(s) = seed {
-            s.clone()
+            *s
         } else {
             let mut rng = StdRng::from_entropy();
             let seed = rng.next_u64();
@@ -83,15 +83,13 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
         let mnemonic = if unwrapped_size == 12 {
             let mut entropy_12 = [0u8; 16];
             rng.fill_bytes(&mut entropy_12);
-            let mnemonic = Mnemonic::from_entropy(&entropy_12)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-            mnemonic
+            Mnemonic::from_entropy(&entropy_12)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
         } else {
             let mut entropy_24 = [0u8; 32];
             rng.fill_bytes(&mut entropy_24);
-            let mnemonic = Mnemonic::from_entropy(&entropy_24)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-            mnemonic
+            Mnemonic::from_entropy(&entropy_24)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?
         };
 
         let keypair_seed = mnemonic.to_seed(unwrapped_passphrase);
@@ -164,7 +162,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
     pub async fn sign_payload(
         &mut self,
-        payload: &String,
+        payload: &str,
     ) -> Result<Transaction, Box<dyn std::error::Error + Send>> {
         let payload: Payload = serde_json::from_str(payload)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
@@ -191,8 +189,8 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
 
         dbg!("validating balance");
 
-        if value > U256::from(0).into() {
-            account.validate_balance(&program_id, value)?;
+        if value > U256::from(0) {
+            account.validate_balance(program_id, value)?;
         }
 
         dbg!("building transaciton payload");
@@ -244,7 +242,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
             .program_id([0; 20])
             .inputs(inputs.to_string())
             .op(String::from(""))
-            .value(U256::from(0).into())
+            .value(U256::from(0))
             .nonce(account.nonce() + lasr_types::U256::from(1))
             .build()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;

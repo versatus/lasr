@@ -79,7 +79,7 @@ impl RecoverableSignature {
         log::info!("attemting to recover signature");
         let sig = Signature::try_from(self)?.to_standard();
         log::info!("reconstructing message: {}", hex::encode(message));
-        let msg = Message::from_digest_slice(&message)?;
+        let msg = Message::from_digest_slice(message)?;
         log::info!(
             "verifying message: {} with pubkey: {}",
             hex::encode(message),
@@ -105,7 +105,7 @@ impl RecoverableSignature {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
+        serde_json::from_str(&String::from_utf8_lossy(bytes).into_owned())
     }
 
     pub fn get_r(&self) -> [u8; 32] {
@@ -147,28 +147,28 @@ impl TryFrom<RecoverableSignature> for Signature {
     fn try_from(value: RecoverableSignature) -> Result<Signature, Self::Error> {
         let mut data = Vec::new();
         let mut recovery_id = value.get_v();
-        if recovery_id >= 0 && recovery_id <= 3 {
+        if (0..=3).contains(&recovery_id) {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
-        } else if recovery_id >= 27 && recovery_id <= 30 {
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if (27..=30).contains(&recovery_id) {
             recovery_id -= 27;
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
-        } else if recovery_id >= 35 && recovery_id <= 38 {
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if (35..=38).contains(&recovery_id) {
             recovery_id -= 35;
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         }
     }
 }
@@ -178,28 +178,28 @@ impl TryFrom<&RecoverableSignature> for Signature {
     fn try_from(value: &RecoverableSignature) -> Result<Signature, Self::Error> {
         let mut data = Vec::new();
         let mut recovery_id = value.get_v();
-        if recovery_id >= 0 && recovery_id <= 3 {
+        if (0..=3).contains(&recovery_id) {
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
-        } else if recovery_id >= 27 && recovery_id <= 30 {
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if (27..=30).contains(&recovery_id) {
             recovery_id -= 27;
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
-        } else if recovery_id >= 35 && recovery_id <= 38 {
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
+        } else if (35..=38).contains(&recovery_id) {
             recovery_id -= 35;
             log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else {
             log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
-            return Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?);
+            Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         }
     }
 }
@@ -238,7 +238,7 @@ impl Certificate {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(&String::from_utf8_lossy(bytes).to_owned())
+        serde_json::from_str(&String::from_utf8_lossy(bytes))
     }
 }
 

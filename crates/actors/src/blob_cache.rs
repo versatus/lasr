@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PendingBlobCache {
     //TODO(asmith) create an ergonimical RequestId struct for EigenDa
     //Blob responses
@@ -67,7 +67,7 @@ impl PendingBlobCache {
             ractor::registry::where_is(ActorType::DaClient.to_string())
                 .ok_or(Box::new(PendingBlobError) as Box<dyn std::error::Error>)?
                 .into();
-        let _ = da_actor.cast(DaClientMessage::ValidateBlob {
+        da_actor.cast(DaClientMessage::ValidateBlob {
             request_id: response.request_id(),
             tx,
         })?;
@@ -76,7 +76,7 @@ impl PendingBlobCache {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BlobCacheActor;
 
 impl BlobCacheActor {
@@ -102,12 +102,9 @@ impl Actor for BlobCacheActor {
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
-        message: Self::Msg,
+        _message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        match message {
-            _ => {}
-        }
         Ok(())
     }
 }

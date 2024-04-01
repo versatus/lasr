@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
         .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
 
-    let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(|e| Box::new(e))?;
+    let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         //TODO(asmith): Move the network endpoint for EigenDA to an 
@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batcher_actor = BatcherActor;
     let executor_actor = ExecutorActor;
     let inner_eo_server =
-        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(|e| Box::new(e))?;
+        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
     let batcher = Batcher::new(receivers_thread_tx);
@@ -145,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
         .await
-        .map_err(|e| Box::new(e))?;
+        .map_err(Box::new)?;
 
     let (account_cache_supervisor, _) = Actor::spawn(
         Some("account_cache_supervisor".to_string()),
@@ -153,32 +153,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (),
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (lasr_rpc_actor_ref, _) =
         Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_scheduler_actor_ref, _) =
         Actor::spawn(Some(ActorType::Scheduler.to_string()), scheduler_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_engine_actor_ref, _) =
         Actor::spawn(Some(ActorType::Engine.to_string()), engine_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_validator_actor_ref, _) =
         Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_eo_server_actor_ref, _) =
         Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_eo_client_actor_ref, _) = Actor::spawn(
         Some(ActorType::EoClient.to_string()),
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eo_client,
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (_da_client_actor_ref, _) = Actor::spawn_linked(
         Some(ActorType::DaClient.to_string()),
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         da_supervisor.get_cell(),
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (_pending_transaction_actor_ref, _) = Actor::spawn(
         Some(ActorType::PendingTransactions.to_string()),
@@ -203,12 +203,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (),
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (_batcher_actor_ref, _) =
         Actor::spawn(Some(ActorType::Batcher.to_string()), batcher_actor, batcher)
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let (_executor_actor_ref, _) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         execution_engine,
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (_account_cache_actor_ref, _) = Actor::spawn_linked(
         Some(ActorType::AccountCache.to_string()),
@@ -225,20 +225,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         account_cache_supervisor.get_cell(),
     )
     .await
-    .map_err(|e| Box::new(e))?;
+    .map_err(Box::new)?;
 
     let (_blob_cache_actor_ref, _) =
         Actor::spawn(Some(ActorType::BlobCache.to_string()), blob_cache_actor, ())
             .await
-            .map_err(|e| Box::new(e))?;
+            .map_err(Box::new)?;
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
         .build(format!("0.0.0.0:{}", port))
         .await
-        .map_err(|e| Box::new(e))?;
-    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(|e| Box::new(e))?;
+        .map_err(Box::new)?;
+    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(Box::new)?;
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
 
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
@@ -248,6 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx));
 
+    // Empty Loop wastes CPU cycles
     loop {}
 
     _stop_tx.send(1).await?;
