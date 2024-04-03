@@ -65,8 +65,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
-        //TODO(asmith): Move the network endpoint for EigenDA to an 
-        //environment variable. 
+        //TODO(asmith): Move the network endpoint for EigenDA to an
+        //environment variable.
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
         .adversary_threshold(40)
         .quorum_threshold(60)
