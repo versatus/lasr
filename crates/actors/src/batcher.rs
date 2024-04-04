@@ -85,7 +85,7 @@ pub enum BatcherError {
 
 #[derive(Clone, Debug, Default)]
 pub struct BatcherActor {
-    pub future_pool: UnorderedFuturePool<StaticFuture<Result<(), BatcherError>>>,
+    future_pool: UnorderedFuturePool<StaticFuture<Result<(), BatcherError>>>,
 }
 impl BatcherActor {
     pub fn new() -> Self {
