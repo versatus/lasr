@@ -37,7 +37,8 @@ pub trait ActorExt: ractor::Actor {
     ///
     /// impl ActorExt for MyActor {
     ///     type Output = ();
-    ///     type FuturePool<O> = OrderedFuturePool<StaticFuture<Self::Output>>;
+    ///     type Future<O> = StaticFuture<Self::Output>;
+    ///     type FuturePool<F> = OrderedFuturePool<Self::Future<Self::Output>>;
     ///     // ...
     /// }
     /// ```
