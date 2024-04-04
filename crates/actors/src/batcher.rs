@@ -37,7 +37,7 @@ use tokio::{
 };
 use web3::types::BlockNumber;
 
-use crate::{get_account, handle_actor_response};
+use crate::{get_account, handle_actor_response, ActorExt, StaticFuture, UnorderedFuturePool};
 use lasr_messages::{
     AccountCacheMessage, ActorType, BatcherMessage, DaClientMessage, EoMessage,
     PendingTransactionMessage, SchedulerMessage,
@@ -82,7 +82,7 @@ pub enum BatcherError {
 
 #[derive(Clone, Debug, Default)]
 pub struct BatcherActor {
-    pub future_pool: Arc<Mutex<FuturesUnordered<BoxFuture<'static, Result<(), BatcherError>>>>>,
+    pub future_pool: UnorderedFuturePool<StaticFuture<Result<(), BatcherError>>>,
 }
 impl BatcherActor {
     pub fn new() -> Self {
@@ -1704,6 +1704,37 @@ impl Actor for BatcherActor {
         Ok(())
     }
 }
+impl ActorExt for BatcherActor {
+    type Output = Result<(), BatcherError>;
+    type FuturePool<O> = UnorderedFuturePool<StaticFuture<Self::Output>>;
+    type FutureHandler = tokio_rayon::rayon::ThreadPool;
+    type JoinHandle = tokio::task::JoinHandle<()>;
+
+    fn future_pool(&self) -> Self::FuturePool<Self::Output> {
+        self.future_pool.clone()
+    }
+
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle {
+        tokio::spawn(async move {
+            loop {
+                let futures = actor.future_pool();
+                let mut guard = futures.lock().await;
+                tokio::select! {
+                    fut = guard.next() => {
+                        if let Some(task) = fut {
+                            future_handler.install(|| async move {
+                                if let Err(err) = task {
+                                    dbg!(&err);
+                                }
+                            })
+                            .await;
+                        }
+                    }
+                }
+            }
+        })
+    }
+}
 
 pub async fn batch_requestor(
     mut stopper: tokio::sync::mpsc::Receiver<u8>,
@@ -1737,7 +1768,7 @@ pub async fn batch_requestor(
 
 #[cfg(test)]
 mod batcher_tests {
-    use crate::batcher::{Batcher, BatcherActor, BatcherMessage};
+    use crate::batcher::{ActorExt, Batcher, BatcherActor, BatcherMessage};
     use anyhow::Result;
     use futures::{FutureExt, StreamExt};
     use lasr_types::TransactionType;
@@ -1821,6 +1852,7 @@ mod batcher_tests {
             .handle(BatcherMessage::GetNextBatch, &mut batcher)
             .await
             .unwrap();
+        // TODO: Add other handle methods to test interactions
         // batcher_actor.handle(BatcherMessage::AppendTransaction { transaction: , outputs:  }, &mut batcher).await.unwrap();
         // batcher_actor.handle(BatcherMessage::BlobVerificationProof { request_id: , proof:  }, &mut batcher).await.unwrap();
         {
@@ -1834,23 +1866,7 @@ mod batcher_tests {
             .unwrap();
 
         let actor_clone = batcher_actor.clone();
-        tokio::spawn(async move {
-            loop {
-                let mut guard = actor_clone.future_pool.lock().await;
-                tokio::select! {
-                    fut = guard.next() => {
-                        if let Some(task) = fut {
-                            future_thread_pool.install(|| async move {
-                                if let Err(err) = task {
-                                    dbg!(&err);
-                                }
-                            })
-                            .await;
-                        }
-                    }
-                }
-            }
-        });
+        BatcherActor::spawn_future_handler(actor_clone, future_thread_pool);
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
         loop {

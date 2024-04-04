@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
-use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::graph_cleaner;
 use lasr_actors::AccountCacheActor;
 use lasr_actors::AccountCacheSupervisor;
+use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
 use lasr_actors::BlobCacheActor;
@@ -258,27 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .num_threads(num_cpus::get())
         .build()
         .unwrap();
-    // We don't await the task here since we want to continuously poll
-    // for `Future`s to pass to the future handler.
-    tokio::spawn(async move {
-        loop {
-            // This guard is dropped on each iteration allowing the next
-            // task to be installed into the thread pool.
-            let mut guard = batcher_actor.future_pool.lock().await;
-            tokio::select! {
-                fut = guard.next() => {
-                    if let Some(task) = fut {
-                        future_thread_pool.install(|| async move {
-                            if let Err(err) = task {
-                                log::error!("{err:?}");
-                            }
-                        })
-                        .await;
-                    }
-                }
-            }
-        }
-    });
+    BatcherActor::spawn_future_handler(batcher_actor, future_thread_pool);
 
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
     loop {
