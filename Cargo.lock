@@ -2283,6 +2283,7 @@ dependencies = [
 name = "lasr_actors"
 version = "0.9.0"
 dependencies = [
+ "anyhow",
  "async-recursion",
  "async-trait",
  "base64 0.13.1",
@@ -2302,6 +2303,7 @@ dependencies = [
  "lasr_rpc",
  "lasr_types",
  "log",
+ "num_cpus",
  "ractor",
  "ractor_cluster",
  "ractor_cluster_derive",
@@ -2427,6 +2429,7 @@ dependencies = [
  "dotenv",
  "eigenda_client",
  "eo_listener",
+ "futures",
  "jsonrpsee",
  "lasr_actors",
  "lasr_clients",
@@ -2435,11 +2438,13 @@ dependencies = [
  "lasr_rpc",
  "lasr_types",
  "log",
+ "num_cpus",
  "ractor",
  "rand",
  "secp256k1 0.28.2",
  "simple_logger",
  "tokio",
+ "tokio-rayon",
  "tokio-stream",
  "web3",
  "web3_pkg",
