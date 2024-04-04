@@ -27,6 +27,8 @@ pub type StaticFuture<O> = BoxFuture<'static, O>;
 pub trait ActorExt: ractor::Actor {
     /// Represents the `Output` of a `Future` (`Future<Output = T>`).
     type Output;
+    /// The type of `Future` to be forwarded by `Self::FuturePool`.
+    type Future<O>;
     /// The type of pool that will store forwarded `Future`s.
     ///
     /// Example:
@@ -39,7 +41,7 @@ pub trait ActorExt: ractor::Actor {
     ///     // ...
     /// }
     /// ```
-    type FuturePool<O>;
+    type FuturePool<F>;
     /// The thread(s) that will `await` `Future`s passed to it from `Self::FuturePool`.
     type FutureHandler;
     /// The handle of the thread responsible for passing `Future`s to `Self::FutureHandler`.
@@ -51,7 +53,7 @@ pub trait ActorExt: ractor::Actor {
     /// > Note: If using `UnorderedFuturePool`, or `OrderedFuturePool` this will
     /// likely need to be an `Arc::clone`, incrementing the atomic reference
     /// count by 1.
-    fn future_pool(&self) -> Self::FuturePool<Self::Output>;
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>>;
 
     /// Spawn a thread that passes futures to a thread pool to await them there.
     fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;

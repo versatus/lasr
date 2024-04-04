@@ -1818,11 +1818,12 @@ impl Actor for BatcherActor {
 }
 impl ActorExt for BatcherActor {
     type Output = Result<(), BatcherError>;
-    type FuturePool<O> = UnorderedFuturePool<StaticFuture<Self::Output>>;
+    type Future<O> = StaticFuture<Self::Output>;
+    type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
     type FutureHandler = tokio_rayon::rayon::ThreadPool;
     type JoinHandle = tokio::task::JoinHandle<()>;
 
-    fn future_pool(&self) -> Self::FuturePool<Self::Output> {
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>> {
         self.future_pool.clone()
     }
 
