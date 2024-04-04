@@ -58,7 +58,7 @@ where
 }
 
 impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
-    pub fn new(
+    pub fn new_wallet(
         seed: Option<&u128>,
         passphrase: Option<&String>,
         size: Option<&usize>,

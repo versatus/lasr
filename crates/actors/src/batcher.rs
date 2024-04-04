@@ -1589,8 +1589,8 @@ impl Batcher {
             .get(&request_id)
             .ok_or(BatcherError::Custom("request id not in cache".to_string()))?
             .accounts
-            .iter()
-            .map(|(k, _)| k.clone())
+            .keys()
+            .cloned()
             .collect();
 
         let decoded = base64::decode(proof.batch_metadata().batch_header_hash().to_string())

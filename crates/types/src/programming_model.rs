@@ -319,7 +319,7 @@ impl CreateInstructionBuilder {
                 std::io::ErrorKind::NotFound,
                 "programOwner is required",
             ))?,
-            total_supply: self.total_supply.ok_or_else(|| U256::MAX).map_err(|_| {
+            total_supply: self.total_supply.ok_or(U256::MAX).map_err(|_| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "totalSupply default is U256::MAX",
@@ -354,7 +354,7 @@ impl CreateInstruction {
         let mut accounts_involved = vec![
             self.program_namespace.clone(),
             self.program_id.clone(),
-            AddressOrNamespace::Address(self.program_owner.clone()),
+            AddressOrNamespace::Address(self.program_owner),
         ];
 
         for dist in &self.distribution {
@@ -476,7 +476,7 @@ impl TokenDistributionBuilder {
                 ErrorKind::Other,
                 "to address is required",
             ))?,
-            amount: self.amount.clone(),
+            amount: self.amount,
             token_ids: self.token_ids.clone(),
             update_fields: self.update_fields.clone(),
         })
@@ -1001,7 +1001,7 @@ impl TransferInstructionBuilder {
 
     pub fn build(&self) -> std::io::Result<TransferInstruction> {
         Ok(TransferInstruction {
-            token: self.token.clone().ok_or(std::io::Error::new(
+            token: self.token.ok_or(std::io::Error::new(
                 ErrorKind::Other,
                 "token address is required",
             ))?,
@@ -1013,7 +1013,7 @@ impl TransferInstructionBuilder {
                 ErrorKind::Other,
                 "to address is required",
             ))?,
-            amount: self.amount.clone(),
+            amount: self.amount,
             ids: self.ids.clone(),
         })
     }

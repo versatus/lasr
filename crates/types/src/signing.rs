@@ -105,7 +105,7 @@ impl RecoverableSignature {
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(&String::from_utf8_lossy(bytes).into_owned())
+        serde_json::from_str(&String::from_utf8_lossy(bytes))
     }
 
     pub fn get_r(&self) -> [u8; 32] {
@@ -242,6 +242,4 @@ impl Certificate {
     }
 }
 
-mod tests {
-    use super::*;
-}
+mod tests {}

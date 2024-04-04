@@ -37,6 +37,7 @@ use ractor::Actor;
 use secp256k1::Secp256k1;
 use web3::types::BlockNumber;
 
+#[allow(clippy::empty_loop)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::init_with_level(log::Level::Warn)
@@ -248,7 +249,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx));
 
-    // Empty Loop wastes CPU cycles
     loop {}
 
     _stop_tx.send(1).await?;
