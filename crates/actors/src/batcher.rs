@@ -1266,14 +1266,18 @@ impl Batcher {
     ) -> Result<(), BatcherError> {
         let actor: ActorRef<SchedulerMessage> =
             ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::Custom(
-                    "unable to acquire Scheduler".to_string(),
-                ))?
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "unable to acquire Scheduler".to_string(),
+                    txn: transaction.clone(),
+                })?
                 .into();
 
         let mut account = match get_account(transaction.from()).await {
             None => {
-                let e = BatcherError::Custom("deployer account doesn't exit".to_string());
+                let e = BatcherError::FailedTransaction {
+                    msg: "deployer account doesn't exit".to_string(),
+                    txn: transaction.clone(),
+                };
                 let error_string = e.to_string();
 
                 let message = SchedulerMessage::CallTransactionFailure {
@@ -1288,24 +1292,34 @@ impl Batcher {
         };
 
         let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs())
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            })?;
 
         let content_id = {
             match json
                 .get("contentId")
-                .ok_or(BatcherError::Custom("content id is required".to_string()))?
-            {
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "content id is required".to_string(),
+                    txn: transaction.clone(),
+                })? {
                 Value::String(cid) => cid.clone(),
                 _ => {
-                    return Err(BatcherError::Custom(
-                        "contentId is incorrect type: Must be String".to_string(),
-                    ))
+                    return Err(BatcherError::FailedTransaction {
+                        msg: "contentId is incorrect type: Must be String".to_string(),
+                        txn: transaction.clone(),
+                    })
                 }
             }
         };
 
-        let program_id = create_program_id(content_id.clone(), &transaction)
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
+        let program_id = create_program_id(content_id.clone(), &transaction).map_err(|e| {
+            BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            }
+        })?;
 
         let mut metadata = Metadata::new();
         metadata
@@ -1321,19 +1335,33 @@ impl Batcher {
             .program_account_data(ArbitraryData::new())
             .program_account_metadata(metadata)
             .build()
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            })?;
 
-        Batcher::add_account_to_batch(&batcher, program_account).await?;
+        Batcher::add_account_to_batch(&batcher, program_account)
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            })?;
 
         account.increment_nonce();
 
-        Batcher::add_account_to_batch(&batcher, account).await?;
+        Batcher::add_account_to_batch(&batcher, account)
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            })?;
 
         let actor: ActorRef<SchedulerMessage> =
             ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::Custom(
-                    "unable to acquire Scheduler".to_string(),
-                ))?
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "unable to acquire Scheduler".to_string(),
+                    txn: transaction.clone(),
+                })?
                 .into();
 
         let message = SchedulerMessage::RegistrationSuccess {
@@ -1342,7 +1370,10 @@ impl Batcher {
         };
         actor
             .cast(message)
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction,
+            })?;
 
         Ok(())
     }
@@ -1401,15 +1432,22 @@ impl Batcher {
         outputs: Outputs,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
-        let mut caller = get_account(transaction.to())
-            .await
-            .ok_or(BatcherError::Custom(
-                "caller account does not exist".to_string(),
-            ))?;
+        let mut caller =
+            get_account(transaction.to())
+                .await
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "caller account does not exist".to_string(),
+                    txn: transaction.clone(),
+                })?;
 
         caller.increment_nonce();
 
-        Batcher::add_account_to_batch(&batcher, caller).await?;
+        Batcher::add_account_to_batch(&batcher, caller)
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: transaction.clone(),
+            })?;
 
         for instruction in outputs.instructions().iter().cloned() {
             match instruction {
@@ -1421,7 +1459,11 @@ impl Batcher {
                         &transfer,
                         &mut batch_buffer,
                     )
-                    .await?;
+                    .await
+                    .map_err(|e| BatcherError::FailedTransaction {
+                        msg: e.to_string(),
+                        txn: transaction.clone(),
+                    })?;
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, from_account);
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, to_account);
                 }
@@ -1429,7 +1471,11 @@ impl Batcher {
                     log::info!("Applying burn instruction: {:?}", burn);
                     let account =
                         Batcher::apply_burn_instruction(&transaction, &burn, &mut batch_buffer)
-                            .await?;
+                            .await
+                            .map_err(|e| BatcherError::FailedTransaction {
+                                msg: e.to_string(),
+                                txn: transaction.clone(),
+                            })?;
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
                 }
                 Instruction::Create(create) => {
@@ -1442,13 +1488,21 @@ impl Batcher {
                         log::warn!("Applying distribution: {:?}", create);
                         let account =
                             Batcher::apply_distribution(&transaction, dist, &mut batch_buffer)
-                                .await?;
+                                .await
+                                .map_err(|e| BatcherError::FailedTransaction {
+                                    msg: e.to_string(),
+                                    txn: transaction.clone(),
+                                })?;
                         Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
 
                     let program_account =
                         Batcher::try_create_program_account(&transaction, create, &batch_buffer)
-                            .await?;
+                            .await
+                            .map_err(|e| BatcherError::FailedTransaction {
+                                msg: e.to_string(),
+                                txn: transaction.clone(),
+                            })?;
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
@@ -1461,7 +1515,11 @@ impl Batcher {
                             token_or_program_update,
                             &mut batch_buffer,
                         )
-                        .await?;
+                        .await
+                        .map_err(|e| BatcherError::FailedTransaction {
+                            msg: e.to_string(),
+                            txn: transaction.clone(),
+                        })?;
                         Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
                 }
@@ -1477,7 +1535,10 @@ impl Batcher {
         for (_, account) in batch_buffer {
             Batcher::add_account_to_batch(&batcher, account)
                 .await
-                .map_err(|e| BatcherError::Custom(e.to_string()))?;
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: transaction.clone(),
+                })?;
         }
 
         log::warn!("Adding transaction to a batch");
@@ -1485,17 +1546,18 @@ impl Batcher {
 
         let scheduler: ActorRef<SchedulerMessage> =
             ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::Custom(
-                    "Error: batcher.rs: 816: unable to acquire scheduler actor".to_string(),
-                ))?
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "unable to acquire scheduler actor".to_string(),
+                    txn: transaction.clone(),
+                })?
                 .into();
 
         let pending_transactions: ActorRef<PendingTransactionMessage> =
             ractor::registry::where_is(ActorType::PendingTransactions.to_string())
-                .ok_or(BatcherError::Custom(
-                    "Error: batcher.rs: 966: unable to acquire pending transactions actor"
-                        .to_string(),
-                ))?
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "unable to acquire pending transactions actor".to_string(),
+                    txn: transaction.clone(),
+                })?
                 .into();
 
         let message = PendingTransactionMessage::ValidCall {
@@ -1513,11 +1575,13 @@ impl Batcher {
             "attempting to get account: {:?} in batcher.rs 1121",
             transaction.from()
         );
-        let account = get_account(transaction.from())
-            .await
-            .ok_or(BatcherError::Custom(
-                "Error: batcher.rs: 1122: unable to acquire caller account".to_string(),
-            ))?;
+        let account =
+            get_account(transaction.from())
+                .await
+                .ok_or(BatcherError::FailedTransaction {
+                    msg: "unable to acquire caller account".to_string(),
+                    txn: transaction.clone(),
+                })?;
 
         let message = SchedulerMessage::CallTransactionApplied {
             transaction_hash: transaction.hash_string(),
