@@ -81,7 +81,16 @@ pub enum BatcherError {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct BatcherActor;
+pub struct BatcherActor {
+    pub future_pool: Arc<Mutex<FuturesUnordered<BoxFuture<'static, Result<(), BatcherError>>>>>,
+}
+impl BatcherActor {
+    pub fn new() -> Self {
+        Self {
+            future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
+        }
+    }
+}
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Batch {
@@ -262,7 +271,6 @@ pub struct Batcher {
     children: VecDeque<Batch>,
     cache: HashMap<String /* request_id*/, Batch>,
     receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>,
-    future_pool: FuturesUnordered<BoxFuture<'static, Result<(), BatcherError>>>,
 }
 
 impl Batcher {
@@ -270,6 +278,7 @@ impl Batcher {
         mut receiver: Receiver<OneshotReceiver<(String, BlobVerificationProof)>>,
     ) -> Result<(), BatcherError> {
         let mut pending_receivers: PendingReceivers = FuturesUnordered::new();
+        println!("in run receivers");
         log::info!("starting batch receivers");
         loop {
             tokio::select! {
@@ -312,7 +321,6 @@ impl Batcher {
             children: VecDeque::new(),
             cache: HashMap::new(),
             receiver_thread_tx,
-            future_pool: FuturesUnordered::new(),
         }
     }
 
@@ -1625,12 +1633,6 @@ impl Batcher {
     }
 }
 
-impl BatcherActor {
-    pub fn new() -> Self {
-        BatcherActor
-    }
-}
-
 #[async_trait]
 impl Actor for BatcherActor {
     type Msg = BatcherMessage;
@@ -1655,8 +1657,8 @@ impl Actor for BatcherActor {
         match message {
             BatcherMessage::GetNextBatch => {
                 let fut = Batcher::handle_next_batch_request(batcher_ptr);
-                let batcher = state.lock().await;
-                batcher.future_pool.push(fut.boxed());
+                let mut guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             BatcherMessage::AppendTransaction {
                 transaction,
@@ -1668,8 +1670,8 @@ impl Actor for BatcherActor {
                         log::warn!("send transaction");
                         let fut =
                             Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
-                        let batcher = state.lock().await;
-                        batcher.future_pool.push(fut.boxed());
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
                     }
                     TransactionType::Call(_) => {
                         if let Some(o) = outputs {
@@ -1678,16 +1680,16 @@ impl Actor for BatcherActor {
                                 transaction,
                                 o,
                             );
-                            let batcher = state.lock().await;
-                            batcher.future_pool.push(fut.boxed());
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
                         } else {
                             log::error!("Call transaction result did not contain outputs")
                         }
                     }
                     TransactionType::RegisterProgram(_) => {
                         let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
-                        let batcher = state.lock().await;
-                        batcher.future_pool.push(fut.boxed());
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
                     }
                     TransactionType::BridgeOut(_) => {}
                 }
@@ -1695,8 +1697,8 @@ impl Actor for BatcherActor {
             BatcherMessage::BlobVerificationProof { request_id, proof } => {
                 log::info!("received blob verification proof");
                 let fut = Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
-                let batcher = state.lock().await;
-                batcher.future_pool.push(fut.boxed());
+                let mut guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
         }
         Ok(())
@@ -1731,4 +1733,134 @@ pub async fn batch_requestor(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod batcher_tests {
+    use crate::batcher::{Batcher, BatcherActor, BatcherMessage};
+    use anyhow::Result;
+    use futures::{FutureExt, StreamExt};
+    use lasr_types::TransactionType;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    /// Minimal reproduction of the `ractor::Actor` trait for testing the `handle`
+    /// method match arm interactions.
+    trait TestHandle {
+        type Msg;
+        type State;
+        async fn handle(&self, message: Self::Msg, state: &mut Self::State) -> Result<()>;
+    }
+    impl TestHandle for BatcherActor {
+        type Msg = BatcherMessage;
+        type State = Arc<Mutex<Batcher>>;
+
+        async fn handle(&self, message: Self::Msg, state: &mut Self::State) -> Result<()> {
+            let batcher_ptr = Arc::clone(state);
+            match message {
+                BatcherMessage::GetNextBatch => {
+                    let fut = Batcher::handle_next_batch_request(batcher_ptr);
+                    let mut guard = self.future_pool.lock().await;
+                    guard.push(fut.boxed());
+                }
+                BatcherMessage::AppendTransaction {
+                    transaction,
+                    outputs,
+                } => {
+                    log::warn!("appending transaction to batch");
+                    match transaction.transaction_type() {
+                        TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                            log::warn!("send transaction");
+                            let fut = Batcher::add_transaction_to_account(
+                                batcher_ptr,
+                                transaction.clone(),
+                            );
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::Call(_) => {
+                            if let Some(o) = outputs {
+                                let fut = Batcher::apply_instructions_to_accounts(
+                                    batcher_ptr,
+                                    transaction,
+                                    o,
+                                );
+                                let mut guard = self.future_pool.lock().await;
+                                guard.push(fut.boxed());
+                            } else {
+                                log::error!("Call transaction result did not contain outputs")
+                            }
+                        }
+                        TransactionType::RegisterProgram(_) => {
+                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::BridgeOut(_) => {}
+                    }
+                }
+                BatcherMessage::BlobVerificationProof { request_id, proof } => {
+                    log::info!("received blob verification proof");
+                    let fut =
+                        Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
+                    let mut guard = self.future_pool.lock().await;
+                    guard.push(fut.boxed());
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_batcher_future_handler() {
+        let batcher_actor = BatcherActor::new();
+        let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
+        let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
+
+        batcher_actor
+            .handle(BatcherMessage::GetNextBatch, &mut batcher)
+            .await
+            .unwrap();
+        // batcher_actor.handle(BatcherMessage::AppendTransaction { transaction: , outputs:  }, &mut batcher).await.unwrap();
+        // batcher_actor.handle(BatcherMessage::BlobVerificationProof { request_id: , proof:  }, &mut batcher).await.unwrap();
+        {
+            let guard = batcher_actor.future_pool.lock().await;
+            assert!(!guard.is_empty());
+        }
+
+        let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .build()
+            .unwrap();
+
+        let actor_clone = batcher_actor.clone();
+        tokio::spawn(async move {
+            loop {
+                let mut guard = actor_clone.future_pool.lock().await;
+                tokio::select! {
+                    fut = guard.next() => {
+                        if let Some(task) = fut {
+                            future_thread_pool.install(|| async move {
+                                if let Err(err) = task {
+                                    dbg!(&err);
+                                }
+                            })
+                            .await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        loop {
+            {
+                let guard = batcher_actor.future_pool.lock().await;
+                if guard.is_empty() {
+                    break;
+                }
+            }
+            interval.tick().await;
+        }
+    }
 }
