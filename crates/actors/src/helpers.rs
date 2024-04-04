@@ -25,21 +25,30 @@ pub type StaticFuture<O> = BoxFuture<'static, O>;
 /// `Actor::handle` to a `FuturePool` to be `await`ed at a later time,
 /// unblocking the `handle` method for that `Actor`.
 pub trait ActorExt: ractor::Actor {
-    /// Represents the `Output` from a `Future` (`Future<Output = T>`).
+    /// Represents the `Output` of a `Future` (`Future<Output = T>`).
     type Output;
-    /// This is intended to be either an `UnorderedFuturePool`, or
-    /// `OrderedFuturePool` containing some `StaticFuture`s.
+    /// The type of pool that will store forwarded `Future`s.
+    ///
+    /// Example:
+    /// ```rust,ignore
+    /// use lasr_actors::helpers::{OrderedFuturePool, StaticFuture, ActorExt};
+    ///
+    /// impl ActorExt for MyActor {
+    ///     type Output = ();
+    ///     type FuturePool<O> = OrderedFuturePool<StaticFuture<Self::Output>>;
+    ///     // ...
+    /// }
+    /// ```
     type FuturePool<O>;
-    /// The thread(s) that `await` `Future`s that are passed to it.
+    /// The thread(s) that will `await` `Future`s passed to it from `Self::FuturePool`.
     type FutureHandler;
-    /// The handle type of the thread responsible for passing `StaticFuture`s to
-    /// the `Self::FutureHandler` to be `await`ed.
+    /// The handle of the thread responsible for passing `Future`s to `Self::FutureHandler`.
     type JoinHandle;
 
     /// Returns a thread-safe, non-blocking mutatable future pool for polling
     /// futures in a future handler thread.
     ///
-    /// Note: If using `UnorderedFuturePool`, or `OrderedFuturePool` this will
+    /// > Note: If using `UnorderedFuturePool`, or `OrderedFuturePool` this will
     /// likely need to be an `Arc::clone`, incrementing the atomic reference
     /// count by 1.
     fn future_pool(&self) -> Self::FuturePool<Self::Output>;
