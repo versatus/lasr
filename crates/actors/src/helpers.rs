@@ -1,12 +1,64 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{AccountCacheError, EngineError};
 use ethereum_types::H256;
+use futures::future::BoxFuture;
+use futures::stream::{FuturesOrdered, FuturesUnordered};
 use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::ActorRef;
-use tokio::time::timeout;
+use tokio::{sync::Mutex, time::timeout};
+
+/// A thread-safe, non-blocking & mutatable `FuturesUnordered`.
+pub type UnorderedFuturePool<F> = Arc<Mutex<FuturesUnordered<F>>>;
+/// A thread-safe, non-blocking & mutatable `FuturesOrdered`.
+pub type OrderedFuturePool<F> = Arc<Mutex<FuturesOrdered<F>>>;
+/// Equivalent to `Pin<Box<dyn Future<Output = O> + Send + 'static>>`.
+///
+/// Shorthand for needing to specify the `'static` lifetime for `BoxFuture` all the time
+/// for types that house `Futures` that will be forwarded to a thread to be `await`ed`.
+pub type StaticFuture<O> = BoxFuture<'static, O>;
+
+/// An extension trait for `Actor`s that aids in forwarding `Future`s from
+/// `Actor::handle` to a `FuturePool` to be `await`ed at a later time,
+/// unblocking the `handle` method for that `Actor`.
+pub trait ActorExt: ractor::Actor {
+    /// Represents the `Output` of a `Future` (`Future<Output = T>`).
+    type Output;
+    /// The type of `Future` to be forwarded by `Self::FuturePool`.
+    type Future<O>;
+    /// The type of pool that will store forwarded `Future`s.
+    ///
+    /// Example:
+    /// ```rust,ignore
+    /// use lasr_actors::helpers::{OrderedFuturePool, StaticFuture, ActorExt};
+    ///
+    /// impl ActorExt for MyActor {
+    ///     type Output = ();
+    ///     type Future<O> = StaticFuture<Self::Output>;
+    ///     type FuturePool<F> = OrderedFuturePool<Self::Future<Self::Output>>;
+    ///     // ...
+    /// }
+    /// ```
+    type FuturePool<F>;
+    /// The thread(s) that will `await` `Future`s passed to it from `Self::FuturePool`.
+    type FutureHandler;
+    /// The handle of the thread responsible for passing `Future`s to `Self::FutureHandler`.
+    type JoinHandle;
+
+    /// Returns a thread-safe, non-blocking mutatable future pool for polling
+    /// futures in a future handler thread.
+    ///
+    /// > Note: If using `UnorderedFuturePool`, or `OrderedFuturePool` this will
+    /// likely need to be an `Arc::clone`, incrementing the atomic reference
+    /// count by 1.
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>>;
+
+    /// Spawn a thread that passes futures to a thread pool to await them there.
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;
+}
 
 #[macro_export]
 macro_rules! create_handler {
