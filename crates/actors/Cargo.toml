@@ -41,6 +41,7 @@ base64 = "0.13"
 flate2 = "1.0.28"
 async-recursion = "1.0.5"
 tokio-rayon = "2.1.0"
+num_cpus = "1.16.0"
 schemars = "0.8.16"
 chrono = "0.4.35"
 uuid = { version = "1.3", features = ["v4", "serde"] }
@@ -52,5 +53,4 @@ lasr_contract = { path = "../contract" }
 lasr_messages = { path = "../messages" }
 
 [dev-dependencies]
-num_cpus = "1.16.0"
 anyhow = "1"
