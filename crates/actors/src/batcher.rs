@@ -1723,7 +1723,7 @@ pub async fn batch_requestor(
         let message = BatcherMessage::GetNextBatch;
         log::warn!("requesting next batch");
         batcher.cast(message).map_err(|e| {
-            Box::new(BatcherError::Custom(e.to_string())) as Box<dyn std::error::Error + Send>
+            Box::new(BatcherError::Custom(dbg!(e.to_string()))) as Box<dyn std::error::Error + Send>
         });
 
         if let Ok(1) = &stopper.try_recv() {

@@ -270,7 +270,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(task) = fut {
                         future_thread_pool.install(|| async move {
                             if let Err(err) = task {
-                                log::error!("{err:?}");
+                                // log::error!("{err:?}");
+                                dbg!(err);
                             }
                         })
                         .await;
