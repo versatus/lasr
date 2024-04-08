@@ -40,7 +40,6 @@ use tokio::sync::Mutex;
 use secp256k1::Secp256k1;
 use web3::types::BlockNumber;
 
-#[allow(clippy::empty_loop)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::init_with_level(log::Level::Error)
