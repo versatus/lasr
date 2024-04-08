@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
@@ -9,6 +10,7 @@ use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::graph_cleaner;
 use lasr_actors::AccountCacheActor;
 use lasr_actors::AccountCacheSupervisor;
+use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
 use lasr_actors::BlobCacheActor;
@@ -33,6 +35,7 @@ use lasr_messages::ActorType;
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
 use ractor::Actor;
+use tokio::sync::Mutex;
 
 use secp256k1::Secp256k1;
 use web3::types::BlockNumber;
@@ -40,7 +43,7 @@ use web3::types::BlockNumber;
 #[allow(clippy::empty_loop)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Warn)
+    simple_logger::init_with_level(log::Level::Error)
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());
@@ -134,13 +137,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
-    let batcher_actor = BatcherActor;
+    let batcher_actor = BatcherActor::new();
     let executor_actor = ExecutorActor;
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
-    let batcher = Batcher::new(receivers_thread_tx);
+    let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
 
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
@@ -206,10 +209,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_batcher_actor_ref, _) =
-        Actor::spawn(Some(ActorType::Batcher.to_string()), batcher_actor, batcher)
-            .await
-            .map_err(Box::new)?;
+    let (_batcher_actor_ref, _) = Actor::spawn(
+        Some(ActorType::Batcher.to_string()),
+        batcher_actor.clone(),
+        batcher.clone(),
+    )
+    .await
+    .map_err(Box::new)?;
 
     let (_executor_actor_ref, _) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
@@ -249,7 +255,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx));
 
-    loop {}
+    let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+        .num_threads(num_cpus::get())
+        .build()
+        .unwrap();
+    BatcherActor::spawn_future_handler(batcher_actor, future_thread_pool);
+
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+    loop {
+        interval.tick().await;
+    }
 
     _stop_tx.send(1).await?;
 

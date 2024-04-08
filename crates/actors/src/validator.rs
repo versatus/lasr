@@ -18,9 +18,9 @@ pub struct ValidatorCore {
 impl Default for ValidatorCore {
     fn default() -> Self {
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(50)
+            .num_threads(num_cpus::get())
             .build()
-            .unwrap();
+            .expect("failed to initialize rayon thread pool for validator core");
 
         Self { pool }
     }
