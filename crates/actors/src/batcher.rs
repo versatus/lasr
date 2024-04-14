@@ -182,9 +182,33 @@ impl Batch {
     }
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let encoded = base64::encode(self.compress_batch()?);
-        log::info!("encoded batch: {:?}", &encoded);
-        Ok(encoded)
+        let mut command = Command::new("./eigenda/tools/kzgpad/bin/kzgpad");
+        command.arg("-e");
+        command.arg(base64::encode(self.compress_batch()));
+
+        // Execute the command
+        let output = match command.output() {
+            Ok(output) => output,
+            Err(e) => {
+                eprintln!("Failed to execute command: {}", e);
+                return;
+            }
+        };
+
+        // Check if the command was successful
+        if output.status.success() {
+            if let Ok(encoded) = str::from_utf8(&output.stdout) {
+                log::info!("encoded batch: {:?}", &encoded);
+                return Ok(encoded)
+            }
+        } else {
+            io::stderr().write_all(&output.stderr).unwrap();
+            return Err(
+                BatcherError::Custom(
+                    "error trying to encode data for eigenda"
+                )
+            )
+        }
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
