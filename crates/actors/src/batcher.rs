@@ -182,16 +182,18 @@ impl Batch {
     }
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let mut command = Command::new("./eigenda/tools/kzgpad/bin/kzgpad");
-        command.arg("-e");
+        let mut command = Command::new("./scripts/encode-blob.sh");
         command.arg(base64::encode(self.compress_batch()));
 
         // Execute the command
         let output = match command.output() {
             Ok(output) => output,
             Err(e) => {
-                eprintln!("Failed to execute command: {}", e);
-                return;
+                return Err(
+                    BatcherError::Custom(
+                        format!("unable to encode batch: {}", e.to_string()))
+                    )
+                );
             }
         };
 
@@ -205,13 +207,39 @@ impl Batch {
             io::stderr().write_all(&output.stderr).unwrap();
             return Err(
                 BatcherError::Custom(
-                    "error trying to encode data for eigenda"
+                    "error trying to encode data for eigenda".to_string()
                 )
             )
         }
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
+        let mut command = Command::new("./scripts/decode-blob.sh");
+        command.arg(batch);
+
+        let output = match command.output() {
+            Ok(output) => output,
+            Err(e) => {
+                return Err(
+                    BatcherError::Custom(
+                        format!("unable to decode data: {}", e)
+                    )
+                )
+            }
+        }
+
+        let batch_data = if output.status.success() {
+            if let Ok(decoded) = str::from_utf8(&output.stdout) {
+               decoded 
+            } else {
+                return Err(
+                    BatcherError::Custom(
+                        "unable to retreive output stdout while trying to decode batch".to_string()
+                    )
+                )
+            }
+        }
+
         Self::deserialize_batch(
             base64::decode(batch)
                 .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
