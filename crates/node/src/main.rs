@@ -71,8 +71,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         //TODO(asmith): Move the network endpoint for EigenDA to an
         //environment variable.
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
-        .adversary_threshold(40)
-        .quorum_threshold(60)
         .build()?;
 
     let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");

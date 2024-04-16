@@ -43,7 +43,7 @@ impl DaClient {
     }
 
     async fn disperse_blobs(&self, batch: String) -> Result<BlobResponse, std::io::Error> {
-        let response = self.client.disperse_blob(batch, &0)?;
+        let response = self.client.disperse_blob(batch)?;
         Ok(response)
     }
 }
