@@ -260,7 +260,7 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
 
     match timeout(
         Duration::from_secs(5),
-        attempt_get_account_from_da(da_actor, address, Duration::from_secs(3), blob_index),
+        attempt_get_account_from_da(da_actor, address, blob_index),
     )
     .await
     {
