@@ -2280,6 +2280,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kzgpad-rs"
+version = "0.1.0"
+source = "git+https://github.com/Layr-Labs/kzgpad-rs.git#e1e9de27d2dee10f33471c8cf8acf3092ad5d826"
+dependencies = [
+ "rand",
+]
+
+[[package]]
 name = "lasr_actors"
 version = "0.9.0"
 dependencies = [
@@ -2297,6 +2305,7 @@ dependencies = [
  "futures",
  "internal_rpc",
  "jsonrpsee",
+ "kzgpad-rs",
  "lasr_compute",
  "lasr_contract",
  "lasr_messages",

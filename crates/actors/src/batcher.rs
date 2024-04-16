@@ -182,15 +182,16 @@ impl Batch {
     }
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let encoded = base64::encode(self.compress_batch()?);
+        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(&self.compress_batch()?));
         log::info!("encoded batch: {:?}", &encoded);
         Ok(encoded)
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
         Self::deserialize_batch(
-            base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
+            kzgpad_rs::remove_empty_byte_from_padded_bytes(&base64::decode(batch)
+                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?
+            )
         )
     }
 
