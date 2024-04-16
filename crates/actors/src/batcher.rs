@@ -182,67 +182,16 @@ impl Batch {
     }
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let mut command = Command::new("./scripts/encode-blob.sh");
-        command.arg(base64::encode(self.compress_batch()));
-
-        // Execute the command
-        let output = match command.output() {
-            Ok(output) => output,
-            Err(e) => {
-                return Err(
-                    BatcherError::Custom(
-                        format!("unable to encode batch: {}", e.to_string()))
-                    )
-                );
-            }
-        };
-
-        // Check if the command was successful
-        if output.status.success() {
-            if let Ok(encoded) = str::from_utf8(&output.stdout) {
-                log::info!("encoded batch: {:?}", &encoded);
-                return Ok(encoded)
-            }
-        } else {
-            io::stderr().write_all(&output.stderr).unwrap();
-            return Err(
-                BatcherError::Custom(
-                    "error trying to encode data for eigenda".to_string()
-                )
-            )
-        }
+        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(&self.compress_batch()?));
+        log::info!("encoded batch: {:?}", &encoded);
+        Ok(encoded)
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
-        let mut command = Command::new("./scripts/decode-blob.sh");
-        command.arg(batch);
-
-        let output = match command.output() {
-            Ok(output) => output,
-            Err(e) => {
-                return Err(
-                    BatcherError::Custom(
-                        format!("unable to decode data: {}", e)
-                    )
-                )
-            }
-        }
-
-        let batch_data = if output.status.success() {
-            if let Ok(decoded) = str::from_utf8(&output.stdout) {
-               decoded 
-            } else {
-                return Err(
-                    BatcherError::Custom(
-                        "unable to retreive output stdout while trying to decode batch".to_string()
-                    )
-                )
-            }
-        }
-
         Self::deserialize_batch(
-            base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
+            kzgpad_rs::remove_empty_byte_from_padded_bytes(&base64::decode(batch)
+                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?
+            )
         )
     }
 
