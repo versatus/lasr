@@ -260,7 +260,7 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
 
     match timeout(
         Duration::from_secs(5),
-        attempt_get_account_from_da(da_actor, address, Duration::from_secs(3), blob_index),
+        attempt_get_account_from_da(da_actor, address, blob_index),
     )
     .await
     {
@@ -330,25 +330,19 @@ pub async fn get_account_from_da(
 pub async fn attempt_get_account_from_da(
     da_actor: ActorRef<DaClientMessage>,
     address: Address,
-    max_duration: Duration,
     blob_index: (Address, H256, u128),
 ) -> Option<Account> {
-    let start_time = std::time::Instant::now();
-    loop {
-        let (tx, rx) = oneshot();
-        let message = DaClientMessage::RetrieveAccount {
-            address,
-            batch_header_hash: blob_index.1,
-            blob_index: blob_index.2,
-            tx,
-        };
+    let (tx, rx) = oneshot();
+    let message = DaClientMessage::RetrieveAccount {
+        address,
+        batch_header_hash: blob_index.1,
+        blob_index: blob_index.2,
+        tx,
+    };
 
-        if let Some(account) = get_account_from_da(da_actor.clone(), message, rx).await {
-            return Some(account);
-        }
-
-        if start_time.elapsed() >= max_duration {
-            return None;
-        }
+    if let Some(account) = get_account_from_da(da_actor.clone(), message, rx).await {
+        return Some(account);
     }
+
+    return None;
 }
