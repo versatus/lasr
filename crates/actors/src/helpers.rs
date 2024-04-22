@@ -216,6 +216,16 @@ where
             let resp = response.map_err(channel_closed_unexpectedly)?;
             handler(resp)
         }
+        _ = tokio::time::sleep(Duration::from_secs(15)) => {
+            Err(
+                Box::new(
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut, 
+                        "rpc request timed out, this does not mean your request failed"
+                    )
+                )
+            )
+        }
     }
 }
 
