@@ -220,7 +220,7 @@ where
             Err(
                 Box::new(
                     std::io::Error::new(
-                        std::io::ErrorKind::TimedOut, 
+                        std::io::ErrorKind::TimedOut,
                         "rpc request timed out, this does not mean your request failed"
                     )
                 )
