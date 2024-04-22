@@ -156,13 +156,13 @@ impl LasrRpcServer for LasrRpcServerImpl {
                     return Ok(account_str);
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
-                    Err(RpcError::Custom(rpc_response_error.description))
+                    return Err(RpcError::Custom(rpc_response_error.description))
                 }
-                _ => Err(jsonrpsee::core::Error::Custom(
+                _ => return Err(jsonrpsee::core::Error::Custom(
                     "invalid response to `call` method".to_string(),
                 )),
             },
-            Err(e) => Err(jsonrpsee::core::Error::Custom(e.to_string())),
+            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string())),
         }
     }
 
