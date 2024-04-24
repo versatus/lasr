@@ -57,6 +57,9 @@ pub trait ActorExt: ractor::Actor {
     fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>>;
 
     /// Spawn a thread that passes futures to a thread pool to await them there.
+    ///
+    /// This method assumes the thread will take ownership of the thread pool, so this method
+    /// may not be convenient if the thread pool needs to be shared between actors.
     fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;
 }
 
@@ -220,7 +223,7 @@ where
             Err(
                 Box::new(
                     std::io::Error::new(
-                        std::io::ErrorKind::TimedOut, 
+                        std::io::ErrorKind::TimedOut,
                         "rpc request timed out, this does not mean your request failed"
                     )
                 )
