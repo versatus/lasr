@@ -241,5 +241,3 @@ impl Certificate {
         serde_json::from_str(&String::from_utf8_lossy(bytes))
     }
 }
-
-mod tests {}
