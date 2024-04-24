@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
+use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::graph_cleaner;
 use lasr_actors::AccountCacheActor;
@@ -13,6 +14,7 @@ use lasr_actors::AccountCacheSupervisor;
 use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
+use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
@@ -254,9 +256,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
-        .build()
-        .unwrap();
-    BatcherActor::spawn_future_handler(batcher_actor, future_thread_pool);
+        .build()?;
+    tokio::spawn(async move {
+        loop {
+            {
+                let futures = batcher_actor.future_pool();
+                let mut guard = futures.lock().await;
+                tokio::select! {
+                    fut = guard.next() => {
+                        if let Some(task) = fut {
+                            future_thread_pool.install(|| async move {
+                                if let Err(err) = task {
+                                    log::error!("{err:?}");
+                                    if let BatcherError::FailedTransaction { msg, txn } = err {
+                                        if let Err(err) = Batcher::handle_transaction_error(txn, msg).await {
+                                            log::error!("{err:?}");
+                                        }
+                                    }
+                                }
+                            })
+                            .await;
+                        }
+                    }
+                }
+            }
+            {
+                // next actor
+            }
+        }
+    });
 
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
     loop {
