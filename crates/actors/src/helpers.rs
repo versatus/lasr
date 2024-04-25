@@ -220,7 +220,7 @@ where
             Err(
                 Box::new(
                     std::io::Error::new(
-                        std::io::ErrorKind::TimedOut, 
+                        std::io::ErrorKind::TimedOut,
                         "rpc request timed out, this does not mean your request failed"
                     )
                 )
@@ -354,5 +354,5 @@ pub async fn attempt_get_account_from_da(
         return Some(account);
     }
 
-    return None;
+    None
 }

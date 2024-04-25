@@ -44,7 +44,7 @@ pub enum TransactionResponse {
 #[derive(Debug, RactorMessage)]
 pub enum RpcMessage {
     Request {
-        method: RpcRequestMethod,
+        method: Box<RpcRequestMethod>,
         reply: RpcReplyPort<RpcMessage>,
     },
     Response {
@@ -239,15 +239,15 @@ pub enum EoEvent {
     Settlement(Vec<SettlementEvent>),
 }
 
-impl Into<EoEvent> for Vec<SettlementEvent> {
-    fn into(self) -> EoEvent {
-        EoEvent::Settlement(self)
+impl From<Vec<SettlementEvent>> for EoEvent {
+    fn from(val: Vec<SettlementEvent>) -> Self {
+        EoEvent::Settlement(val)
     }
 }
 
-impl Into<EoEvent> for Vec<BridgeEvent> {
-    fn into(self) -> EoEvent {
-        EoEvent::Bridge(self)
+impl From<Vec<BridgeEvent>> for EoEvent {
+    fn from(val: Vec<BridgeEvent>) -> Self {
+        EoEvent::Bridge(val)
     }
 }
 

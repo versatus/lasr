@@ -135,8 +135,8 @@ fn handle_new_wallet_command(children: &ArgMatches) -> Result<(), Box<dyn std::e
     let seed = children.get_one::<u128>("seed");
     let passphrase = children.get_one::<String>("passphrase");
     let size = children.get_one::<usize>("mnemonic-size");
-    let wallet_info =
-        Wallet::<HttpClient>::new(seed, passphrase, size).expect("Unable to acquire WalletInfo");
+    let wallet_info = Wallet::<HttpClient>::get_info(seed, passphrase, size)
+        .expect("Unable to acquire WalletInfo");
 
     if let Some(flag) = children.get_one::<bool>("keypair-json") {
         pretty_print_keypair_info(&wallet_info);
