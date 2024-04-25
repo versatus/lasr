@@ -182,17 +182,18 @@ impl Batch {
     }
 
     pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(&self.compress_batch()?));
+        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(
+            &self.compress_batch()?,
+        ));
         log::info!("encoded batch: {:?}", &encoded);
         Ok(encoded)
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
-        Self::deserialize_batch(
-            kzgpad_rs::remove_empty_byte_from_padded_bytes(&base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?
-            )
-        )
+        Self::deserialize_batch(kzgpad_rs::remove_empty_byte_from_padded_bytes(
+            &base64::decode(batch)
+                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
+        ))
     }
 
     pub(super) fn check_size(&self) -> Result<usize, BatcherError> {
@@ -1622,6 +1623,7 @@ impl Batcher {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
             if !guard.parent.empty() {
+                log::info!("found next batch: {:?}", guard.parent);
                 let da_client: ActorRef<DaClientMessage> =
                     ractor::registry::where_is(ActorType::DaClient.to_string())
                         .ok_or(BatcherError::Custom(
