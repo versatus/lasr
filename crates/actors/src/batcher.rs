@@ -1623,6 +1623,7 @@ impl Batcher {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
             if !guard.parent.empty() {
+                log::info!("found next batch: {:?}", guard.parent);
                 let da_client: ActorRef<DaClientMessage> =
                     ractor::registry::where_is(ActorType::DaClient.to_string())
                         .ok_or(BatcherError::Custom(

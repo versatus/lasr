@@ -144,11 +144,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
-    let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
-        .await
-        .map_err(Box::new)?;
+    let (da_supervisor, _da_supervisor_handle) =
+        Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
+            .await
+            .map_err(Box::new)?;
 
-    let (account_cache_supervisor, _) = Actor::spawn(
+    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
         Some("account_cache_supervisor".to_string()),
         account_cache_supervisor,
         (),
@@ -156,32 +157,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (lasr_rpc_actor_ref, _) =
+    let (lasr_rpc_actor_ref, _rpc_server_handle) =
         Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_scheduler_actor_ref, _) =
+    let (_scheduler_actor_ref, _scheduler_handle) =
         Actor::spawn(Some(ActorType::Scheduler.to_string()), scheduler_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_engine_actor_ref, _) =
+    let (_engine_actor_ref, _engine_handle) =
         Actor::spawn(Some(ActorType::Engine.to_string()), engine_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_validator_actor_ref, _) =
+    let (_validator_actor_ref, _validator_handle) =
         Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_eo_server_actor_ref, _) =
+    let (_eo_server_actor_ref, _eo_server_handle) =
         Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_eo_client_actor_ref, _) = Actor::spawn(
+    let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn(
         Some(ActorType::EoClient.to_string()),
         eo_client_actor,
         eo_client,
@@ -189,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_da_client_actor_ref, _) = Actor::spawn_linked(
+    let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
         Some(ActorType::DaClient.to_string()),
         da_client_actor,
         (),
@@ -198,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_pending_transaction_actor_ref, _) = Actor::spawn(
+    let (_pending_transaction_actor_ref, _pending_transaction_handle) = Actor::spawn(
         Some(ActorType::PendingTransactions.to_string()),
         pending_transaction_actor,
         (),
@@ -206,7 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_batcher_actor_ref, _) = Actor::spawn(
+    let (_batcher_actor_ref, _batcher_handle) = Actor::spawn(
         Some(ActorType::Batcher.to_string()),
         batcher_actor.clone(),
         batcher.clone(),
@@ -214,7 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_executor_actor_ref, _) = Actor::spawn(
+    let (_executor_actor_ref, _executor_handle) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
         executor_actor,
         execution_engine,
@@ -222,7 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_account_cache_actor_ref, _) = Actor::spawn_linked(
+    let (_account_cache_actor_ref, _account_cache_handle) = Actor::spawn_linked(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
         (),
@@ -231,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_blob_cache_actor_ref, _) =
+    let (_blob_cache_actor_ref, _blob_cache_handle) =
         Actor::spawn(Some(ActorType::BlobCache.to_string()), blob_cache_actor, ())
             .await
             .map_err(Box::new)?;
