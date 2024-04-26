@@ -263,6 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let futures = batcher_actor.future_pool();
                 let mut guard = futures.lock().await;
+                dbg!(&guard);
                 tokio::select! {
                     fut = guard.next() => {
                         if let Some(task) = fut {
@@ -284,6 +285,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let futures = executor_actor.future_pool();
                 let mut guard = futures.lock().await;
+                dbg!(&guard);
                 tokio::select! {
                     fut = guard.next() => {
                         if let Some(task) = fut {
