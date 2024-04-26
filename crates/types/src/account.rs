@@ -43,8 +43,8 @@ impl<'de> Visitor<'de> for AddressVisitor {
     where
         E: serde::de::Error,
     {
-        if value.starts_with("0x") {
-            let bytes = hex::decode(&value[2..]).map_err(E::custom)?;
+        if let Some(v) = value.strip_prefix("0x") {
+            let bytes = hex::decode(v).map_err(E::custom)?;
             if bytes.len() == 20 {
                 let mut arr = [0u8; 20];
                 arr.copy_from_slice(&bytes);
@@ -52,7 +52,7 @@ impl<'de> Visitor<'de> for AddressVisitor {
             } else {
                 Err(E::custom("Hex string does not represent a valid Address"))
             }
-        } else if value.starts_with("[") && value.ends_with("]") {
+        } else if value.starts_with('[') && value.ends_with(']') {
             let bytes_str = &value[1..value.len() - 1];
             let bytes: Vec<u8> = bytes_str
                 .split(',')
@@ -115,8 +115,8 @@ impl Address {
     }
 
     pub fn from_hex(hex_str: &str) -> Result<Self, FromHexError> {
-        let hex_str = if hex_str.starts_with("0x") {
-            &hex_str[2..]
+        let hex_str = if let Some(v) = hex_str.strip_prefix("0x") {
+            v
         } else {
             hex_str
         };
@@ -127,11 +127,11 @@ impl Address {
         }
 
         addr_inner.copy_from_slice(&bytes[..]);
-        return Ok(Address(addr_inner));
+        Ok(Address(addr_inner))
     }
 
     pub fn inner(&self) -> [u8; 20] {
-        self.0.clone()
+        self.0
     }
 }
 
@@ -323,18 +323,16 @@ impl Account {
         owner_address: Address,
         _programs: Option<BTreeMap<Address, Token>>,
     ) -> Self {
-        let account = Self {
+        Self {
             account_type,
             program_namespace,
             owner_address,
             programs: BTreeMap::new(),
-            nonce: crate::U256::default().into(),
+            nonce: crate::U256::default(),
             program_account_data: ArbitraryData::new(),
             program_account_metadata: Metadata::new(),
             program_account_linked_programs: BTreeSet::new(),
-        };
-
-        account
+        }
     }
 
     pub fn account_type(&self) -> AccountType {
@@ -346,7 +344,7 @@ impl Account {
     }
 
     pub fn owner_address(&self) -> Address {
-        self.owner_address.clone()
+        self.owner_address
     }
 
     pub fn nonce(&self) -> crate::U256 {
@@ -390,7 +388,7 @@ impl Account {
             return entry.balance();
         }
 
-        return crate::U256::from(0);
+        crate::U256::from(0)
     }
 
     pub fn apply_send_transaction(
@@ -517,9 +515,9 @@ impl Account {
             }
         }
 
-        return Err(Box::new(ToTokenError::Custom(
+        Err(Box::new(ToTokenError::Custom(
             "unable to convert transaction into token".to_string(),
-        )));
+        )))
     }
 
     pub fn apply_transfer_to_instruction(
@@ -535,9 +533,9 @@ impl Account {
             }
 
             if !token_ids.is_empty() {
-                entry.add_token_ids(&token_ids)?;
+                entry.add_token_ids(token_ids)?;
             }
-            return Ok(entry.clone());
+            Ok(entry.clone())
         } else {
             let token_metadata = if let Some(program_account) = program_account {
                 program_account.program_account_metadata().clone()
@@ -552,8 +550,8 @@ impl Account {
             };
 
             let mut token = TokenBuilder::default()
-                .program_id(token_address.clone())
-                .owner_id(self.owner_address.clone())
+                .program_id(*token_address)
+                .owner_id(self.owner_address)
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(token_metadata.clone())
@@ -569,11 +567,11 @@ impl Account {
             }
 
             if !token_ids.is_empty() {
-                token.add_token_ids(&token_ids)?;
+                token.add_token_ids(token_ids)?;
             }
             self.programs.insert(token.program_id(), token.clone());
 
-            return Ok(token);
+            Ok(token)
         }
     }
 
@@ -583,7 +581,7 @@ impl Account {
         amount: &Option<crate::U256>,
         token_ids: &Vec<crate::U256>,
     ) -> AccountResult<Token> {
-        let owner_address = self.owner_address().clone();
+        let owner_address = self.owner_address();
         let account_type = self.account_type().clone();
         if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
@@ -606,15 +604,15 @@ impl Account {
             }
 
             if !token_ids.is_empty() {
-                entry.remove_token_ids(&token_ids)?;
+                entry.remove_token_ids(token_ids)?;
             }
             return Ok(entry.clone());
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "cannot transfer a token that the caller doesn't own".to_string(),
-        )));
+        )))
     }
 
     pub fn apply_burn_instruction(
@@ -636,10 +634,10 @@ impl Account {
             return Ok(entry.clone());
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "Account cannot have a token that it does not own burned",
-        )));
+        )))
     }
 
     pub fn apply_token_distribution(
@@ -677,7 +675,7 @@ impl Account {
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            return Ok(token.clone());
+            Ok(token.clone())
         } else {
             log::info!("creating token for token distribution");
             let token_owner = {
@@ -691,8 +689,8 @@ impl Account {
             let token_metadata = program_account.program_account_metadata();
             let token_data = program_account.program_account_data();
             let mut token = TokenBuilder::default()
-                .program_id(program_id.clone())
-                .owner_id(token_owner.clone())
+                .program_id(*program_id)
+                .owner_id(token_owner)
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .metadata(token_metadata.clone())
@@ -749,19 +747,19 @@ impl Account {
             }
         };
 
-        if let Some(token) = self.programs.get_mut(&program_id) {
+        if let Some(token) = self.programs.get_mut(program_id) {
             for update in updates {
                 log::warn!("token data before update {:?}", token.data());
                 token.apply_token_update_field_values(update.value())?;
                 log::warn!("token data after update {:?}", token.data());
             }
-            return Ok(token.clone());
+            Ok(token.clone())
         } else {
             let token_metadata = program_account.program_account_metadata();
             let token_data = program_account.program_account_data();
             let mut token = TokenBuilder::default()
-                .program_id(program_id.clone())
-                .owner_id(owner_address.clone())
+                .program_id(*program_id)
+                .owner_id(owner_address)
                 .balance(crate::U256::from(0))
                 .token_ids(vec![])
                 .approvals(BTreeMap::new())
@@ -782,7 +780,7 @@ impl Account {
                 log::warn!("token data after applying update: {:?}", token.data());
             }
 
-            self.programs.insert(program_id.clone(), token.clone());
+            self.programs.insert(*program_id, token.clone());
             Ok(token)
         }
     }
@@ -797,19 +795,19 @@ impl Account {
             {
                 LinkedProgramsValue::Insert(linked_program) => {
                     self.program_account_linked_programs
-                        .insert(AddressOrNamespace::Address(linked_program.clone()));
+                        .insert(AddressOrNamespace::Address(*linked_program));
                 }
                 LinkedProgramsValue::Extend(linked_programs) => {
                     self.program_account_linked_programs.extend(
                         linked_programs
-                            .into_iter()
+                            .iter()
                             .cloned()
-                            .map(|lp| AddressOrNamespace::Address(lp.clone())),
+                            .map(AddressOrNamespace::Address),
                     );
                 }
                 LinkedProgramsValue::Remove(linked_program) => {
                     self.program_account_linked_programs
-                        .remove(&AddressOrNamespace::Address(linked_program.clone()));
+                        .remove(&AddressOrNamespace::Address(*linked_program));
                 }
             },
             ProgramFieldValue::Metadata(metadata_value) => match metadata_value {
@@ -861,7 +859,7 @@ impl Account {
     }
 
     pub fn insert_program(&mut self, program_id: &Address, token: Token) -> Option<Token> {
-        self.programs.insert(program_id.clone(), token)
+        self.programs.insert(*program_id, token)
     }
 
     pub fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
@@ -870,13 +868,13 @@ impl Account {
             return Ok(());
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!(
                 "account does not have associated program: {}",
                 program_id.to_full_string()
             ),
-        )));
+        )))
     }
 
     pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
@@ -893,13 +891,13 @@ impl Account {
             }
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!(
                 "account does not have associated program: {}",
                 program_id.to_full_string()
             ),
-        )));
+        )))
     }
 
     pub fn validate_token_ownership(
@@ -909,7 +907,7 @@ impl Account {
     ) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             for nft in token_ids {
-                if !token.token_ids().contains(&nft) {
+                if !token.token_ids().contains(nft) {
                     return Err(Box::new(std::io::Error::new(
                         std::io::ErrorKind::Other,
                         format!("account does not own token_id: 0x{:x}", nft),
@@ -919,13 +917,13 @@ impl Account {
             return Ok(());
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!(
                 "account does not have associated program: {}",
                 program_id.to_full_string()
             ),
-        )));
+        )))
     }
 
     pub fn validate_approved_spend(
@@ -971,20 +969,20 @@ impl Account {
             }
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!(
                 "account does not have associated program: {}",
                 program_id.to_full_string()
             ),
-        )));
+        )))
     }
 
     pub fn validate_approved_token_transfer(
         &self,
         program_id: &Address,
         spender: &Address,
-        token_ids: &Vec<crate::U256>,
+        token_ids: &[crate::U256],
     ) -> AccountResult<()> {
         if let Some(token) = self.programs.get(program_id) {
             if let Some(entry) = token.approvals().get(spender) {
@@ -993,16 +991,12 @@ impl Account {
                         std::io::ErrorKind::Other,
                         "spender not approved by this account",
                     )));
-                } else {
-                    if let Some(nft) = token_ids.iter().next() {
-                        if !entry.contains(nft) {
-                            return Err(Box::new(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("spender not approved to spend token_id: {}", nft),
-                            )));
-                        }
-
-                        return Ok(());
+                } else if let Some(nft) = token_ids.iter().next() {
+                    if !entry.contains(nft) {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("spender not approved to spend token_id: {}", nft),
+                        )));
                     }
                 }
             } else if let AccountType::Program(program_addr) = self.account_type() {
@@ -1012,13 +1006,13 @@ impl Account {
             }
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!(
                 "account does not have associated program: {}",
                 program_id.to_full_string()
             ),
-        )));
+        )))
     }
 
     pub fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
@@ -1030,10 +1024,10 @@ impl Account {
             return Ok(());
         }
 
-        return Err(Box::new(std::io::Error::new(
+        Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             "unable to validate nonce",
-        )));
+        )))
     }
 
     pub fn increment_nonce(&mut self) {
@@ -1068,7 +1062,11 @@ impl From<&[u8; 20]> for Address {
 impl FromStr for Address {
     type Err = FromHexError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let hex_str = if s.starts_with("0x") { &s[2..] } else { s };
+        let hex_str = if let Some(v) = s.strip_prefix("0x") {
+            v
+        } else {
+            s
+        };
 
         if hex_str == "0" {
             return Ok(Address::new([0u8; 20]));

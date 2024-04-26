@@ -86,19 +86,10 @@ pub struct Outputs {
 
 /// This struct is a builder for the [`Outputs`] struct.
 /// It provides methods to set the inputs and add instructions to the Outputs struct.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OutputsBuilder {
     pub inputs: Option<Inputs>,
     pub instructions: Vec<Instruction>,
-}
-
-impl Default for OutputsBuilder {
-    fn default() -> Self {
-        Self {
-            inputs: None,
-            instructions: vec![],
-        }
-    }
 }
 
 impl OutputsBuilder {
@@ -241,7 +232,7 @@ pub struct CreateInstruction {
 
 /// A builder struct for the [`CreationInstruction`].
 #[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Clone, Debug, Serialize, Default, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 pub struct CreateInstructionBuilder {
     pub program_namespace: Option<AddressOrNamespace>,
@@ -250,19 +241,6 @@ pub struct CreateInstructionBuilder {
     pub total_supply: Option<U256>,
     pub initialized_supply: Option<U256>,
     pub distribution: Vec<TokenDistribution>,
-}
-
-impl Default for CreateInstructionBuilder {
-    fn default() -> Self {
-        Self {
-            program_namespace: None,
-            program_id: None,
-            program_owner: None,
-            total_supply: None,
-            initialized_supply: None,
-            distribution: vec![],
-        }
-    }
 }
 
 impl CreateInstructionBuilder {
@@ -319,7 +297,7 @@ impl CreateInstructionBuilder {
                 std::io::ErrorKind::NotFound,
                 "programOwner is required",
             ))?,
-            total_supply: self.total_supply.ok_or_else(|| U256::MAX).map_err(|_| {
+            total_supply: self.total_supply.ok_or(U256::MAX).map_err(|_| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "totalSupply default is U256::MAX",
@@ -354,7 +332,7 @@ impl CreateInstruction {
         let mut accounts_involved = vec![
             self.program_namespace.clone(),
             self.program_id.clone(),
-            AddressOrNamespace::Address(self.program_owner.clone()),
+            AddressOrNamespace::Address(self.program_owner),
         ];
 
         for dist in &self.distribution {
@@ -404,7 +382,7 @@ pub struct TokenDistribution {
 
 /// A builder pattern implementation for creating instances of [`TokenDistribution`].
 #[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Clone, Debug, Serialize, Default, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 pub struct TokenDistributionBuilder {
     pub program_id: Option<AddressOrNamespace>,
@@ -412,18 +390,6 @@ pub struct TokenDistributionBuilder {
     pub amount: Option<U256>,
     pub token_ids: Vec<U256>,
     pub update_fields: Vec<TokenUpdateField>,
-}
-
-impl Default for TokenDistributionBuilder {
-    fn default() -> Self {
-        Self {
-            program_id: None,
-            to: None,
-            amount: None,
-            token_ids: vec![],
-            update_fields: vec![],
-        }
-    }
 }
 
 impl TokenDistributionBuilder {
@@ -476,7 +442,7 @@ impl TokenDistributionBuilder {
                 ErrorKind::Other,
                 "to address is required",
             ))?,
-            amount: self.amount.clone(),
+            amount: self.amount,
             token_ids: self.token_ids.clone(),
             update_fields: self.update_fields.clone(),
         })
@@ -550,19 +516,10 @@ pub struct TokenUpdateField {
 }
 
 /// Builder pattern for creating instances of [`TokenUpdateField`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TokenUpdateFieldBuilder {
     pub field: Option<TokenField>,
     pub value: Option<TokenFieldValue>,
-}
-
-impl Default for TokenUpdateFieldBuilder {
-    fn default() -> Self {
-        Self {
-            field: None,
-            value: None,
-        }
-    }
 }
 
 impl TokenUpdateFieldBuilder {
@@ -626,19 +583,10 @@ pub struct ProgramUpdateField {
 }
 
 /// Builder pattern for creating instances of [`ProgramUpdateField`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ProgramUpdateFieldBuilder {
     pub field: Option<ProgramField>,
     pub value: Option<ProgramFieldValue>,
-}
-
-impl Default for ProgramUpdateFieldBuilder {
-    fn default() -> Self {
-        Self {
-            field: None,
-            value: None,
-        }
-    }
 }
 
 impl ProgramUpdateFieldBuilder {
@@ -692,15 +640,9 @@ pub struct UpdateInstruction {
 }
 
 /// Builder pattern for creating instances of [`UpdateInstruction`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct UpdateInstructionBuilder {
     pub updates: Vec<TokenOrProgramUpdate>,
-}
-
-impl Default for UpdateInstructionBuilder {
-    fn default() -> Self {
-        Self { updates: vec![] }
-    }
 }
 
 impl UpdateInstructionBuilder {
@@ -778,21 +720,11 @@ impl Default for TokenUpdate {
 }
 
 /// Builder pattern for creating instances of [`TokenUpdate`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TokenUpdateBuilder {
     pub account: Option<AddressOrNamespace>,
     pub token: Option<AddressOrNamespace>,
     pub updates: Vec<TokenUpdateField>,
-}
-
-impl Default for TokenUpdateBuilder {
-    fn default() -> Self {
-        Self {
-            account: None,
-            token: None,
-            updates: vec![],
-        }
-    }
 }
 
 impl TokenUpdateBuilder {
@@ -858,19 +790,10 @@ pub struct ProgramUpdate {
 }
 
 /// Builder pattern for creating instances of [`ProgramUpdate`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ProgramUpdateBuilder {
     pub account: Option<AddressOrNamespace>,
     pub updates: Vec<ProgramUpdateField>,
-}
-
-impl Default for ProgramUpdateBuilder {
-    fn default() -> Self {
-        Self {
-            account: None,
-            updates: vec![],
-        }
-    }
 }
 
 impl ProgramUpdateBuilder {
@@ -931,25 +854,13 @@ pub struct TransferInstruction {
 }
 
 /// Builder pattern for creating instances of [`TransferInstruction`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TransferInstructionBuilder {
     pub token: Option<Address>,
     pub from: Option<AddressOrNamespace>,
     pub to: Option<AddressOrNamespace>,
     pub amount: Option<crate::U256>,
     pub ids: Vec<crate::U256>,
-}
-
-impl Default for TransferInstructionBuilder {
-    fn default() -> Self {
-        Self {
-            token: None,
-            from: None,
-            to: None,
-            amount: None,
-            ids: vec![],
-        }
-    }
 }
 
 impl Default for TransferInstruction {
@@ -1001,7 +912,7 @@ impl TransferInstructionBuilder {
 
     pub fn build(&self) -> std::io::Result<TransferInstruction> {
         Ok(TransferInstruction {
-            token: self.token.clone().ok_or(std::io::Error::new(
+            token: self.token.ok_or(std::io::Error::new(
                 ErrorKind::Other,
                 "token address is required",
             ))?,
@@ -1013,7 +924,7 @@ impl TransferInstructionBuilder {
                 ErrorKind::Other,
                 "to address is required",
             ))?,
-            amount: self.amount.clone(),
+            amount: self.amount,
             ids: self.ids.clone(),
         })
     }
@@ -1097,7 +1008,7 @@ pub struct BurnInstruction {
 }
 
 /// Builder pattern for creating instances of [`BurnInstruction`].
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct BurnInstructionBuilder {
     pub caller: Option<Address>,
     pub program_id: Option<AddressOrNamespace>,
@@ -1116,19 +1027,6 @@ impl Default for BurnInstruction {
             from: AddressOrNamespace::Address(Address::from([0; 20])),
             amount: Some(crate::U256::from(0)),
             token_ids: vec![crate::U256::from(0)],
-        }
-    }
-}
-
-impl Default for BurnInstructionBuilder {
-    fn default() -> Self {
-        Self {
-            caller: None,
-            program_id: None,
-            token: None,
-            from: None,
-            amount: None,
-            token_ids: vec![],
         }
     }
 }

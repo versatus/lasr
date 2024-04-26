@@ -357,5 +357,5 @@ pub async fn attempt_get_account_from_da(
         return Some(account);
     }
 
-    return None;
+    None
 }

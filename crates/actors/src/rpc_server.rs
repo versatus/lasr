@@ -158,9 +158,11 @@ impl LasrRpcServer for LasrRpcServerImpl {
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     return Err(RpcError::Custom(rpc_response_error.description))
                 }
-                _ => return Err(jsonrpsee::core::Error::Custom(
-                    "invalid response to `call` method".to_string(),
-                )),
+                _ => {
+                    return Err(jsonrpsee::core::Error::Custom(
+                        "invalid response to `call` method".to_string(),
+                    ))
+                }
             },
             Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string())),
         }
@@ -288,7 +290,7 @@ impl LasrRpcServerImpl {
         log::info!("Sending RPC call method to proxy actor");
         self.proxy
             .cast(RpcMessage::Request {
-                method: RpcRequestMethod::Call { transaction },
+                method: Box::new(RpcRequestMethod::Call { transaction }),
                 reply,
             })
             .map_err(|e| RpcError::Custom(e.to_string()))
@@ -301,7 +303,7 @@ impl LasrRpcServerImpl {
     ) -> Result<(), RpcError> {
         self.get_myself()
             .cast(RpcMessage::Request {
-                method: RpcRequestMethod::Send { transaction },
+                method: Box::new(RpcRequestMethod::Send { transaction }),
                 reply,
             })
             .map_err(|e| RpcError::Custom(e.to_string()))
@@ -314,7 +316,7 @@ impl LasrRpcServerImpl {
     ) -> Result<(), RpcError> {
         self.get_myself()
             .cast(RpcMessage::Request {
-                method: RpcRequestMethod::RegisterProgram { transaction },
+                method: Box::new(RpcRequestMethod::RegisterProgram { transaction }),
                 reply,
             })
             .map_err(|e| RpcError::Custom(e.to_string()))
@@ -329,7 +331,7 @@ impl LasrRpcServerImpl {
             Address::from_str(&address).map_err(|e| RpcError::Custom(e.to_string()))?;
         self.get_myself()
             .cast(RpcMessage::Request {
-                method: RpcRequestMethod::GetAccount { address },
+                method: Box::new(RpcRequestMethod::GetAccount { address }),
                 reply,
             })
             .map_err(|e| RpcError::Custom(e.to_string()))
@@ -363,7 +365,7 @@ impl Actor for LasrRpcServerActor {
         log::info!("RPC Actor Received RPC Message");
         match message {
             RpcMessage::Request { method, reply } => {
-                self.handle_request_method(method, reply).await?;
+                self.handle_request_method(*method, reply).await?;
             }
             RpcMessage::Response { response, reply } => {
                 let reply = reply.ok_or(Box::new(RpcError::Custom(

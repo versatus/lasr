@@ -61,7 +61,15 @@ struct U256Wrapper(pub U256);
 impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(U256Wrapper(ethereum_types::U256::from_dec_str(s)?.into()))
+        if s.starts_with("0x") {
+            Ok(U256Wrapper(
+                ethereum_types::U256::from_str_radix(&s[2..], 16)
+                    .expect("failed to convert hex string to U256")
+                    .into(),
+            ))
+        } else {
+            Ok(U256Wrapper(ethereum_types::U256::from_dec_str(s)?.into()))
+        }
     }
 }
 
@@ -135,8 +143,8 @@ fn handle_new_wallet_command(children: &ArgMatches) -> Result<(), Box<dyn std::e
     let seed = children.get_one::<u128>("seed");
     let passphrase = children.get_one::<String>("passphrase");
     let size = children.get_one::<usize>("mnemonic-size");
-    let wallet_info =
-        Wallet::<HttpClient>::new(seed, passphrase, size).expect("Unable to acquire WalletInfo");
+    let wallet_info = Wallet::<HttpClient>::get_info(seed, passphrase, size)
+        .expect("Unable to acquire WalletInfo");
 
     if let Some(flag) = children.get_one::<bool>("keypair-json") {
         pretty_print_keypair_info(&wallet_info);

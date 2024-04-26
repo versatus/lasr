@@ -10,7 +10,7 @@ use uint::construct_uint;
 
 use crate::{Address, RecoverableSignature, Transaction};
 
-pub const TOKEN_WITNESS_VERSION: &'static str = "0.1.0";
+pub const TOKEN_WITNESS_VERSION: &str = "0.1.0";
 
 construct_uint! {
     /// 256-bit unsigned integer.
