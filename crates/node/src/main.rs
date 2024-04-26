@@ -137,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor::new();
-    let executor_actor = ExecutorActor;
+    let executor_actor = ExecutorActor::new();
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 

@@ -1,6 +1,7 @@
 use crate::{get_account, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
+use futures::FutureExt;
 use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobState, ServiceJobType};
@@ -259,7 +260,7 @@ impl<C: ClientT> ExecutionEngine<C> {
 }
 
 pub struct ExecutorActor {
-    future_pool: UnorderedFuturePool<StaticFuture<Result<(), std::io::Error>>>,
+    future_pool: UnorderedFuturePool<StaticFuture<()>>,
 }
 
 impl ExecutorActor {
@@ -417,13 +418,276 @@ impl ExecutorActor {
 
         Ok(())
     }
+
+    pub async fn create(
+        engine: Arc<Mutex<ExecutionEngine<WsClient>>>,
+        transaction: Transaction,
+        content_id: String,
+    ) {
+        log::info!("Received create program bundle request");
+        // Build the container spec and create the container image
+        log::info!("attempting to pin object from IPFS");
+        let manager = {
+            let state = engine.lock().await;
+            let manager = state.manager.clone();
+            if let Err(_) = manager.check_pinned_status(&content_id).await {
+                match state.pin_object(&content_id.clone(), true).await {
+                    Ok(()) => {
+                        log::info!("Successfully pinned objects");
+                    }
+                    Err(e) => {
+                        log::error!("Error pinning objects: {e:?}");
+                        let _ = ExecutorActor::registration_error(
+                            transaction.hash_string(),
+                            e.to_string(),
+                        );
+                    }
+                }
+            }
+
+            manager
+        };
+
+        match manager.bundle(content_id.clone()).await {
+            Ok(()) => match create_program_id(content_id, &transaction) {
+                Ok(_program_id) => {
+                    if let Err(e) = ExecutorActor::registration_success(transaction.clone()) {
+                        log::error!("Executor Error: Registration failed: {e:?}");
+                    }
+                }
+                Err(e) => {
+                    log::error!("Executor Error: Registration failed: {e:?}");
+                    if let Err(e) =
+                        ExecutorActor::registration_error(transaction.hash_string(), e.to_string())
+                    {
+                        log::error!(
+                            "Executor Error: Failure while handling registration error: {e:?}"
+                        );
+                    }
+                }
+            },
+            Err(e) => {
+                log::error!("Executor Error: Registration failed: {e:?}");
+                if let Err(e) =
+                    ExecutorActor::registration_error(transaction.hash_string(), e.to_string())
+                {
+                    log::error!("Executor Error: Failure while handling registration error: {e:?}");
+                }
+            }
+        }
+    }
+    pub async fn set(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
+        let program_id = transaction.program_id();
+        let op = transaction.op();
+        let inputs = transaction.inputs();
+        let transaction_hash = transaction.hash_string();
+
+        match get_account(program_id).await {
+            Some(_) => {
+                let state = engine.lock().await;
+                match state
+                    .parse_inputs(/*&schema,*/ &transaction, op, inputs)
+                    .await
+                {
+                    Ok(_) => {
+                        // set in pending transactions
+                        // will need to add optional inputs to pending
+                        // transactions
+                        //
+                        // if the transaction is next up, simply execute
+                        // if not send response to user that the tx is pending
+                        match state.set_pending_call(transaction.clone()) {
+                            Ok(()) => {
+                                // return user the transaction_hash
+                                let _ = ExecutorActor::call_queued_for_exec(transaction);
+                            }
+                            Err(e) => {
+                                // return error to user
+                                let error_string =
+                                    format!("unable to set transaction in pending: {e:?}");
+                                log::error!("{}", error_string);
+                                let _ = ExecutorActor::execution_error(
+                                    &transaction_hash,
+                                    std::io::Error::new(std::io::ErrorKind::Other, error_string),
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let error_string = format!("unable to set transaction in pending: {e:?}");
+                        log::error!("{}", error_string);
+                        let _ = ExecutorActor::execution_error(
+                            &transaction_hash,
+                            std::io::Error::new(std::io::ErrorKind::Other, error_string),
+                        );
+                    }
+                }
+            }
+            None => {
+                let error_string = "program account does not exist, unable to execute";
+                log::error!("{}", &error_string);
+                let _ = ExecutorActor::execution_error(
+                    &transaction_hash,
+                    std::io::Error::new(std::io::ErrorKind::Other, error_string),
+                );
+            }
+        }
+    }
+    pub async fn exec(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
+        let program_id = transaction.program_id();
+        let op = transaction.op();
+        let inputs = transaction.inputs();
+        let transaction_hash = transaction.hash_string();
+
+        match get_account(program_id).await {
+            Some(account) => {
+                let content_id = account
+                    .program_account_metadata()
+                    .inner()
+                    .get("content_id")
+                    .unwrap_or(&program_id.to_full_string())
+                    .to_owned();
+                let mut state = engine.lock().await;
+                match state
+                    .parse_inputs(/*&schema,*/ &transaction, op, inputs)
+                    .await
+                {
+                    Ok(inputs) => {
+                        match state
+                            .execute(
+                                content_id,
+                                program_id.to_full_string(),
+                                transaction,
+                                inputs,
+                                &transaction_hash,
+                            )
+                            .await
+                        {
+                            Ok(handle) => {
+                                log::warn!("result successful, placing handle in handles");
+                                state.handles.insert(
+                                    (program_id.to_full_string(), transaction_hash),
+                                    handle,
+                                );
+                            }
+                            Err(e) => {
+                                let error_string = format!(
+                                    "Executor Error: Error while attempting to run container: {e:?}"
+                                );
+                                log::error!("{}", &error_string);
+                                let _ = ExecutorActor::execution_error(&transaction_hash, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let error_string = format!("Executor Error: Error parsing inputs: {e:?}");
+                        log::error!("{}", &error_string);
+                        let _ = ExecutorActor::execution_error(&transaction_hash, e);
+                    }
+                }
+            }
+            None => {
+                let error_string = "program account does not exist, unable to execute";
+                log::error!("{}", &error_string);
+                let _ = ExecutorActor::execution_error(
+                    &transaction_hash,
+                    std::io::Error::new(std::io::ErrorKind::Other, error_string),
+                );
+            }
+        }
+    }
+    pub async fn results(
+        engine: Arc<Mutex<ExecutionEngine<WsClient>>>,
+        transaction: Option<Transaction>,
+        content_id: String,
+        program_id: String,
+        transaction_hash: Option<String>,
+    ) {
+        // Handle the results of an execution
+        log::warn!(
+            "content_id: {:?}, transaction_id: {:?}",
+            content_id,
+            transaction_hash
+        );
+        match transaction_hash {
+            Some(hash) => {
+                let handle_res = {
+                    let mut state = engine.lock().await;
+                    state.handles.remove(&(program_id.clone(), hash.clone()))
+                };
+                match handle_res {
+                    Some(handle) => {
+                        log::warn!("discovered handle");
+                        match handle.await {
+                            Ok(Ok(output)) => {
+                                log::warn!("Outputs: {:#?}", &output);
+                                match transaction {
+                                    Some(tx) => {
+                                        match ExecutorActor::execution_success(&tx, &output) {
+                                            Ok(_) => {
+                                                log::info!(
+                                                    "Forwarded output and transaction hash to Engine"
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::error!(
+                                                    "Execution Error: Execution process failed: {e:?}"
+                                                );
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        log::error!("transaction not provided to the executor");
+                                    }
+                                }
+                            }
+                            Ok(Err(e)) => {
+                                log::error!(
+                                    "Error returned from `call` transaction: {}, program: {}: {:?}",
+                                    &hash,
+                                    &content_id,
+                                    e
+                                );
+                                if let Err(e) = ExecutorActor::execution_error(&hash, e) {
+                                    log::error!(
+                                        "Executor Error: Error while handling execution error: {e:?}"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                log::error!(
+                                            "Error inside program call thread: {:?}: transaction: {}, program: {}",
+                                            e, &hash, &content_id
+                                        );
+                                if let Err(e) = ExecutorActor::execution_error(&hash, e) {
+                                    log::error!(
+                                        "Executor Error: Error while handling execution error: {e:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        log::error!(
+                            "Error: Handle does not exist for transaction: {}, program: {}",
+                            &hash,
+                            &content_id
+                        )
+                    }
+                }
+            }
+            None => {
+                log::error!("Error: No transaction hash provided");
+            }
+        }
+    }
 }
 
 #[cfg(feature = "local")]
 #[async_trait]
 impl Actor for ExecutorActor {
     type Msg = ExecutorMessage;
-    type State = ExecutionEngine<WsClient>;
+    type State = Arc<Mutex<ExecutionEngine<WsClient>>>;
     type Arguments = Self::State;
 
     async fn pre_start(
@@ -440,6 +704,7 @@ impl Actor for ExecutorActor {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        let engine_ptr = Arc::clone(state);
         match message {
             ExecutorMessage::Retrieve { .. } => {
                 // Retrieve the package from IPFS
@@ -450,200 +715,19 @@ impl Actor for ExecutorActor {
                 transaction,
                 content_id,
             } => {
-                log::info!("Received create program bundle request");
-                // Build the container spec and create the container image
-                log::info!("attempting to pin object from IPFS");
-                let manager = state.manager.clone();
-                match manager.check_pinned_status(&content_id).await {
-                    Ok(()) => {}
-                    Err(_) => match state.pin_object(&content_id.clone(), true).await {
-                        Ok(()) => {
-                            log::info!("Successfully pinned objects");
-                        }
-                        Err(e) => {
-                            log::error!("Error pinning objects: {e}");
-                            let _ = ExecutorActor::registration_error(
-                                transaction.hash_string(),
-                                e.to_string(),
-                            );
-                        }
-                    },
-                }
-
-                match manager.bundle(content_id.clone()).await {
-                    Ok(()) => {
-                        let program_id_result = create_program_id(content_id, &transaction);
-
-                        match program_id_result {
-                            Ok(_program_id) => {
-                                if let Err(e) =
-                                    ExecutorActor::registration_success(transaction.clone())
-                                {
-                                    log::error!("Error: executor.rs: 225: {e}");
-                                    let _ = ExecutorActor::registration_error(
-                                        transaction.hash_string(),
-                                        e.to_string(),
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                if let Err(e) = ExecutorActor::registration_error(
-                                    transaction.hash_string(),
-                                    e.to_string(),
-                                ) {
-                                    log::error!("Error: executor.rs: 315: {}", &e);
-                                    let _ = ExecutorActor::registration_error(
-                                        transaction.hash_string(),
-                                        e.to_string(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Error: executor.rs: 219: {}", &e);
-                        if let Err(e) = ExecutorActor::registration_error(
-                            transaction.hash_string(),
-                            e.to_string(),
-                        ) {
-                            log::error!("Error: executor.rs: 235: {}", &e);
-                            let _ = ExecutorActor::registration_error(
-                                transaction.hash_string(),
-                                e.to_string(),
-                            );
-                        }
-                    }
-                }
+                let fut = ExecutorActor::create(engine_ptr, transaction, content_id);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             ExecutorMessage::Set { transaction } => {
-                let program_id = transaction.program_id();
-                let op = transaction.op();
-                let inputs = transaction.inputs();
-                let transaction_hash = transaction.hash_string();
-
-                match get_account(program_id).await {
-                    Some(_) => {
-                        match state
-                            .parse_inputs(/*&schema,*/ &transaction, op, inputs)
-                            .await
-                        {
-                            Ok(_) => {
-                                // set in pending transactions
-                                // will need to add optional inputs to pending
-                                // transactions
-                                //
-                                // if the transaction is next up, simply execute
-                                // if not send response to user that the tx is pending
-                                match state.set_pending_call(transaction.clone()) {
-                                    Ok(()) => {
-                                        // return user the transaction_hash
-                                        let _ = ExecutorActor::call_queued_for_exec(transaction);
-                                    }
-                                    Err(e) => {
-                                        // return error to user
-                                        let error_string =
-                                            format!("unable to set transaction in pending: {}", e);
-                                        log::error!("{}", error_string);
-                                        let _ = ExecutorActor::execution_error(
-                                            &transaction_hash,
-                                            std::io::Error::new(
-                                                std::io::ErrorKind::Other,
-                                                error_string,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let error_string =
-                                    format!("unable to set transaction in pending: {}", e);
-                                log::error!("{}", error_string);
-                                let _ = ExecutorActor::execution_error(
-                                    &transaction_hash,
-                                    std::io::Error::new(std::io::ErrorKind::Other, error_string),
-                                );
-                            }
-                        }
-                    }
-                    None => {
-                        let error_string = "program account does not exist, unable to execute";
-                        log::error!("{}", &error_string);
-                        let _ = ExecutorActor::execution_error(
-                            &transaction_hash,
-                            std::io::Error::new(std::io::ErrorKind::Other, error_string),
-                        );
-                    }
-                }
+                let fut = ExecutorActor::set(engine_ptr, transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             ExecutorMessage::Exec { transaction } => {
-                let program_id = transaction.program_id();
-                let op = transaction.op();
-                let inputs = transaction.inputs();
-                let transaction_hash = transaction.hash_string();
-
-                match get_account(program_id).await {
-                    Some(account) => {
-                        let content_id = account
-                            .program_account_metadata()
-                            .inner()
-                            .get("content_id")
-                            .unwrap_or(&program_id.to_full_string())
-                            .to_owned();
-                        match state
-                            .parse_inputs(/*&schema,*/ &transaction, op, inputs)
-                            .await
-                        {
-                            Ok(inputs) => {
-                                match state
-                                    .execute(
-                                        content_id,
-                                        program_id.to_full_string(),
-                                        transaction,
-                                        inputs,
-                                        &transaction_hash,
-                                    )
-                                    .await
-                                {
-                                    Ok(handle) => {
-                                        log::warn!("result successful, placing handle in handles");
-                                        state.handles.insert(
-                                            (program_id.to_full_string(), transaction_hash),
-                                            handle,
-                                        );
-                                    }
-                                    Err(e) => {
-                                        let error_string = format!(
-                                            "Error calling state.execute: executor.rs: 265: {}",
-                                            &e
-                                        );
-                                        log::error!(
-                                            "Error calling state.execute: executor.rs: 265: {}",
-                                            &error_string
-                                        );
-                                        let _ =
-                                            ExecutorActor::execution_error(&transaction_hash, e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let error_string = format!(
-                                    "Error calling state.parse_inputs: executor.rs: 263: {}",
-                                    &e
-                                );
-                                log::error!("{}", &error_string);
-                                let _ = ExecutorActor::execution_error(&transaction_hash, e);
-                            }
-                        }
-                    }
-                    None => {
-                        let error_string = "program account does not exist, unable to execute";
-                        log::error!("{}", &error_string);
-                        let _ = ExecutorActor::execution_error(
-                            &transaction_hash,
-                            std::io::Error::new(std::io::ErrorKind::Other, error_string),
-                        );
-                    }
-                }
+                let fut = ExecutorActor::exec(engine_ptr, transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             ExecutorMessage::Results {
                 content_id,
@@ -651,75 +735,15 @@ impl Actor for ExecutorActor {
                 transaction_hash,
                 transaction,
             } => {
-                // Handle the results of an execution
-                log::warn!(
-                    "content_id: {:?}, transaction_id: {:?}",
+                let fut = ExecutorActor::results(
+                    engine_ptr,
+                    transaction,
                     content_id,
-                    transaction_hash
+                    program_id,
+                    transaction_hash,
                 );
-                match transaction_hash {
-                    Some(hash) => match state.handles.remove(&(program_id.clone(), hash.clone())) {
-                        Some(handle) => {
-                            log::warn!("discovered handle");
-                            match handle.await {
-                                Ok(Ok(output)) => {
-                                    log::warn!("Outputs: {:#?}", &output);
-                                    match transaction {
-                                        Some(tx) => {
-                                            match ExecutorActor::execution_success(&tx, &output) {
-                                                Ok(_) => {
-                                                    log::info!(
-                                                            "Forwarded output and transaction hash to Engine"
-                                                        );
-                                                }
-                                                Err(e) => {
-                                                    log::error!(
-                                                            "Error calling self.execution_success: executor.rs: 326: {}", e
-                                                        );
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            log::error!("transaction not provided to the executor");
-                                        }
-                                    }
-                                }
-                                Ok(Err(e)) => {
-                                    log::error!(
-                                            "Error returned from `call` transaction: {}, program: {}: {}",
-                                            &hash, &content_id, &e
-                                        );
-                                    if let Err(e) = ExecutorActor::execution_error(&hash, e) {
-                                        log::error!(
-                                                    "Error calling self.execution_error: executor.rs: 338: {}", e
-                                                );
-                                    }
-                                }
-                                Err(e) => {
-                                    log::error!(
-                                            "Error inside program call thread: {}: transaction: {}, program: {}",
-                                            &e, &hash, &content_id
-                                        );
-                                    if let Err(e) = ExecutorActor::execution_error(&hash, e) {
-                                        log::error!(
-                                                    "Error calling self.exeuction_error: executor.rs: 357: {}", e
-                                                );
-                                    }
-                                }
-                            }
-                        }
-                        None => {
-                            log::error!(
-                                "Error: Handle does not exist for transaction: {}, program: {}",
-                                &hash,
-                                &content_id
-                            )
-                        }
-                    },
-                    None => {
-                        log::error!("Error: No transaction hash provided");
-                    }
-                }
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             _ => {}
         }
