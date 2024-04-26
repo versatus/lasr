@@ -1,5 +1,6 @@
-use crate::get_account;
+use crate::{get_account, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
+use futures::stream::FuturesUnordered;
 use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobState, ServiceJobType};
@@ -16,10 +17,13 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 #[cfg(feature = "remote")]
 use tokio::sync::mpsc::Receiver;
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
+use tokio::{
+    sync::{mpsc::Sender, Mutex},
+    task::JoinHandle,
+};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -254,11 +258,17 @@ impl<C: ClientT> ExecutionEngine<C> {
     }
 }
 
-pub struct ExecutorActor;
+pub struct ExecutorActor {
+    future_pool: UnorderedFuturePool<StaticFuture<Result<(), std::io::Error>>>,
+}
 
 impl ExecutorActor {
+    pub fn new() -> Self {
+        Self {
+            future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
+        }
+    }
     pub fn registration_error(
-        &self,
         transaction_hash: String,
         error_string: String,
     ) -> std::io::Result<()> {
@@ -282,7 +292,7 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "local")]
-    fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
+    fn registration_success(transaction: Transaction) -> std::io::Result<()> {
         let actor: ActorRef<BatcherMessage> =
             ractor::registry::where_is(ActorType::Batcher.to_string())
                 .ok_or(std::io::Error::new(
@@ -303,7 +313,7 @@ impl ExecutorActor {
     }
 
     #[cfg(feature = "remote")]
-    fn registration_success(&self, transaction: Transaction) -> std::io::Result<()> {
+    fn registration_success(transaction: Transaction) -> std::io::Result<()> {
         let message = BatcherMessage::AppendTransaction {
             transaction,
             outputs: None,
@@ -322,7 +332,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    fn execution_success(&self, transaction: &Transaction, outputs: &str) -> std::io::Result<()> {
+    fn execution_success(transaction: &Transaction, outputs: &str) -> std::io::Result<()> {
         let pending_transactions_actor: ActorRef<PendingTransactionMessage> =
             ractor::registry::where_is(ActorType::PendingTransactions.to_string())
                 .ok_or(std::io::Error::new(
@@ -364,7 +374,6 @@ impl ExecutorActor {
     }
 
     pub fn execution_error(
-        &self,
         transaction_hash: &String,
         err: impl std::error::Error,
     ) -> std::io::Result<()> {
@@ -389,7 +398,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    pub fn call_queued_for_exec(&self, transaction: Transaction) -> std::io::Result<()> {
+    pub fn call_queued_for_exec(transaction: Transaction) -> std::io::Result<()> {
         let actor: ActorRef<SchedulerMessage> =
             ractor::registry::where_is(ActorType::Scheduler.to_string())
                 .ok_or(std::io::Error::new(
@@ -453,8 +462,10 @@ impl Actor for ExecutorActor {
                         }
                         Err(e) => {
                             log::error!("Error pinning objects: {e}");
-                            let _ =
-                                self.registration_error(transaction.hash_string(), e.to_string());
+                            let _ = ExecutorActor::registration_error(
+                                transaction.hash_string(),
+                                e.to_string(),
+                            );
                         }
                     },
                 }
@@ -465,20 +476,23 @@ impl Actor for ExecutorActor {
 
                         match program_id_result {
                             Ok(_program_id) => {
-                                if let Err(e) = self.registration_success(transaction.clone()) {
+                                if let Err(e) =
+                                    ExecutorActor::registration_success(transaction.clone())
+                                {
                                     log::error!("Error: executor.rs: 225: {e}");
-                                    let _ = self.registration_error(
+                                    let _ = ExecutorActor::registration_error(
                                         transaction.hash_string(),
                                         e.to_string(),
                                     );
                                 }
                             }
                             Err(e) => {
-                                if let Err(e) = self
-                                    .registration_error(transaction.hash_string(), e.to_string())
-                                {
+                                if let Err(e) = ExecutorActor::registration_error(
+                                    transaction.hash_string(),
+                                    e.to_string(),
+                                ) {
                                     log::error!("Error: executor.rs: 315: {}", &e);
-                                    let _ = self.registration_error(
+                                    let _ = ExecutorActor::registration_error(
                                         transaction.hash_string(),
                                         e.to_string(),
                                     );
@@ -488,12 +502,15 @@ impl Actor for ExecutorActor {
                     }
                     Err(e) => {
                         log::error!("Error: executor.rs: 219: {}", &e);
-                        if let Err(e) =
-                            self.registration_error(transaction.hash_string(), e.to_string())
-                        {
+                        if let Err(e) = ExecutorActor::registration_error(
+                            transaction.hash_string(),
+                            e.to_string(),
+                        ) {
                             log::error!("Error: executor.rs: 235: {}", &e);
-                            let _ =
-                                self.registration_error(transaction.hash_string(), e.to_string());
+                            let _ = ExecutorActor::registration_error(
+                                transaction.hash_string(),
+                                e.to_string(),
+                            );
                         }
                     }
                 }
@@ -520,14 +537,14 @@ impl Actor for ExecutorActor {
                                 match state.set_pending_call(transaction.clone()) {
                                     Ok(()) => {
                                         // return user the transaction_hash
-                                        let _ = self.call_queued_for_exec(transaction);
+                                        let _ = ExecutorActor::call_queued_for_exec(transaction);
                                     }
                                     Err(e) => {
                                         // return error to user
                                         let error_string =
                                             format!("unable to set transaction in pending: {}", e);
                                         log::error!("{}", error_string);
-                                        let _ = self.execution_error(
+                                        let _ = ExecutorActor::execution_error(
                                             &transaction_hash,
                                             std::io::Error::new(
                                                 std::io::ErrorKind::Other,
@@ -541,7 +558,7 @@ impl Actor for ExecutorActor {
                                 let error_string =
                                     format!("unable to set transaction in pending: {}", e);
                                 log::error!("{}", error_string);
-                                let _ = self.execution_error(
+                                let _ = ExecutorActor::execution_error(
                                     &transaction_hash,
                                     std::io::Error::new(std::io::ErrorKind::Other, error_string),
                                 );
@@ -551,7 +568,7 @@ impl Actor for ExecutorActor {
                     None => {
                         let error_string = "program account does not exist, unable to execute";
                         log::error!("{}", &error_string);
-                        let _ = self.execution_error(
+                        let _ = ExecutorActor::execution_error(
                             &transaction_hash,
                             std::io::Error::new(std::io::ErrorKind::Other, error_string),
                         );
@@ -603,7 +620,8 @@ impl Actor for ExecutorActor {
                                             "Error calling state.execute: executor.rs: 265: {}",
                                             &error_string
                                         );
-                                        let _ = self.execution_error(&transaction_hash, e);
+                                        let _ =
+                                            ExecutorActor::execution_error(&transaction_hash, e);
                                     }
                                 }
                             }
@@ -613,14 +631,14 @@ impl Actor for ExecutorActor {
                                     &e
                                 );
                                 log::error!("{}", &error_string);
-                                let _ = self.execution_error(&transaction_hash, e);
+                                let _ = ExecutorActor::execution_error(&transaction_hash, e);
                             }
                         }
                     }
                     None => {
                         let error_string = "program account does not exist, unable to execute";
                         log::error!("{}", &error_string);
-                        let _ = self.execution_error(
+                        let _ = ExecutorActor::execution_error(
                             &transaction_hash,
                             std::io::Error::new(std::io::ErrorKind::Other, error_string),
                         );
@@ -647,18 +665,20 @@ impl Actor for ExecutorActor {
                                 Ok(Ok(output)) => {
                                     log::warn!("Outputs: {:#?}", &output);
                                     match transaction {
-                                        Some(tx) => match self.execution_success(&tx, &output) {
-                                            Ok(_) => {
-                                                log::info!(
+                                        Some(tx) => {
+                                            match ExecutorActor::execution_success(&tx, &output) {
+                                                Ok(_) => {
+                                                    log::info!(
                                                             "Forwarded output and transaction hash to Engine"
                                                         );
-                                            }
-                                            Err(e) => {
-                                                log::error!(
+                                                }
+                                                Err(e) => {
+                                                    log::error!(
                                                             "Error calling self.execution_success: executor.rs: 326: {}", e
                                                         );
+                                                }
                                             }
-                                        },
+                                        }
                                         None => {
                                             log::error!("transaction not provided to the executor");
                                         }
@@ -669,7 +689,7 @@ impl Actor for ExecutorActor {
                                             "Error returned from `call` transaction: {}, program: {}: {}",
                                             &hash, &content_id, &e
                                         );
-                                    if let Err(e) = self.execution_error(&hash, e) {
+                                    if let Err(e) = ExecutorActor::execution_error(&hash, e) {
                                         log::error!(
                                                     "Error calling self.execution_error: executor.rs: 338: {}", e
                                                 );
@@ -680,7 +700,7 @@ impl Actor for ExecutorActor {
                                             "Error inside program call thread: {}: transaction: {}, program: {}",
                                             &e, &hash, &content_id
                                         );
-                                    if let Err(e) = self.execution_error(&hash, e) {
+                                    if let Err(e) = ExecutorActor::execution_error(&hash, e) {
                                         log::error!(
                                                     "Error calling self.exeuction_error: executor.rs: 357: {}", e
                                                 );
