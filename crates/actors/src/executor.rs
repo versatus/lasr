@@ -420,7 +420,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    pub async fn create(
+    async fn create(
         engine: Arc<Mutex<ExecutionEngine<WsClient>>>,
         transaction: Transaction,
         content_id: String,
@@ -477,7 +477,7 @@ impl ExecutorActor {
             }
         }
     }
-    pub async fn set(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
+    async fn set(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
         let program_id = transaction.program_id();
         let op = transaction.op();
         let inputs = transaction.inputs();
@@ -534,7 +534,7 @@ impl ExecutorActor {
             }
         }
     }
-    pub async fn exec(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
+    async fn exec(engine: Arc<Mutex<ExecutionEngine<WsClient>>>, transaction: Transaction) {
         let program_id = transaction.program_id();
         let op = transaction.op();
         let inputs = transaction.inputs();
@@ -597,7 +597,7 @@ impl ExecutorActor {
             }
         }
     }
-    pub async fn results(
+    async fn results(
         engine: Arc<Mutex<ExecutionEngine<WsClient>>>,
         transaction: Option<Transaction>,
         content_id: String,
