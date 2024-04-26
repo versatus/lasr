@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager);
+    let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");
@@ -219,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_executor_actor_ref, _executor_handle) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
-        executor_actor,
+        executor_actor.clone(),
         execution_engine,
     )
     .await
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Err(err) = task {
                                     log::error!("{err:?}");
                                     if let BatcherError::FailedTransaction { msg, txn } = err {
-                                        if let Err(err) = Batcher::handle_transaction_error(txn, msg).await {
+                                        if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await {
                                             log::error!("{err:?}");
                                         }
                                     }
@@ -282,7 +282,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             {
-                // next actor
+                let futures = executor_actor.future_pool();
+                let mut guard = futures.lock().await;
+                tokio::select! {
+                    fut = guard.next() => {
+                        if let Some(task) = fut {
+                            future_thread_pool.install(|| async move {
+                                task
+                            })
+                            .await;
+                        }
+                    }
+                }
             }
         }
     });

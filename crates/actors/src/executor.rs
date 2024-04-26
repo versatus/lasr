@@ -1,6 +1,6 @@
-use crate::{get_account, StaticFuture, UnorderedFuturePool};
+use crate::{get_account, ActorExt, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
-use futures::stream::FuturesUnordered;
+use futures::stream::{FuturesUnordered, StreamExt};
 use futures::FutureExt;
 use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
@@ -259,6 +259,7 @@ impl<C: ClientT> ExecutionEngine<C> {
     }
 }
 
+#[derive(Clone)]
 pub struct ExecutorActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
 }
@@ -924,6 +925,36 @@ impl Actor for ExecutorActor {
         }
 
         Ok(())
+    }
+}
+
+impl ActorExt for ExecutorActor {
+    type Output = ();
+    type Future<O> = StaticFuture<Self::Output>;
+    type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
+    type FutureHandler = tokio_rayon::rayon::ThreadPool;
+    type JoinHandle = tokio::task::JoinHandle<()>;
+
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>> {
+        self.future_pool.clone()
+    }
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle {
+        tokio::spawn(async move {
+            loop {
+                let futures = actor.future_pool();
+                let mut guard = futures.lock().await;
+                tokio::select! {
+                    fut = guard.next() => {
+                        if let Some(task) = fut {
+                            future_handler.install(|| async move {
+                                task
+                            })
+                            .await;
+                        }
+                    }
+                }
+            }
+        })
     }
 }
 
