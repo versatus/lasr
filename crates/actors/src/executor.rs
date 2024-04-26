@@ -943,16 +943,9 @@ impl ActorExt for ExecutorActor {
             loop {
                 let futures = actor.future_pool();
                 let mut guard = futures.lock().await;
-                tokio::select! {
-                    fut = guard.next() => {
-                        if let Some(task) = fut {
-                            future_handler.install(|| async move {
-                                task
-                            })
-                            .await;
-                        }
-                    }
-                }
+                future_handler
+                    .install(|| async move { guard.next().await })
+                    .await;
             }
         })
     }
@@ -1004,5 +997,79 @@ impl Actor for ExecutorSupervisor {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod executor_tests {
+    use crate::{ActorExt, ExecutionEngine, ExecutorActor};
+    use jsonrpsee::ws_client::WsClient;
+    use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
+    use lasr_messages::{ActorType, ExecutorMessage};
+    use lasr_types::Transaction;
+    use ractor::Actor;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn test_executor_future_handler() {
+        let executor_actor = ExecutorActor::new();
+        let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
+            .runtime("/usr/local/bin/runsc".to_string())
+            .base_images("./base_image".to_string())
+            .containers("./containers".to_string())
+            .payload_path("./payload".to_string())
+            .build()
+            .expect("failed to build bundler");
+        let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
+            Some(addr.clone())
+        } else {
+            None
+        };
+        let oci_manager = OciManager::new(bundler, store);
+        let mut engine = Arc::new(Mutex::new(ExecutionEngine::<WsClient>::new(oci_manager)));
+
+        let (executor_actor_ref, _executor_handle) = Actor::spawn(
+            Some(ActorType::Executor.to_string()),
+            executor_actor.clone(),
+            engine.clone(),
+        )
+        .await
+        .expect("failed to spawn executor actor");
+
+        executor_actor
+            .handle(
+                executor_actor_ref,
+                ExecutorMessage::Set {
+                    transaction: Transaction::default(),
+                },
+                &mut engine,
+            )
+            .await
+            .unwrap();
+        // TODO: Add other messages in the handle method
+        {
+            let guard = executor_actor.future_pool.lock().await;
+            assert!(!guard.is_empty());
+        }
+
+        let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .build()
+            .unwrap();
+
+        let actor_clone = executor_actor.clone();
+        ExecutorActor::spawn_future_handler(actor_clone, future_thread_pool);
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        loop {
+            {
+                let guard = executor_actor.future_pool.lock().await;
+                if guard.is_empty() {
+                    break;
+                }
+            }
+            interval.tick().await;
+        }
     }
 }

@@ -263,37 +263,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let futures = batcher_actor.future_pool();
                 let mut guard = futures.lock().await;
-                tokio::select! {
-                    fut = guard.next() => {
-                        if let Some(task) = fut {
-                            future_thread_pool.install(|| async move {
-                                if let Err(err) = task {
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                            if let BatcherError::FailedTransaction { msg, txn } = err {
+                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
+                                {
                                     log::error!("{err:?}");
-                                    if let BatcherError::FailedTransaction { msg, txn } = err {
-                                        if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await {
-                                            log::error!("{err:?}");
-                                        }
-                                    }
                                 }
-                            })
-                            .await;
+                            }
                         }
-                    }
-                }
+                    })
+                    .await;
             }
             {
                 let futures = executor_actor.future_pool();
                 let mut guard = futures.lock().await;
-                tokio::select! {
-                    fut = guard.next() => {
-                        if let Some(task) = fut {
-                            future_thread_pool.install(|| async move {
-                                task
-                            })
-                            .await;
-                        }
-                    }
-                }
+                future_thread_pool
+                    .install(|| async move { guard.next().await })
+                    .await;
             }
         }
     });
