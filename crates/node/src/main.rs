@@ -19,7 +19,7 @@ use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
 use lasr_actors::Engine;
-use lasr_actors::EoServer;
+use lasr_actors::EoServerActor;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
 use lasr_actors::ExecutorActor;
@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scheduler_actor = TaskScheduler::new();
     let engine_actor = Engine::new();
     let validator_actor = Validator::new();
-    let eo_server_actor = EoServer::new();
+    let eo_server_actor = EoServerActor::new();
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
