@@ -2506,6 +2506,7 @@ dependencies = [
  "dotenv",
  "eigenda_client",
  "eo_listener",
+ "futures",
  "jsonrpsee",
  "lasr_actors",
  "lasr_clients",

@@ -1596,7 +1596,7 @@ impl Batcher {
         Ok(())
     }
 
-    async fn handle_transaction_error(
+    pub async fn handle_transaction_error(
         transaction: Transaction,
         err: String,
     ) -> Result<(), BatcherError> {
@@ -1835,23 +1835,19 @@ impl ActorExt for BatcherActor {
             loop {
                 let futures = actor.future_pool();
                 let mut guard = futures.lock().await;
-                tokio::select! {
-                    fut = guard.next() => {
-                        if let Some(task) = fut {
-                            future_handler.install(|| async move {
-                                if let Err(err) = task {
+                future_handler
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                            if let BatcherError::FailedTransaction { msg, txn } = err {
+                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
+                                {
                                     log::error!("{err:?}");
-                                    if let BatcherError::FailedTransaction { msg, txn } = err {
-                                        if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await {
-                                            log::error!("{err:?}");
-                                        }
-                                    }
                                 }
-                            })
-                            .await;
+                            }
                         }
-                    }
-                }
+                    })
+                    .await;
             }
         })
     }

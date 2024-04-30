@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
+use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::graph_cleaner;
 use lasr_actors::AccountCacheActor;
@@ -13,6 +14,7 @@ use lasr_actors::AccountCacheSupervisor;
 use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
+use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
@@ -98,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager);
+    let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");
@@ -136,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClient::new(eigen_da_client);
     let batcher_actor = BatcherActor::new();
-    let executor_actor = ExecutorActor;
+    let executor_actor = ExecutorActor::new();
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
@@ -223,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_executor_actor_ref, _executor_handle) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
-        executor_actor,
+        executor_actor.clone(),
         execution_engine,
     )
     .await
@@ -261,9 +263,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
-        .build()
-        .unwrap();
-    BatcherActor::spawn_future_handler(batcher_actor, future_thread_pool);
+        .build()?;
+    tokio::spawn(async move {
+        loop {
+            {
+                let futures = batcher_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                            if let BatcherError::FailedTransaction { msg, txn } = err {
+                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
+                                {
+                                    log::error!("{err:?}");
+                                }
+                            }
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = executor_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move { guard.next().await })
+                    .await;
+            }
+        }
+    });
 
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
     loop {

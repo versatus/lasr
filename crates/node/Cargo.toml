@@ -39,6 +39,7 @@ eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
 ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
 eo_listener = { git = "https://github.com/versatus/eo_listener" }
 log = "0.4.20"
+futures = "0.3.29"
 simple_logger = "4.3.0"
 dotenv = "0.15.0"
 rand = { version = "0.8.5", features = ["std", "std_rng"] }
