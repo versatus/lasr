@@ -123,7 +123,7 @@ contract RollupStaking is ReentrancyGuard, Ownable {
         return (staker.stakedAmount * (rewardPerToken() - staker.debtInRewards) / 1e18) + staker.earnedRewards;
     }
 
-    /**
+    /*
      *  Allows a user to stake a specified amount of tokens into the staking contract.
      *  Updates the staker's information, total staked amount, total rewards accrued, and emits a Staked event.
      *
@@ -135,7 +135,8 @@ contract RollupStaking is ReentrancyGuard, Ownable {
      *
      * @param amount The amount of tokens to stake.
      */
-    function stake(uint256 amount) external nonReentrant updateReward(msg.sender) {
+    function stake() external payable nonReentrant updateReward(msg.sender) {
+        uint256 amount = msg.value;
         if (amount == 0) {
             revert ZeroStakeAmount();
         }
@@ -150,7 +151,6 @@ contract RollupStaking is ReentrancyGuard, Ownable {
         totalStakedAmount += amount;
         totalRewardsAccrued += amount;
         staker.stakedAmount += amount;
-        require(stakingToken.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
         emit Staked(msg.sender, amount);
     }
 
