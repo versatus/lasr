@@ -26,6 +26,7 @@ use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
 use lasr_actors::ValidatorActor;
+use lasr_actors::ValidatorCore;
 use lasr_clients::EoClient;
 use lasr_clients::EoClientActor;
 use lasr_compute::OciBundler;
@@ -144,6 +145,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
+    let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
+
     let (da_supervisor, _da_supervisor_handle) =
         Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
             .await
@@ -172,10 +175,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(Box::new)?;
 
-    let (_validator_actor_ref, _validator_handle) =
-        Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let (_validator_actor_ref, _validator_handle) = Actor::spawn(
+        Some(ActorType::Validator.to_string()),
+        validator_actor,
+        validator_core,
+    )
+    .await
+    .map_err(Box::new)?;
 
     let (_eo_server_actor_ref, _eo_server_handle) =
         Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
