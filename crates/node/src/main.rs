@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_validator_actor_ref, _validator_handle) = Actor::spawn(
         Some(ActorType::Validator.to_string()),
-        validator_actor,
+        validator_actor.clone(),
         validator_core,
     )
     .await
@@ -288,6 +288,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut guard = futures.lock().await;
                 future_thread_pool
                     .install(|| async move { guard.next().await })
+                    .await;
+            }
+            {
+                let futures = validator_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
                     .await;
             }
         }

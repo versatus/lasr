@@ -1,6 +1,11 @@
-use crate::{check_account_cache, check_da_for_account, StaticFuture, UnorderedFuturePool};
+use crate::{
+    check_account_cache, check_da_for_account, ActorExt, StaticFuture, UnorderedFuturePool,
+};
 use async_trait::async_trait;
-use futures::{stream::FuturesUnordered, FutureExt};
+use futures::{
+    stream::{FuturesUnordered, StreamExt},
+    FutureExt,
+};
 use lasr_messages::{ActorType, BatcherMessage, PendingTransactionMessage, ValidatorMessage};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr};
 use std::{collections::HashMap, sync::Arc};
@@ -1223,5 +1228,92 @@ impl Actor for ValidatorActor {
             }
         }
         Ok(())
+    }
+}
+
+impl ActorExt for ValidatorActor {
+    type Output = Result<(), ValidatorError>;
+    type Future<O> = StaticFuture<Self::Output>;
+    type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
+    type FutureHandler = tokio_rayon::rayon::ThreadPool;
+    type JoinHandle = tokio::task::JoinHandle<()>;
+
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>> {
+        self.future_pool.clone()
+    }
+
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle {
+        tokio::spawn(async move {
+            loop {
+                let futures = actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_handler
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod validator_tests {
+    use crate::{ActorExt, ValidatorActor, ValidatorCore};
+    use lasr_messages::{ActorType, ValidatorMessage};
+    use lasr_types::Transaction;
+    use ractor::Actor;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn test_validator_future_handler() {
+        let validator_actor = ValidatorActor::new();
+        let mut validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
+
+        let (validator_actor_ref, _validator_handle) = Actor::spawn(
+            Some(ActorType::Validator.to_string()),
+            validator_actor.clone(),
+            validator_core.clone(),
+        )
+        .await
+        .expect("failed to spawn validator actor");
+
+        validator_actor
+            .handle(
+                validator_actor_ref,
+                ValidatorMessage::PendingTransaction {
+                    transaction: Transaction::default(),
+                },
+                &mut validator_core,
+            )
+            .await
+            .unwrap();
+        // TODO: Add other messages in the handle method
+        {
+            let guard = validator_actor.future_pool.lock().await;
+            assert!(!guard.is_empty());
+        }
+
+        let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .build()
+            .unwrap();
+
+        let actor_clone = validator_actor.clone();
+        ValidatorActor::spawn_future_handler(actor_clone, future_thread_pool);
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        loop {
+            {
+                let guard = validator_actor.future_pool.lock().await;
+                if guard.is_empty() {
+                    break;
+                }
+            }
+            interval.tick().await;
+        }
     }
 }
