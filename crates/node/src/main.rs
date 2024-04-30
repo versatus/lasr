@@ -18,7 +18,7 @@ use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
 use lasr_actors::DaSupervisor;
-use lasr_actors::Engine;
+use lasr_actors::EngineActor;
 use lasr_actors::EoServer;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pending_transaction_actor = PendingTransactionActor;
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
-    let engine_actor = Engine::new();
+    let engine_actor = EngineActor::new();
     let validator_actor = Validator::new();
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
@@ -169,10 +169,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(Box::new)?;
 
-    let (_engine_actor_ref, _engine_handle) =
-        Actor::spawn(Some(ActorType::Engine.to_string()), engine_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let (_engine_actor_ref, _engine_handle) = Actor::spawn(
+        Some(ActorType::Engine.to_string()),
+        engine_actor.clone(),
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
 
     let (_validator_actor_ref, _validator_handle) =
         Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
@@ -282,6 +285,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut guard = futures.lock().await;
                 future_thread_pool
                     .install(|| async move { guard.next().await })
+                    .await;
+            }
+            {
+                let futures = engine_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
                     .await;
             }
         }
