@@ -1,9 +1,11 @@
-use crate::{check_account_cache, check_da_for_account};
+use crate::{check_account_cache, check_da_for_account, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
+use futures::{stream::FuturesUnordered, FutureExt};
 use lasr_messages::{ActorType, BatcherMessage, PendingTransactionMessage, ValidatorMessage};
-use ractor::{Actor, ActorProcessingErr, ActorRef};
-use std::{collections::HashMap, fmt::Display};
+use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use lasr_types::{
     Account, AccountType, AddressOrNamespace, Instruction, Outputs, TokenFieldValue,
@@ -967,17 +969,17 @@ impl ValidatorCore {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Validator;
-
-#[derive(Clone, Debug, Error)]
-pub enum ValidatorError {
-    Custom(String),
+pub struct ValidatorActor {
+    future_pool: UnorderedFuturePool<StaticFuture<Result<(), ValidatorError>>>,
 }
 
-impl Display for ValidatorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+#[derive(Debug, Error)]
+pub enum ValidatorError {
+    #[error("{0:?}")]
+    Custom(String),
+
+    #[error(transparent)]
+    PendingTransactionMessage(#[from] MessagingErr<PendingTransactionMessage>),
 }
 
 impl Default for ValidatorError {
@@ -986,24 +988,209 @@ impl Default for ValidatorError {
     }
 }
 
-impl Validator {
+impl ValidatorActor {
     pub fn new() -> Self {
-        Self
+        Self {
+            future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
+        }
+    }
+    async fn pending_transaction(
+        validator_core: Arc<Mutex<ValidatorCore>>,
+        transaction: Transaction,
+    ) -> Result<(), ValidatorError> {
+        log::info!(
+            "Received transaction to validate: {}",
+            transaction.hash_string()
+        );
+        // spin up thread
+        let transaction_type = transaction.transaction_type();
+        match transaction_type {
+            TransactionType::Send(_) => {
+                log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
+                let account = if let Some(account) = check_account_cache(transaction.from()).await {
+                    log::info!("found account in cache");
+                    Some(account)
+                } else if let Some(account) = check_da_for_account(transaction.from()).await {
+                    log::info!("found account in da");
+                    Some(account)
+                } else {
+                    log::info!("unable to find account in cache or da");
+                    None
+                };
+
+                if account.is_none() {
+                    let actor: ActorRef<PendingTransactionMessage> =
+                        ractor::registry::where_is(ActorType::PendingTransactions.to_string())
+                            .ok_or(ValidatorError::Custom(
+                                "unable to acquire pending transaction actor".to_string(),
+                            ))?
+                            .into();
+
+                    let message = PendingTransactionMessage::Invalid {
+                        transaction,
+                        e: Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "account does not exist",
+                        )) as Box<dyn std::error::Error + Send>,
+                    };
+
+                    actor.cast(message)?;
+                } else {
+                    log::info!("validating send transaction");
+                    let state = validator_core.lock().await;
+                    let op = state.validate_send();
+                    state.pool.spawn_fifo(move || {
+                        let _ = op(transaction.clone(), account.unwrap());
+                    });
+                }
+            }
+            TransactionType::Call(_) => {
+                // get account
+                // build op
+                // install op
+            }
+            TransactionType::BridgeIn(_) => {
+                let _account = if let Some(account) = check_account_cache(transaction.from()).await
+                {
+                    Some(account)
+                } else if let Some(account) = check_da_for_account(transaction.from()).await {
+                    Some(account)
+                } else {
+                    log::info!("unable to find account in cache or da");
+                    None
+                };
+                let state = validator_core.lock().await;
+                let op = state.validate_bridge_in();
+                state.pool.spawn_fifo(move || {
+                    let _ = op(transaction);
+                });
+                // get account
+                // check bridged balance in EO
+                // for address
+                // naively validate
+            }
+            TransactionType::RegisterProgram(_) => {
+                // get program
+                // build program
+                // validate sender sig
+                // validate sender balance for deployment fees
+                // commit contract blob
+                //
+            }
+            TransactionType::BridgeOut(_) => {
+                // get program
+                // check for corresponding program
+                // validate sender sig
+                // validate sender balance
+                // execute bridge fn in program
+                // settle bridge transaction on settlement networ
+            }
+        }
+        Ok(())
+    }
+    async fn pending_call(
+        validator_core: Arc<Mutex<ValidatorCore>>,
+        outputs: Option<Outputs>,
+        transaction: Transaction,
+    ) -> Result<(), ValidatorError> {
+        log::warn!(
+            "pending call received by validator for: {}",
+            &transaction.hash_string()
+        );
+        // Acquire all relevant accounts.
+        if let Some(outputs) = outputs {
+            let mut accounts_involved: Vec<AddressOrNamespace> = outputs
+                .instructions()
+                .iter()
+                .flat_map(|inst| inst.get_accounts_involved())
+                .collect();
+
+            accounts_involved.push(AddressOrNamespace::Address(transaction.from()));
+            accounts_involved.push(AddressOrNamespace::Address(transaction.to()));
+
+            let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> =
+                HashMap::new();
+            for address in &accounts_involved {
+                //TODO(asmith): Replace this block with a parallel iterator to optimize
+                match &address {
+                    AddressOrNamespace::This => {
+                        let addr = transaction.to();
+                        log::info!(
+                            "Received call transaction checking account {} from validator",
+                            &addr.to_full_string()
+                        );
+                        if let Some(account) = check_account_cache(addr).await {
+                            log::info!("Found `this` account in cache");
+                            validator_accounts.insert(address.clone(), Some(account));
+                        } else if let Some(account) = check_da_for_account(addr).await {
+                            log::info!("found `this` account in da");
+                            validator_accounts.insert(address.clone(), Some(account));
+                        } else {
+                            log::info!("unable to find account in cache or da");
+                            validator_accounts.insert(address.clone(), None);
+                        }
+                    }
+                    AddressOrNamespace::Address(addr) => {
+                        log::info!(
+                            "looking for account {:?} in cache from validator",
+                            addr.to_full_string()
+                        );
+                        if let Some(account) = check_account_cache(*addr).await {
+                            log::info!("found account in cache");
+                            validator_accounts.insert(address.clone(), Some(account));
+                        } else if let Some(account) = check_da_for_account(*addr).await {
+                            log::info!("found account in da");
+                            validator_accounts.insert(address.clone(), Some(account));
+                        } else {
+                            log::info!("unable to find account in cache or da");
+                            validator_accounts.insert(address.clone(), None);
+                        };
+                    }
+                    AddressOrNamespace::Namespace(_namespace) => {
+                        //TODO(asmith): implement check_account_cache and check_da_for_account for
+                        //Namespaces
+                        validator_accounts.insert(address.clone(), None);
+                    }
+                }
+            }
+
+            let state = validator_core.lock().await;
+            let op = state.validate_call();
+            state.pool.spawn_fifo(move || {
+                let _ = op(validator_accounts, outputs, transaction);
+            });
+        } else {
+            log::error!("Call transactions must have an output associated with them");
+            if let Some(actor) =
+                ractor::registry::where_is(ActorType::PendingTransactions.to_string())
+            {
+                let pending_transactions: ActorRef<PendingTransactionMessage> = actor.into();
+                let e = Box::new(ValidatorError::Custom(
+                    "Call transaction missing associated outputs".to_string(),
+                ));
+                let message = PendingTransactionMessage::Invalid {
+                    transaction: transaction.clone(),
+                    e,
+                };
+                let _ = pending_transactions.cast(message);
+            }
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
-impl Actor for Validator {
+impl Actor for ValidatorActor {
     type Msg = ValidatorMessage;
-    type State = ValidatorCore;
-    type Arguments = ();
+    type State = Arc<Mutex<ValidatorCore>>;
+    type Arguments = Self::State;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: (),
+        args: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(ValidatorCore::default())
+        Ok(args)
     }
 
     async fn handle(
@@ -1012,197 +1199,29 @@ impl Actor for Validator {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        let valcore_ptr = Arc::clone(state);
         match message {
             ValidatorMessage::PendingTransaction { transaction } => {
-                log::info!(
-                    "Received transaction to validate: {}",
-                    transaction.hash_string()
-                );
-                // spin up thread
-                let transaction_type = transaction.transaction_type();
-                match transaction_type {
-                    TransactionType::Send(_) => {
-                        log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
-                        let account = if let Some(account) =
-                            check_account_cache(transaction.from()).await
-                        {
-                            log::info!("found account in cache");
-                            Some(account)
-                        } else if let Some(account) = check_da_for_account(transaction.from()).await
-                        {
-                            log::info!("found account in da");
-                            Some(account)
-                        } else {
-                            log::info!("unable to find account in cache or da");
-                            None
-                        };
-
-                        if account.is_none() {
-                            let actor: ActorRef<PendingTransactionMessage> =
-                                ractor::registry::where_is(
-                                    ActorType::PendingTransactions.to_string(),
-                                )
-                                .ok_or(Box::new(ValidatorError::Custom(
-                                    "unable to acquire pending transaction actor".to_string(),
-                                )))?
-                                .into();
-
-                            let message = PendingTransactionMessage::Invalid {
-                                transaction,
-                                e: Box::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    "account does not exist",
-                                ))
-                                    as Box<dyn std::error::Error + Send>,
-                            };
-
-                            actor.cast(message)?;
-                        } else {
-                            log::info!("validating send transaction");
-                            let op = state.validate_send();
-                            state.pool.spawn_fifo(move || {
-                                let _ = op(transaction.clone(), account.unwrap());
-                            });
-                        }
-                    }
-                    TransactionType::Call(_) => {
-                        // get account
-                        // build op
-                        // install op
-                    }
-                    TransactionType::BridgeIn(_) => {
-                        let _account = if let Some(account) =
-                            check_account_cache(transaction.from()).await
-                        {
-                            Some(account)
-                        } else if let Some(account) = check_da_for_account(transaction.from()).await
-                        {
-                            Some(account)
-                        } else {
-                            log::info!("unable to find account in cache or da");
-                            None
-                        };
-                        let op = state.validate_bridge_in();
-                        state.pool.spawn_fifo(move || {
-                            let _ = op(transaction);
-                        });
-                        // get account
-                        // check bridged balance in EO
-                        // for address
-                        // naively validate
-                    }
-                    TransactionType::RegisterProgram(_) => {
-                        // get program
-                        // build program
-                        // validate sender sig
-                        // validate sender balance for deployment fees
-                        // commit contract blob
-                        //
-                    }
-                    TransactionType::BridgeOut(_) => {
-                        // get program
-                        // check for corresponding program
-                        // validate sender sig
-                        // validate sender balance
-                        // execute bridge fn in program
-                        // settle bridge transaction on settlement networ
-                    }
-                }
+                let fut = ValidatorActor::pending_transaction(valcore_ptr, transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             ValidatorMessage::PendingCall {
                 outputs,
                 transaction,
             } => {
-                log::warn!(
-                    "pending call received by validator for: {}",
-                    &transaction.hash_string()
-                );
-                // Acquire all relevant accounts.
-                if let Some(outputs) = outputs {
-                    let mut accounts_involved: Vec<AddressOrNamespace> = outputs
-                        .instructions()
-                        .iter()
-                        .flat_map(|inst| inst.get_accounts_involved())
-                        .collect();
-
-                    accounts_involved.push(AddressOrNamespace::Address(transaction.from()));
-                    accounts_involved.push(AddressOrNamespace::Address(transaction.to()));
-
-                    let mut validator_accounts: HashMap<AddressOrNamespace, Option<Account>> =
-                        HashMap::new();
-                    for address in &accounts_involved {
-                        //TODO(asmith): Replace this block with a parallel iterator to optimize
-                        match &address {
-                            AddressOrNamespace::This => {
-                                let addr = transaction.to();
-                                log::info!(
-                                    "Received call transaction checking account {} from validator",
-                                    &addr.to_full_string()
-                                );
-                                if let Some(account) = check_account_cache(addr).await {
-                                    log::info!("Found `this` account in cache");
-                                    validator_accounts.insert(address.clone(), Some(account));
-                                } else if let Some(account) = check_da_for_account(addr).await {
-                                    log::info!("found `this` account in da");
-                                    validator_accounts.insert(address.clone(), Some(account));
-                                } else {
-                                    log::info!("unable to find account in cache or da");
-                                    validator_accounts.insert(address.clone(), None);
-                                }
-                            }
-                            AddressOrNamespace::Address(addr) => {
-                                log::info!(
-                                    "looking for account {:?} in cache from validator",
-                                    addr.to_full_string()
-                                );
-                                if let Some(account) = check_account_cache(*addr).await {
-                                    log::info!("found account in cache");
-                                    validator_accounts.insert(address.clone(), Some(account));
-                                } else if let Some(account) = check_da_for_account(*addr).await {
-                                    log::info!("found account in da");
-                                    validator_accounts.insert(address.clone(), Some(account));
-                                } else {
-                                    log::info!("unable to find account in cache or da");
-                                    validator_accounts.insert(address.clone(), None);
-                                };
-                            }
-                            AddressOrNamespace::Namespace(_namespace) => {
-                                //TODO(asmith): implement check_account_cache and check_da_for_account for
-                                //Namespaces
-                                validator_accounts.insert(address.clone(), None);
-                            }
-                        }
-                    }
-
-                    let op = state.validate_call();
-                    state.pool.spawn_fifo(move || {
-                        let _ = op(validator_accounts, outputs, transaction);
-                    });
-                } else {
-                    log::error!("Call transactions must have an output associated with them");
-                    if let Some(actor) =
-                        ractor::registry::where_is(ActorType::PendingTransactions.to_string())
-                    {
-                        let pending_transactions: ActorRef<PendingTransactionMessage> =
-                            actor.into();
-                        let e = Box::new(ValidatorError::Custom(
-                            "Call transaction missing associated outputs".to_string(),
-                        ));
-                        let message = PendingTransactionMessage::Invalid {
-                            transaction: transaction.clone(),
-                            e,
-                        };
-                        let _ = pending_transactions.cast(message);
-                    }
-                }
+                let fut = ValidatorActor::pending_call(valcore_ptr, outputs, transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             ValidatorMessage::PendingRegistration { transaction } => {
+                let state = valcore_ptr.lock().await;
                 let op = state.validate_register_program();
                 state.pool.spawn_fifo(move || {
                     let _ = op(transaction);
                 });
             }
         }
-        return Ok(());
+        Ok(())
     }
 }

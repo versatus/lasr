@@ -25,7 +25,7 @@ use lasr_actors::LasrRpcServerActor;
 use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
-use lasr_actors::Validator;
+use lasr_actors::ValidatorActor;
 use lasr_clients::EoClient;
 use lasr_clients::EoClientActor;
 use lasr_compute::OciBundler;
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
     let engine_actor = Engine::new();
-    let validator_actor = Validator::new();
+    let validator_actor = ValidatorActor::new();
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
