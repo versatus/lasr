@@ -24,19 +24,16 @@ impl LasrRpcServerActor {
         Self
     }
 
-    async fn handle_response_data(
-        &self,
+    fn handle_response_data(
         data: RpcMessage,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), RpcError> {
         reply
             .send(data)
-            .map_err(|e| RpcError::Custom(format!("{:?}", e)))?;
-        Ok(())
+            .map_err(|e| RpcError::Custom(format!("{:?}", e)))
     }
 
     fn handle_call_request(
-        &self,
         scheduler: ActorRef<SchedulerMessage>,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
@@ -51,7 +48,6 @@ impl LasrRpcServerActor {
     }
 
     fn handle_send_request(
-        &self,
         scheduler: ActorRef<SchedulerMessage>,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
@@ -65,7 +61,6 @@ impl LasrRpcServerActor {
     }
 
     fn handle_register_program_request(
-        &self,
         scheduler: ActorRef<SchedulerMessage>,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
@@ -79,7 +74,6 @@ impl LasrRpcServerActor {
     }
 
     fn handle_get_account_request(
-        &self,
         scheduler: ActorRef<SchedulerMessage>,
         address: Address,
         reply: RpcReplyPort<RpcMessage>,
@@ -92,14 +86,11 @@ impl LasrRpcServerActor {
             .map_err(Box::new)?)
     }
 
-    async fn handle_request_method(
-        &self,
+    fn handle_request_method(
         method: RpcRequestMethod,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), ActorProcessingErr> {
-        let scheduler = self
-            .get_scheduler()
-            .await
+        let scheduler = LasrRpcServerActor::get_scheduler()
             .map_err(Box::new)?
             .ok_or(RpcError::Custom(
                 "Unable to acquire scheduler actor".to_string(),
@@ -107,21 +98,21 @@ impl LasrRpcServerActor {
             .map_err(Box::new)?;
         match method {
             RpcRequestMethod::Call { transaction } => {
-                self.handle_call_request(scheduler, transaction, reply)
+                LasrRpcServerActor::handle_call_request(scheduler, transaction, reply)
             }
             RpcRequestMethod::Send { transaction } => {
-                self.handle_send_request(scheduler, transaction, reply)
+                LasrRpcServerActor::handle_send_request(scheduler, transaction, reply)
             }
             RpcRequestMethod::RegisterProgram { transaction } => {
-                self.handle_register_program_request(scheduler, transaction, reply)
+                LasrRpcServerActor::handle_register_program_request(scheduler, transaction, reply)
             }
             RpcRequestMethod::GetAccount { address } => {
-                self.handle_get_account_request(scheduler, address, reply)
+                LasrRpcServerActor::handle_get_account_request(scheduler, address, reply)
             }
         }
     }
 
-    async fn get_scheduler(&self) -> Result<Option<ActorRef<SchedulerMessage>>, RpcError> {
+    fn get_scheduler() -> Result<Option<ActorRef<SchedulerMessage>>, RpcError> {
         if let Some(actor) = ractor::registry::where_is(ActorType::Scheduler.to_string()) {
             return Ok(Some(actor.into()));
         }
@@ -365,7 +356,7 @@ impl Actor for LasrRpcServerActor {
         log::info!("RPC Actor Received RPC Message");
         match message {
             RpcMessage::Request { method, reply } => {
-                self.handle_request_method(*method, reply).await?;
+                LasrRpcServerActor::handle_request_method(*method, reply)?
             }
             RpcMessage::Response { response, reply } => {
                 let reply = reply.ok_or(Box::new(RpcError::Custom(
@@ -375,7 +366,7 @@ impl Actor for LasrRpcServerActor {
                     response,
                     reply: None,
                 };
-                self.handle_response_data(message, reply).await?;
+                LasrRpcServerActor::handle_response_data(message, reply)?
             }
         }
 
