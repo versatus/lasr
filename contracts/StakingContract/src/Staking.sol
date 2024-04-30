@@ -40,6 +40,7 @@ contract RollupStaking is ReentrancyGuard, Ownable {
     event RewardPaid(address indexed user, uint256 reward);
     event UnstakeFeePercentageUpdated(uint256 newFeePercentage);
     event UnstakeCooldownUpdated(uint256 newCooldown);
+    event UnstakeStarted(address indexed user);
 
     error ZeroStakeAmount();
     error StakingNotStartedYet();
@@ -220,9 +221,59 @@ contract RollupStaking is ReentrancyGuard, Ownable {
      *
      *
      * Returns:
-     * - The free balance of the contract (in tokens).
+     * - The free balance of the contract (in ether).
      */
     function getBalance() internal view returns (uint256) {
         return stakingToken.balanceOf(address(this)) - totalStakedAmount - unstakeFeeAccumulated;
+    }
+
+    /**
+     * Initiates the unstaking process for the caller.
+     * This function updates the reward for the caller, checks if the staker has staked any ETH,
+     * and ensures that the unstake process has not already been initiated.
+     * It sets the unstake start time, deducts the staked amount from total rewards accrued,
+     * and emits an UnstakeStarted event.
+     * @return a boolean indicating whether the unstake process was successfully initiated.
+     */
+    function commenceUnstaking() external updateReward(msg.sender) returns (bool) {
+        Staker storage staker = stakers[msg.sender];
+        require(staker.stakedAmount > 0, "You haven't staked any ETH yet.");
+        require(staker.unstakeStartTime == 0, "Unstake process already initiated.");
+
+        staker.unstakeStartTime = block.timestamp;
+        totalRewardsAccrued -= staker.stakedAmount;
+
+        emit UnstakeStarted(msg.sender);
+        return true;
+    }
+
+    /**
+     * Sets the unstake fee percentage for unstaking.
+     * This function allows the owner to set the unstake fee percentage, ensuring it does not exceed a predefined cap.
+     * It updates the unstake fee percentage variable and emits an UnstakeFeePercentageUpdated event.
+     * @param fee The new unstake fee percentage to be set.
+     */
+    function setUnstakeFeePercent(uint256 fee) external onlyOwner {
+        require(fee <= FEE_CAP, "Unstake fee exceeds 5%, maximum allowed");
+        unstakeFeePercentage = fee;
+        emit UnstakeFeePercentageUpdated(fee);
+    }
+
+    /**
+     * Sets the unstake cooldown time lock.
+     * This function allows the owner to set the cooldown time lock for unstaking, ensuring it falls within a predefined range.
+     * It updates the unstake cooldown variable and emits an UnstakeCooldownUpdated event.
+     * @param coolDownTime The new cooldown time lock to be set, specified in days.
+     */
+    function setUnstakeTimeLock(uint256 coolDownTime) external onlyOwner {
+        require(coolDownTime <= COOLDOWN_DURATION, "Cool Down time must be between 0 to 20 days");
+        unstakeCooldown = coolDownTime;
+        emit UnstakeCooldownUpdated(coolDownTime);
+    }
+
+     function withdrawStakingFees(uint256 amount) external onlyOwner {
+        require(amount <= unstakeFeeAccumulated, "Amount exceeds unstakeFeeAccumulated");
+        unstakeFeeAccumulated -= amount;
+        require(payable(msg.sender).transfer(amount),"Fee withdrawal failed");
     }
 }
