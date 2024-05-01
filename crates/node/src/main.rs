@@ -17,6 +17,7 @@ use lasr_actors::BatcherActor;
 use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
+use lasr_actors::DaClientActor;
 use lasr_actors::DaSupervisor;
 use lasr_actors::Engine;
 use lasr_actors::EoServer;
@@ -136,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
-    let da_client_actor = DaClient::new(eigen_da_client);
+    let da_client_actor = DaClientActor::new();
     let batcher_actor = BatcherActor::new();
     let executor_actor = ExecutorActor::new();
     let inner_eo_server =
@@ -147,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
+    let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
     let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
     let (da_supervisor, _da_supervisor_handle) =
@@ -200,8 +202,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
         Some(ActorType::DaClient.to_string()),
-        da_client_actor,
-        (),
+        da_client_actor.clone(),
+        da_client,
         da_supervisor.get_cell(),
     )
     .await
@@ -292,6 +294,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             {
                 let futures = validator_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = da_client_actor.future_pool();
                 let mut guard = futures.lock().await;
                 future_thread_pool
                     .install(|| async move {
