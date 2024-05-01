@@ -28,7 +28,8 @@ use lasr_actors::LasrRpcServerActor;
 use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
-use lasr_actors::Validator;
+use lasr_actors::ValidatorActor;
+use lasr_actors::ValidatorCore;
 use lasr_clients::EoClient;
 use lasr_clients::EoClientActor;
 use lasr_compute::OciBundler;
@@ -131,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
     let engine_actor = Engine::new();
-    let validator_actor = Validator::new();
+    let validator_actor = ValidatorActor::new();
     let eo_server_actor = EoServer::new();
     let eo_client_actor = EoClientActor;
     let da_supervisor = DaSupervisor;
@@ -148,6 +149,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
+    let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
     let (da_supervisor, _da_supervisor_handle) =
         Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
@@ -177,10 +179,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(Box::new)?;
 
-    let (_validator_actor_ref, _validator_handle) =
-        Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let (_validator_actor_ref, _validator_handle) = Actor::spawn(
+        Some(ActorType::Validator.to_string()),
+        validator_actor.clone(),
+        validator_core,
+    )
+    .await
+    .map_err(Box::new)?;
 
     let (_eo_server_actor_ref, _eo_server_handle) =
         Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
@@ -285,6 +290,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut guard = futures.lock().await;
                 future_thread_pool
                     .install(|| async move { guard.next().await })
+                    .await;
+            }
+            {
+                let futures = validator_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
                     .await;
             }
             {
