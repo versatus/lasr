@@ -2,14 +2,18 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
+    sync::Arc,
 };
 
-use crate::{check_account_cache, check_da_for_account, create_handler, handle_actor_response};
+use crate::{
+    check_account_cache, check_da_for_account, create_handler, handle_actor_response, ActorExt,
+    StaticFuture, UnorderedFuturePool,
+};
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
 use futures::{
-    stream::{iter, StreamExt, Then},
-    TryFutureExt,
+    stream::{iter, FuturesUnordered, StreamExt, Then},
+    FutureExt, TryFutureExt,
 };
 use lasr_contract::create_program_id;
 use lasr_messages::{
@@ -30,13 +34,16 @@ use lasr_types::{
     RecoverableSignature, Status, Token, TokenBuilder, Transaction, TransactionBuilder,
     TransactionType,
 };
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, Mutex};
 
 #[derive(Clone, Debug, Default)]
-pub struct Engine;
+pub struct EngineActor {
+    future_pool: UnorderedFuturePool<StaticFuture<Result<(), EngineError>>>,
+}
 
 #[derive(Clone, Debug, Error)]
 pub enum EngineError {
+    #[error("{0:?}")]
     Custom(String),
 }
 impl Default for EngineError {
@@ -45,15 +52,11 @@ impl Default for EngineError {
     }
 }
 
-impl Display for EngineError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl Engine {
+impl EngineActor {
     pub fn new() -> Self {
-        Self
+        Self {
+            future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
+        }
     }
 
     async fn get_account(&self, address: &Address, account_type: AccountType) -> Account {
@@ -108,7 +111,7 @@ impl Engine {
         ))
     }
 
-    async fn write_to_cache(&self, account: Account) -> Result<(), EngineError> {
+    async fn write_to_cache(account: Account) -> Result<(), EngineError> {
         let message = AccountCacheMessage::Write { account };
         let cache_actor = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
             EngineError::Custom("unable to find AccountCacheActor in registry".to_string()),
@@ -191,7 +194,6 @@ impl Engine {
     }
 
     async fn set_pending_transaction(
-        &self,
         transaction: Transaction,
         outputs: Option<Outputs>,
     ) -> Result<(), EngineError> {
@@ -216,7 +218,7 @@ impl Engine {
         Ok(())
     }
 
-    async fn handle_bridge_event(&self, logs: &Vec<BridgeEvent>) -> Result<(), EngineError> {
+    async fn handle_bridge_event(logs: &Vec<BridgeEvent>) -> Result<(), EngineError> {
         for event in logs {
             // Turn event into Transaction
             let transaction = TransactionBuilder::default()
@@ -233,21 +235,20 @@ impl Engine {
                 .s([0; 32])
                 .build()
                 .map_err(|e| EngineError::Custom(e.to_string()))?;
-            self.set_pending_transaction(transaction.clone(), None)
-                .await?;
+            EngineActor::set_pending_transaction(transaction.clone(), None).await?;
         }
 
         Ok(())
     }
 
-    async fn handle_call(&self, transaction: Transaction) -> Result<(), EngineError> {
+    async fn handle_call(transaction: Transaction) -> Result<(), EngineError> {
         log::info!("handling call transaction: {}", transaction.hash_string());
         let message = ExecutorMessage::Set { transaction };
-        self.inform_executor(message).await?;
+        EngineActor::inform_executor(message).await?;
         Ok(())
     }
 
-    async fn inform_executor(&self, message: ExecutorMessage) -> Result<(), EngineError> {
+    async fn inform_executor(message: ExecutorMessage) -> Result<(), EngineError> {
         log::info!("acquiring Executor actor");
         let actor: ActorRef<ExecutorMessage> =
             ractor::registry::where_is(ActorType::Executor.to_string())
@@ -266,13 +267,12 @@ impl Engine {
         Ok(())
     }
 
-    async fn handle_send(&self, transaction: Transaction) -> Result<(), EngineError> {
+    async fn handle_send(transaction: Transaction) -> Result<(), EngineError> {
         log::info!("scheduler handling send: {}", transaction.hash_string());
-        self.set_pending_transaction(transaction, None).await?;
-        Ok(())
+        EngineActor::set_pending_transaction(transaction, None).await
     }
 
-    async fn handle_register_program(&self, transaction: Transaction) -> Result<(), EngineError> {
+    async fn handle_register_program(transaction: Transaction) -> Result<(), EngineError> {
         log::info!("Creating program address");
         let mut transaction_id = [0u8; 32];
         transaction_id.copy_from_slice(&transaction.hash()[..]);
@@ -313,12 +313,11 @@ impl Engine {
         };
 
         log::info!("informing executor");
-        self.inform_executor(message).await?;
+        EngineActor::inform_executor(message).await?;
         Ok(())
     }
 
-    async fn handle_call_success(
-        &self,
+    async fn call_success(
         transaction: Transaction,
         transaction_hash: String,
         outputs: &str,
@@ -339,11 +338,8 @@ impl Engine {
             }
             Err(e) => {
                 let error_string = e.to_string();
-                log::error!(
-                    "Error: engine.rs: 336: Deserialization of outputs failed: {}",
-                    e
-                );
-                self.respond_with_error(
+                log::error!("Engine Error: Deserialization of outputs failed: {}", e);
+                EngineActor::respond_with_error(
                     transaction.hash_string(),
                     outputs.to_owned(),
                     error_string,
@@ -355,7 +351,7 @@ impl Engine {
         let pending_transactions: ActorRef<PendingTransactionMessage> = {
             ractor::registry::where_is(ActorType::PendingTransactions.to_string())
                 .ok_or(EngineError::Custom(
-                    "unable to acquire PendingTransactions Actor: engine.rs: 291".to_string(),
+                    "unable to acquire PendingTransactions Actor".to_string(),
                 ))?
                 .into()
         };
@@ -374,8 +370,25 @@ impl Engine {
         Ok(())
     }
 
+    async fn handle_call_success(
+        transaction: Transaction,
+        transaction_hash: String,
+        outputs: String,
+    ) -> Result<(), EngineError> {
+        match EngineActor::call_success(transaction, transaction_hash.clone(), &outputs).await {
+            Err(e) => {
+                //TODO Handle error cases
+                let _ = EngineActor::respond_with_error(transaction_hash, outputs, e.to_string());
+            }
+            Ok(()) => log::info!(
+                "Successfully parsed outputs from {:?} and sent to pending transactions",
+                transaction_hash
+            ),
+        }
+        Ok(())
+    }
+
     fn respond_with_error(
-        &self,
         transaction_hash: String,
         outputs: String,
         error: String,
@@ -398,23 +411,40 @@ impl Engine {
         Ok(())
     }
 
-    fn handle_registration_success(&self, transaction_hash: String) -> Result<(), EngineError> {
+    fn handle_registration_success(transaction_hash: String) -> Result<(), EngineError> {
         todo!()
+    }
+
+    async fn handle_eo_event(event: EoEvent) -> Result<(), EngineError> {
+        match event {
+            EoEvent::Bridge(log) => {
+                log::info!("Engine Received EO Bridge Event");
+                EngineActor::handle_bridge_event(&log)
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::error!("{e:?}");
+                    });
+            }
+            EoEvent::Settlement(log) => {
+                log::info!("Engine Received EO Settlement Event");
+            }
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
-impl Actor for Engine {
+impl Actor for EngineActor {
     type Msg = EngineMessage;
     type State = ();
-    type Arguments = ();
+    type Arguments = Self::State;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: (),
+        args: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(())
+        Ok(args)
     }
 
     async fn handle(
@@ -424,61 +454,153 @@ impl Actor for Engine {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            EngineMessage::EoEvent { event } => match event {
-                EoEvent::Bridge(log) => {
-                    log::info!("Engine Received EO Bridge Event");
-                    self.handle_bridge_event(&log).await.unwrap_or_else(|e| {
-                        log::error!("{}", e);
-                    });
-                }
-                EoEvent::Settlement(log) => {
-                    log::info!("Engine Received EO Settlement Event");
-                }
-            },
+            EngineMessage::EoEvent { event } => {
+                let fut = EngineActor::handle_eo_event(event);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
+            }
             EngineMessage::Cache { account, .. } => {
-                self.write_to_cache(account);
+                EngineActor::write_to_cache(account);
             }
             EngineMessage::Call { transaction } => {
-                self.handle_call(transaction).await;
+                let fut = EngineActor::handle_call(transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EngineMessage::Send { transaction } => {
-                self.handle_send(transaction).await;
+                let fut = EngineActor::handle_send(transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EngineMessage::RegisterProgram { transaction } => {
                 log::info!(
                     "Received register program transaction: {}",
                     transaction.hash_string()
                 );
-                self.handle_register_program(transaction).await;
+                let fut = EngineActor::handle_register_program(transaction);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EngineMessage::CallSuccess {
                 transaction,
                 transaction_hash,
                 outputs,
             } => {
-                match self
-                    .handle_call_success(transaction, transaction_hash.clone(), &outputs)
-                    .await
-                {
-                    Err(e) => {
-                        //TODO Handle error cases
-                        let _ = self.respond_with_error(
-                            transaction_hash,
-                            outputs.clone(),
-                            e.to_string(),
-                        );
-                    }
-                    Ok(()) => log::info!(
-                        "Successfully parsed outputs from {:?} and sent to pending transactions",
-                        transaction_hash
-                    ),
-                }
+                let fut = EngineActor::handle_call_success(transaction, transaction_hash, outputs);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EngineMessage::RegistrationSuccess { transaction_hash } => {
-                self.handle_registration_success(transaction_hash);
+                EngineActor::handle_registration_success(transaction_hash);
             }
             _ => {}
         }
-        return Ok(());
+        Ok(())
+    }
+}
+
+impl ActorExt for EngineActor {
+    type Output = Result<(), EngineError>;
+    type Future<O> = StaticFuture<Self::Output>;
+    type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
+    type FutureHandler = tokio_rayon::rayon::ThreadPool;
+    type JoinHandle = tokio::task::JoinHandle<()>;
+
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>> {
+        self.future_pool.clone()
+    }
+
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle {
+        tokio::spawn(async move {
+            loop {
+                let futures = actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_handler
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use crate::{ActorExt, EngineActor};
+    use lasr_messages::{ActorType, EngineMessage};
+    use lasr_types::Transaction;
+    use ractor::Actor;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn test_engine_future_handler() {
+        let engine_actor = EngineActor::new();
+
+        let (engine_actor_ref, _engine_handle) = Actor::spawn(
+            Some(ActorType::Engine.to_string()),
+            engine_actor.clone(),
+            (),
+        )
+        .await
+        .expect("failed to spawn engine actor");
+
+        engine_actor
+            .handle(
+                engine_actor_ref.clone(),
+                EngineMessage::Call {
+                    transaction: Transaction::default(),
+                },
+                &mut (),
+            )
+            .await
+            .unwrap();
+        engine_actor
+            .handle(
+                engine_actor_ref.clone(),
+                EngineMessage::Send {
+                    transaction: Transaction::default(),
+                },
+                &mut (),
+            )
+            .await
+            .unwrap();
+        engine_actor
+            .handle(
+                engine_actor_ref,
+                EngineMessage::RegisterProgram {
+                    transaction: Transaction::default(),
+                },
+                &mut (),
+            )
+            .await
+            .unwrap();
+        // TODO: Add other messages in the handle method
+        {
+            let guard = engine_actor.future_pool.lock().await;
+            assert!(!guard.is_empty());
+        }
+
+        let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+            .num_threads(num_cpus::get())
+            .build()
+            .unwrap();
+
+        let actor_clone = engine_actor.clone();
+        EngineActor::spawn_future_handler(actor_clone, future_thread_pool);
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        loop {
+            {
+                let guard = engine_actor.future_pool.lock().await;
+                if guard.is_empty() {
+                    break;
+                }
+            }
+            interval.tick().await;
+        }
     }
 }
