@@ -1,16 +1,18 @@
 #![allow(unused)]
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use eigenda_client::batch::BatchHeaderHash;
 use futures::stream::{FuturesUnordered, Stream, StreamExt};
-use futures::Future;
+use futures::{Future, FutureExt};
 use hex;
+use ractor::concurrency::OneshotSender;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use secp256k1::SecretKey;
 use sha3::{Digest, Keccak256};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{mpsc::Receiver, Mutex};
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token as EthAbiToken;
 use web3::helpers::CallFuture;
@@ -18,12 +20,148 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use lasr_actors::EoServerError;
+use lasr_actors::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
 use lasr_messages::{ActorType, EoMessage, HashOrError};
 use lasr_types::{Address, U256};
 
 #[derive(Clone, Debug)]
-pub struct EoClientActor;
+pub struct EoClientActor {
+    future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+
+impl EoClientActor {
+    pub fn new() -> Self {
+        Self {
+            future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
+        }
+    }
+
+    async fn get_account_blob_index(
+        eo_client: Arc<Mutex<EoClient>>,
+        address: Address,
+        sender: OneshotSender<EoMessage>,
+    ) {
+        let blob = {
+            let state = eo_client.lock().await;
+            state.get_blob_index(address.into()).await
+        };
+        if let Some((batch_header_hash, blob_index)) = blob {
+            if !batch_header_hash.is_zero() {
+                let res = sender.send(EoMessage::AccountBlobIndexAcquired {
+                    address,
+                    batch_header_hash,
+                    blob_index,
+                });
+
+                if let Err(e) = res {
+                    log::error!("{:?}", e);
+                }
+            }
+        } else {
+            log::info!("unable to find blob index for address: 0x{:x}", address);
+            let _res = sender.send(EoMessage::AccountBlobIndexNotFound { address });
+        }
+    }
+
+    async fn get_account_balance(
+        eo_client: Arc<Mutex<EoClient>>,
+        program_id: Address,
+        address: Address,
+        sender: OneshotSender<EoMessage>,
+        token_type: u8,
+    ) {
+        if token_type == 0 {
+            let balance = {
+                let state = eo_client.lock().await;
+                state.get_eth_balance(address.into()).await
+            };
+            let balance = balance.map(|b| b.into());
+            let res = sender.send(EoMessage::AccountBalanceAcquired {
+                program_id,
+                address,
+                balance,
+            });
+            if let Err(e) = res {
+                log::error!("{:?}", e);
+            }
+        } else if token_type == 1 {
+            let balance = {
+                let state = eo_client.lock().await;
+                state
+                    .get_erc20_balance(program_id.into(), address.into())
+                    .await
+            };
+            let balance = balance.map(|b| b.into());
+            let res = sender.send(EoMessage::AccountBalanceAcquired {
+                program_id,
+                address,
+                balance,
+            });
+            if let Err(e) = res {
+                log::error!("{:?}", e);
+            }
+        } else if token_type == 2 {
+            let holdings = {
+                let state = eo_client.lock().await;
+                state
+                    .get_erc721_holdings(program_id.into(), address.into())
+                    .await
+            };
+            let holdings: Option<Vec<U256>> = holdings.map(|h| {
+                h.iter()
+                    .map(|eth_u256| {
+                        let internal_u256: U256 = eth_u256.into();
+                        internal_u256
+                    })
+                    .collect()
+            });
+            let res = sender.send(EoMessage::NftHoldingsAcquired {
+                program_id,
+                address,
+                holdings,
+            });
+            if let Err(e) = res {
+                log::error!("{:?}", e);
+            }
+        }
+    }
+
+    async fn settle(
+        eo_client: Arc<Mutex<EoClient>>,
+        accounts: HashSet<String>,
+        batch_header_hash: H256,
+        blob_index: u128,
+    ) {
+        let mut state = eo_client.lock().await;
+        let res = state
+            .settle_batch(accounts, batch_header_hash, blob_index)
+            .await;
+        if let Ok(handle) = res {
+            state.insert_pending((batch_header_hash, blob_index), handle);
+        } else {
+            log::error!("encountered error attempting to settle batch");
+        }
+    }
+
+    async fn settle_success(
+        eo_client: Arc<Mutex<EoClient>>,
+        batch_header_hash: H256,
+        blob_index: u128,
+        accounts: HashSet<String>,
+        hash: HashOrError,
+        receipt: Option<TransactionReceipt>,
+    ) {
+        let handle_opt = {
+            let mut state = eo_client.lock().await;
+            state.remove_pending((batch_header_hash, blob_index))
+        };
+        if let Some(handle) = handle_opt {
+            if let Err(e) = handle.await {
+                log::error!("JoinHandle after SettleSuccess message returned an error: {e:?}");
+            }
+        }
+    }
+}
 
 pub struct EoClient {
     contract: Contract<Http>,
@@ -299,14 +437,14 @@ impl EoClient {
 #[async_trait]
 impl Actor for EoClientActor {
     type Msg = EoMessage;
-    type State = EoClient;
-    type Arguments = EoClient;
+    type State = Arc<Mutex<EoClient>>;
+    type Arguments = Self::State;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        args: EoClient,
-    ) -> Result<Self::State, ActorProcessingErr> {
+        args: Self::Arguments,
+    ) -> Result<Self::Arguments, ActorProcessingErr> {
         Ok(args)
     }
 
@@ -316,25 +454,12 @@ impl Actor for EoClientActor {
         message: Self::Msg,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        let eo_client_ptr = Arc::clone(state);
         match message {
             EoMessage::GetAccountBlobIndex { address, sender } => {
-                let blob = state.get_blob_index(address.into()).await;
-                if let Some((batch_header_hash, blob_index)) = blob {
-                    if !batch_header_hash.is_zero() {
-                        let res = sender.send(EoMessage::AccountBlobIndexAcquired {
-                            address,
-                            batch_header_hash,
-                            blob_index,
-                        });
-
-                        if let Err(e) = res {
-                            log::error!("{:?}", e);
-                        }
-                    }
-                } else {
-                    log::info!("unable to find blob index for address: 0x{:x}", address);
-                    let _res = sender.send(EoMessage::AccountBlobIndexNotFound { address });
-                }
+                let fut = EoClientActor::get_account_blob_index(eo_client_ptr, address, sender);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EoMessage::GetContractBlobIndex {
                 program_id: _,
@@ -348,65 +473,25 @@ impl Actor for EoClientActor {
                 sender,
                 token_type,
             } => {
-                if token_type == 0 {
-                    let balance = state.get_eth_balance(address.into()).await;
-                    let balance = balance.map(|b| b.into());
-                    let res = sender.send(EoMessage::AccountBalanceAcquired {
-                        program_id,
-                        address,
-                        balance,
-                    });
-                    if let Err(e) = res {
-                        log::error!("{:?}", e);
-                    }
-                } else if token_type == 1 {
-                    let balance = state
-                        .get_erc20_balance(program_id.into(), address.into())
-                        .await;
-                    let balance = balance.map(|b| b.into());
-                    let res = sender.send(EoMessage::AccountBalanceAcquired {
-                        program_id,
-                        address,
-                        balance,
-                    });
-                    if let Err(e) = res {
-                        log::error!("{:?}", e);
-                    }
-                } else if token_type == 2 {
-                    let holdings = state
-                        .get_erc721_holdings(program_id.into(), address.into())
-                        .await;
-                    let holdings: Option<Vec<U256>> = holdings.map(|h| {
-                        h.iter()
-                            .map(|eth_u256| {
-                                let internal_u256: U256 = eth_u256.into();
-                                internal_u256
-                            })
-                            .collect()
-                    });
-                    let res = sender.send(EoMessage::NftHoldingsAcquired {
-                        program_id,
-                        address,
-                        holdings,
-                    });
-                    if let Err(e) = res {
-                        log::error!("{:?}", e);
-                    }
-                }
+                let fut = EoClientActor::get_account_balance(
+                    eo_client_ptr,
+                    program_id,
+                    address,
+                    sender,
+                    token_type,
+                );
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EoMessage::Settle {
                 accounts,
                 batch_header_hash,
                 blob_index,
             } => {
-                let res = state
-                    .settle_batch(accounts, batch_header_hash, blob_index)
-                    .await;
-                if let Ok(handle) = res {
-                    state.insert_pending((batch_header_hash, blob_index), handle);
-                } else {
-                    log::error!("eo_client.rs: 355: encountered error attempting to settle batch");
-                }
+                let fut =
+                    EoClientActor::settle(eo_client_ptr, accounts, batch_header_hash, blob_index);
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EoMessage::SettleSuccess {
                 batch_header_hash,
@@ -415,12 +500,16 @@ impl Actor for EoClientActor {
                 hash,
                 receipt,
             } => {
-                if let Some(handle) = state.remove_pending((batch_header_hash, blob_index)) {
-                    let res = handle.await;
-                    if let Err(e) = res {
-                        log::error!("eo_client.rs: 369: JoinHandle after SettleSuccess message returned an error: {}", e);
-                    }
-                }
+                let fut = EoClientActor::settle_success(
+                    eo_client_ptr,
+                    batch_header_hash,
+                    blob_index,
+                    accounts,
+                    hash,
+                    receipt,
+                );
+                let guard = self.future_pool.lock().await;
+                guard.push(fut.boxed());
             }
             EoMessage::SettleFailure {
                 batch_header_hash,
@@ -429,7 +518,11 @@ impl Actor for EoClientActor {
                 hash,
                 receipt,
             } => {
-                log::error!("eo_client.rs: 374: settlement of batch_header_hash: {:?}, blob_index: {:?} failed", &batch_header_hash, &blob_index);
+                log::error!(
+                    "settlement of batch_header_hash: {:?}, blob_index: {:?} failed",
+                    &batch_header_hash,
+                    &blob_index
+                );
                 log::error!("transaction receipt: {:?}", receipt);
             }
             EoMessage::SettleTimedOut {
@@ -438,7 +531,11 @@ impl Actor for EoClientActor {
                 accounts,
                 elapsed,
             } => {
-                log::error!("eo_client.rs: 378: settlement of batch_header_hash: {:?}, blob_index: {:?} timed out", &batch_header_hash, &blob_index);
+                log::error!(
+                    "settlement of batch_header_hash: {:?}, blob_index: {:?} timed out",
+                    &batch_header_hash,
+                    &blob_index
+                );
                 log::error!("time elapsed: {:?}", elapsed);
                 let message = EoMessage::Settle {
                     accounts,
@@ -447,11 +544,35 @@ impl Actor for EoClientActor {
                 };
                 let res = myself.cast(message);
                 if let Err(e) = res {
-                    log::error!("eo_client.rs: 383: {}", e);
+                    log::error!("{e:?}");
                 }
             }
             _ => {}
         }
         Ok(())
+    }
+}
+
+impl ActorExt for EoClientActor {
+    type Output = ();
+    type Future<O> = StaticFuture<Self::Output>;
+    type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
+    type FutureHandler = tokio_rayon::rayon::ThreadPool;
+    type JoinHandle = tokio::task::JoinHandle<()>;
+
+    fn future_pool(&self) -> Self::FuturePool<Self::Future<Self::Output>> {
+        self.future_pool.clone()
+    }
+
+    fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle {
+        tokio::spawn(async move {
+            loop {
+                let futures = actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_handler
+                    .install(|| async move { guard.next().await })
+                    .await;
+            }
+        })
     }
 }
