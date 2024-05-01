@@ -81,7 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::warn!("Ethereum RPC URL: {}", eth_rpc_url);
     let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
-    let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
+    let eo_client = Arc::new(Mutex::new(
+        setup_eo_client(web3_instance.clone(), sk).await?,
+    ));
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -134,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_server_actor = EoServerActor::new();
     let engine_actor = EngineActor::new();
     let validator_actor = ValidatorActor::new();
-    let eo_client_actor = EoClientActor;
+    let eo_client_actor = EoClientActor::new();
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClientActor::new();
@@ -197,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn(
         Some(ActorType::EoClient.to_string()),
-        eo_client_actor,
+        eo_client_actor.clone(),
         eo_client,
     )
     .await
@@ -326,6 +328,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             log::error!("{err:?}");
                         }
                     })
+                    .await;
+            }
+            {
+                let futures = eo_client_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move { guard.next().await })
                     .await;
             }
         }

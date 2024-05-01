@@ -2442,6 +2442,7 @@ dependencies = [
  "sha3",
  "thiserror",
  "tokio",
+ "tokio-rayon",
  "tokio-stream",
  "web3",
 ]
