@@ -41,6 +41,8 @@ contract RollupStaking is ReentrancyGuard, Ownable {
     event UnstakeFeePercentageUpdated(uint256 newFeePercentage);
     event UnstakeCooldownUpdated(uint256 newCooldown);
     event UnstakeStarted(address indexed user);
+    event Unstaked(address indexed user, uint256 amount);
+    event Check(uint256 amount, uint256 u);
 
     error ZeroStakeAmount();
     error StakingNotStartedYet();
@@ -265,15 +267,41 @@ contract RollupStaking is ReentrancyGuard, Ownable {
      * It updates the unstake cooldown variable and emits an UnstakeCooldownUpdated event.
      * @param coolDownTime The new cooldown time lock to be set, specified in days.
      */
-    function setUnstakeTimeLock(uint256 coolDownTime) external onlyOwner {
+    function setUnstakeTime(uint256 coolDownTime) external onlyOwner {
         require(coolDownTime <= COOLDOWN_DURATION, "Cool Down time must be between 0 to 20 days");
         unstakeCooldown = coolDownTime;
         emit UnstakeCooldownUpdated(coolDownTime);
     }
 
-     function withdrawStakingFees(uint256 amount) external onlyOwner {
-        require(amount <= unstakeFeeAccumulated, "Amount exceeds unstakeFeeAccumulated");
-        unstakeFeeAccumulated -= amount;
-        require(payable(msg.sender).transfer(amount),"Fee withdrawal failed");
+    function withdrawStake() external nonReentrant updateReward(msg.sender) {
+        Staker storage staker = stakers[msg.sender];
+        require(staker.stakedAmount > 0, "No eth staked");
+        require(staker.unstakeStartTime > 0, "Unstake not started");
+        require(block.timestamp >= staker.unstakeStartTime + unstakeCooldown, "Cool down yet not finished");
+
+        uint256 amount = staker.stakedAmount;
+        uint256 reward = staker.earnedRewards;
+        uint256 fee = amount * unstakeFeePercentage / FEE_PRECISION;
+        uint256 amountAfterFee = amount - fee;
+
+        uint256 availableForRewards = getBalance();
+
+        unstakeFeeAccumulated += fee;
+        totalStakedAmount -= amount;
+        staker.stakedAmount = 0;
+        staker.debtInRewards = 0;
+        staker.unstakeStartTime = 0;
+
+        uint256 totalAmount = amountAfterFee;
+        if (reward > 0 && availableForRewards >= reward) {
+            if (rewardsPendingAccumulated >= reward * 1e18) rewardsPendingAccumulated -= reward * 1e18;
+            staker.earnedRewards = 0;
+        }
+        if (reward > 0) {
+            require(stakingToken.transfer(msg.sender, reward), "Rewards pay failed");
+            emit RewardPaid(msg.sender, reward);
+        }
+        payable(msg.sender).transfer(totalAmount);
+        emit Unstaked(msg.sender, totalAmount);
     }
 }

@@ -28,7 +28,7 @@ contract StakingContractTest is Test {
 
         vtoken = new VersaToken();
         for (uint256 i = 0; i < stakers.length; i++) {
-            vm.deal(stakers[i], 5 ether);
+            vm.deal(stakers[i], 50 ether);
             vtoken.transfer(stakers[i], 1_000_000 * 1e18);
         }
 
@@ -106,14 +106,13 @@ contract StakingContractTest is Test {
     }
 
     function testNoRewardsAfterUnstaking() public {
-        uint256 stakeAmount = 0.01 ether; 
-        uint256 stakingDuration = 1 days; 
-        uint256 unstakingDuration = 7 days; 
+        uint256 stakeAmount = 0.01 ether;
+        uint256 stakingDuration = 1 days;
+        uint256 unstakingDuration = 7 days;
 
         vm.startPrank(staker1);
         stakingContract.stake{value: stakeAmount}();
         vm.stopPrank();
-
 
         // Simulate passing of time to the end of staking duration
         vm.warp(block.timestamp + stakingDuration);
@@ -129,7 +128,7 @@ contract StakingContractTest is Test {
 
         uint256 initialBalance = vtoken.balanceOf(staker1);
 
-        // Simulate passing of time for unstaking 
+        // Simulate passing of time for unstaking
         vm.warp(block.timestamp + unstakingDuration);
 
         vm.startPrank(staker1);
@@ -138,10 +137,31 @@ contract StakingContractTest is Test {
         vm.stopPrank();
 
         uint256 finalBalance = vtoken.balanceOf(staker1);
-        assertEq(
-            finalBalance - initialBalance,
-            0,
-            "Claimed Rewards should be zero"
-        );
+        assertEq(finalBalance - initialBalance, 0, "Claimed Rewards should be zero");
+    }
+
+    function testWithdrawStake() public {
+        uint256 stakeAmountUser = 0.01 ether;
+        uint256 unstakingFeePercentage = 200; // 2% unstaking fee
+        uint256 unstakingDelay = 15 days; // Unstaking delay
+        stakingContract.setUnstakeFeePercent(unstakingFeePercentage);
+
+        vm.startPrank(staker1);
+        stakingContract.stake{value: stakeAmountUser}();
+        vm.warp(block.timestamp + 1);
+        stakingContract.commenceUnstaking();
+        vm.stopPrank();
+
+        // Fast forward to after the unstaking delay
+        vm.warp(block.timestamp + unstakingDelay);
+
+        vm.startPrank(staker1);
+        console.log("Amount ", address(stakingContract).balance);
+
+        stakingContract.withdrawStake();
+        uint256 staked_balanced = address(stakingContract).balance;
+
+        vm.stopPrank();
+        assertEq(address(stakingContract).balance, staked_balanced, "Stake withdrawn amount mismatch");
     }
 }
