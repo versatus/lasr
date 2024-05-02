@@ -2,20 +2,25 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use eo_listener::EoServer as EoListener;
 use eo_listener::EoServerError;
+use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::graph_cleaner;
 use lasr_actors::AccountCacheActor;
 use lasr_actors::AccountCacheSupervisor;
+use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
+use lasr_actors::BatcherError;
 use lasr_actors::BlobCacheActor;
 use lasr_actors::DaClient;
+use lasr_actors::DaClientActor;
 use lasr_actors::DaSupervisor;
-use lasr_actors::Engine;
-use lasr_actors::EoServer;
+use lasr_actors::EngineActor;
+use lasr_actors::EoServerActor;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
 use lasr_actors::ExecutorActor;
@@ -23,7 +28,8 @@ use lasr_actors::LasrRpcServerActor;
 use lasr_actors::LasrRpcServerImpl;
 use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
-use lasr_actors::Validator;
+use lasr_actors::ValidatorActor;
+use lasr_actors::ValidatorCore;
 use lasr_clients::EoClient;
 use lasr_clients::EoClientActor;
 use lasr_compute::OciBundler;
@@ -33,13 +39,14 @@ use lasr_messages::ActorType;
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
 use ractor::Actor;
+use tokio::sync::Mutex;
 
 use secp256k1::Secp256k1;
 use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Warn)
+    simple_logger::init_with_level(log::Level::Error)
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());
@@ -68,15 +75,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         //TODO(asmith): Move the network endpoint for EigenDA to an
         //environment variable.
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
-        .adversary_threshold(40)
-        .quorum_threshold(60)
         .build()?;
 
     let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
     log::warn!("Ethereum RPC URL: {}", eth_rpc_url);
     let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
-    let eo_client = setup_eo_client(web3_instance.clone(), sk).await?;
+    let eo_client = Arc::new(Mutex::new(
+        setup_eo_client(web3_instance.clone(), sk).await?,
+    ));
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -96,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oci_manager = OciManager::new(bundler, store);
 
     #[cfg(feature = "local")]
-    let execution_engine = ExecutionEngine::new(oci_manager);
+    let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]
     log::info!("Attempting to connect compute agent");
@@ -126,28 +133,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pending_transaction_actor = PendingTransactionActor;
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
-    let engine_actor = Engine::new();
-    let validator_actor = Validator::new();
-    let eo_server_actor = EoServer::new();
-    let eo_client_actor = EoClientActor;
+    let eo_server_actor = EoServerActor::new();
+    let engine_actor = EngineActor::new();
+    let validator_actor = ValidatorActor::new();
+    let eo_client_actor = EoClientActor::new();
     let da_supervisor = DaSupervisor;
     let account_cache_supervisor = AccountCacheSupervisor;
-    let da_client_actor = DaClient::new(eigen_da_client);
-    let batcher_actor = BatcherActor;
-    let executor_actor = ExecutorActor;
+    let da_client_actor = DaClientActor::new();
+    let batcher_actor = BatcherActor::new();
+    let executor_actor = ExecutorActor::new();
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
-    let batcher = Batcher::new(receivers_thread_tx);
+    let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
 
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
-    let (da_supervisor, _) = Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
-        .await
-        .map_err(Box::new)?;
+    let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
+    let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
-    let (account_cache_supervisor, _) = Actor::spawn(
+    let (da_supervisor, _da_supervisor_handle) =
+        Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+
+    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
         Some("account_cache_supervisor".to_string()),
         account_cache_supervisor,
         (),
@@ -155,49 +166,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (lasr_rpc_actor_ref, _) =
+    let (lasr_rpc_actor_ref, _rpc_server_handle) =
         Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_scheduler_actor_ref, _) =
+    let (_scheduler_actor_ref, _scheduler_handle) =
         Actor::spawn(Some(ActorType::Scheduler.to_string()), scheduler_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_engine_actor_ref, _) =
-        Actor::spawn(Some(ActorType::Engine.to_string()), engine_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let (_engine_actor_ref, _engine_handle) = Actor::spawn(
+        Some(ActorType::Engine.to_string()),
+        engine_actor.clone(),
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
 
-    let (_validator_actor_ref, _) =
-        Actor::spawn(Some(ActorType::Validator.to_string()), validator_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let (_validator_actor_ref, _validator_handle) = Actor::spawn(
+        Some(ActorType::Validator.to_string()),
+        validator_actor.clone(),
+        validator_core,
+    )
+    .await
+    .map_err(Box::new)?;
 
-    let (_eo_server_actor_ref, _) =
+    let (_eo_server_actor_ref, _eo_server_handle) =
         Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
             .await
             .map_err(Box::new)?;
 
-    let (_eo_client_actor_ref, _) = Actor::spawn(
+    let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn(
         Some(ActorType::EoClient.to_string()),
-        eo_client_actor,
+        eo_client_actor.clone(),
         eo_client,
     )
     .await
     .map_err(Box::new)?;
 
-    let (_da_client_actor_ref, _) = Actor::spawn_linked(
+    let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
         Some(ActorType::DaClient.to_string()),
-        da_client_actor,
-        (),
+        da_client_actor.clone(),
+        da_client,
         da_supervisor.get_cell(),
     )
     .await
     .map_err(Box::new)?;
 
-    let (_pending_transaction_actor_ref, _) = Actor::spawn(
+    let (_pending_transaction_actor_ref, _pending_transaction_handle) = Actor::spawn(
         Some(ActorType::PendingTransactions.to_string()),
         pending_transaction_actor,
         (),
@@ -205,20 +222,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_batcher_actor_ref, _) =
-        Actor::spawn(Some(ActorType::Batcher.to_string()), batcher_actor, batcher)
-            .await
-            .map_err(Box::new)?;
+    let (_batcher_actor_ref, _batcher_handle) = Actor::spawn(
+        Some(ActorType::Batcher.to_string()),
+        batcher_actor.clone(),
+        batcher.clone(),
+    )
+    .await
+    .map_err(Box::new)?;
 
-    let (_executor_actor_ref, _) = Actor::spawn(
+    let (_executor_actor_ref, _executor_handle) = Actor::spawn(
         Some(ActorType::Executor.to_string()),
-        executor_actor,
+        executor_actor.clone(),
         execution_engine,
     )
     .await
     .map_err(Box::new)?;
 
-    let (_account_cache_actor_ref, _) = Actor::spawn_linked(
+    let (_account_cache_actor_ref, _account_cache_handle) = Actor::spawn_linked(
         Some(ActorType::AccountCache.to_string()),
         account_cache_actor,
         (),
@@ -227,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let (_blob_cache_actor_ref, _) =
+    let (_blob_cache_actor_ref, _blob_cache_handle) =
         Actor::spawn(Some(ActorType::BlobCache.to_string()), blob_cache_actor, ())
             .await
             .map_err(Box::new)?;
@@ -248,8 +268,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx));
 
-    // Empty Loop wastes CPU cycles
-    loop {}
+    let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
+        .num_threads(num_cpus::get())
+        .build()?;
+    tokio::spawn(async move {
+        loop {
+            {
+                let futures = batcher_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                            if let BatcherError::FailedTransaction { msg, txn } = err {
+                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
+                                {
+                                    log::error!("{err:?}");
+                                }
+                            }
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = executor_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move { guard.next().await })
+                    .await;
+            }
+            {
+                let futures = validator_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = da_client_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = engine_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move {
+                        if let Some(Err(err)) = guard.next().await {
+                            log::error!("{err:?}");
+                        }
+                    })
+                    .await;
+            }
+            {
+                let futures = eo_client_actor.future_pool();
+                let mut guard = futures.lock().await;
+                future_thread_pool
+                    .install(|| async move { guard.next().await })
+                    .await;
+            }
+        }
+    });
+
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+    loop {
+        interval.tick().await;
+    }
 
     _stop_tx.send(1).await?;
 

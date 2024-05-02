@@ -1,9 +1,13 @@
 #![allow(unused)]
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
-use crate::create_handler;
+use crate::{create_handler, ActorExt, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
+use futures::{
+    stream::{FuturesUnordered, StreamExt},
+    FutureExt,
+};
 use jsonrpsee::core::Error as RpcError;
 use lasr_types::{Account, Address, Token};
 use ractor::{
@@ -11,7 +15,7 @@ use ractor::{
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,
 };
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, Mutex};
 use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam};
 
 use crate::{handle_actor_response, scheduler::SchedulerError};
@@ -22,7 +26,7 @@ use lasr_messages::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct EoServer;
+pub struct EoServerActor;
 
 pub struct EoServerWrapper {
     server: InnerEoServer,
@@ -88,12 +92,12 @@ impl Display for EoServerError {
     }
 }
 
-impl EoServer {
+impl EoServerActor {
     pub fn new() -> Self {
         Self
     }
 
-    async fn handle_eo_event(&self, events: EoEvent) -> Result<(), EoServerError> {
+    fn handle_eo_event(events: EoEvent) -> Result<(), EoServerError> {
         log::warn!("discovered EO event: {:?}", events);
         let message = EngineMessage::EoEvent { event: events };
         let engine: ActorRef<EngineMessage> =
@@ -109,7 +113,6 @@ impl EoServer {
     }
 
     fn parse_bridge_log(
-        &self,
         logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
         log::warn!("Parsing bridge event: {:?}", logs);
@@ -124,7 +127,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_address()
-                                .ok_or(self.boxed_custom_eo_error(&param))?,
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?,
                         );
                     }
                     "tokenAddress" => {
@@ -133,7 +136,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_address()
-                                .ok_or(self.boxed_custom_eo_error(&param))?,
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?,
                         );
                     }
                     "amount" => {
@@ -142,7 +145,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_uint()
-                                .ok_or(self.boxed_custom_eo_error(&param))?
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?
                                 .into(),
                         );
                     }
@@ -152,7 +155,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_uint()
-                                .ok_or(self.boxed_custom_eo_error(&param))?
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?
                                 .into(),
                         );
                     }
@@ -162,7 +165,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_string()
-                                .ok_or(self.boxed_custom_eo_error(&param))?,
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?,
                         );
                     }
                     "bridgeEventId" => {
@@ -171,7 +174,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_uint()
-                                .ok_or(self.boxed_custom_eo_error(&param))?
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?
                                 .into(),
                         );
                     }
@@ -185,7 +188,6 @@ impl EoServer {
     }
 
     fn parse_settlement_log(
-        &self,
         logs: Vec<Log>,
     ) -> Result<Vec<SettlementEvent>, Box<dyn std::error::Error + Send + Sync>> {
         let mut events = Vec::new();
@@ -199,7 +201,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_array()
-                                .ok_or(self.boxed_custom_eo_error(&param))?,
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?,
                         );
                     }
                     "batchHeaderHash" => {
@@ -208,7 +210,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_fixed_bytes()
-                                .ok_or(self.boxed_custom_eo_error(&param))?,
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?,
                         );
                     }
                     "blobIndex" => {
@@ -217,7 +219,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_uint()
-                                .ok_or(self.boxed_custom_eo_error(&param))?
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?
                                 .into(),
                         );
                     }
@@ -227,7 +229,7 @@ impl EoServer {
                                 .value
                                 .clone()
                                 .into_uint()
-                                .ok_or(self.boxed_custom_eo_error(&param))?
+                                .ok_or(EoServerActor::boxed_custom_eo_error(&param))?
                                 .into(),
                         );
                     }
@@ -240,26 +242,67 @@ impl EoServer {
         Ok(events)
     }
 
-    fn boxed_custom_eo_error(&self, param: &LogParam) -> Box<dyn std::error::Error + Send + Sync> {
+    fn boxed_custom_eo_error(param: &LogParam) -> Box<dyn std::error::Error + Send + Sync> {
         Box::new(EoServerError::Custom(format!(
             "Unable to parse log param value into type: {:?}",
             param
         )))
     }
+
+    fn handle_log(log: Vec<web3::ethabi::Log>, log_type: EventType) {
+        match log_type {
+            EventType::Bridge(_) => {
+                log::warn!("received bridge event");
+                let parsed_bridge_log_res = EoServerActor::parse_bridge_log(log);
+                match parsed_bridge_log_res {
+                    Ok(parsed_bridge_log) => {
+                        let res = EoServerActor::handle_eo_event(parsed_bridge_log.into());
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {e:?}");
+                        } else {
+                            log::info!("{:?}", res);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Error parsing bridge log: {e:?}");
+                    }
+                }
+            }
+            EventType::Settlement(_) => {
+                log::info!("eo_server discovered Settlement event");
+                let parsed_settlement_log_res = EoServerActor::parse_settlement_log(log);
+                match parsed_settlement_log_res {
+                    Ok(parsed_settlement_log) => {
+                        let res = EoServerActor::handle_eo_event(parsed_settlement_log.into());
+
+                        if let Err(e) = &res {
+                            log::error!("eo_server encountered an error: {e:?}");
+                        } else {
+                            log::info!("{:?}", res);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Error parsing settlement log: {e:?}");
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
-impl Actor for EoServer {
+impl Actor for EoServerActor {
     type Msg = EoMessage;
     type State = ();
-    type Arguments = ();
+    type Arguments = Self::State;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: (),
-    ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(())
+        args: Self::Arguments,
+    ) -> Result<Self::Arguments, ActorProcessingErr> {
+        Ok(args)
     }
 
     async fn handle(
@@ -269,44 +312,9 @@ impl Actor for EoServer {
         _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            EoMessage::Log { log, log_type } => match log_type {
-                EventType::Bridge(_) => {
-                    log::warn!("received bridge event");
-                    let parsed_bridge_log_res = self.parse_bridge_log(log);
-                    match parsed_bridge_log_res {
-                        Ok(parsed_bridge_log) => {
-                            let res = self.handle_eo_event(parsed_bridge_log.into()).await;
-
-                            if let Err(e) = &res {
-                                log::error!("eo_server encountered an error: {}", e);
-                            } else {
-                                log::info!("{:?}", res);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Error parsing bridge log: {e}");
-                        }
-                    }
-                }
-                EventType::Settlement(_) => {
-                    log::info!("eo_server discovered Settlement event");
-                    let parsed_settlement_log_res = self.parse_settlement_log(log);
-                    match parsed_settlement_log_res {
-                        Ok(parsed_settlement_log) => {
-                            let res = self.handle_eo_event(parsed_settlement_log.into()).await;
-
-                            if let Err(e) = &res {
-                                log::error!("eo_server encountered an error: {}", e);
-                            } else {
-                                log::info!("{:?}", res);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Error parsing settlement log: {e}");
-                        }
-                    }
-                }
-            },
+            EoMessage::Log { log, log_type } => {
+                EoServerActor::handle_log(log, log_type);
+            }
             EoMessage::Bridge {
                 program_id,
                 address,
@@ -319,6 +327,6 @@ impl Actor for EoServer {
                 log::info!("Eo Server received unhandled message");
             }
         }
-        return Ok(());
+        Ok(())
     }
 }
