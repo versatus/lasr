@@ -68,7 +68,7 @@ impl DaClientActor {
             let state = da_client.lock().await;
             state
                 .client
-                .retrieve_blob(&batch_header_hash.into(), blob_index)
+                .retrieve_blob(&batch_header_hash.clone().into(), blob_index)
         };
         if let Ok(blob) = res {
             let encoded_blob = EncodedBlob::from_str(&blob);
@@ -95,7 +95,7 @@ impl DaClientActor {
                 }
             }
         } else {
-            log::error!("Error attempting to retreive account: {:?}", res);
+            log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {:?}", res);
         }
         Ok(())
     }
