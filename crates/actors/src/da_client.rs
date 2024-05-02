@@ -22,7 +22,7 @@ use tokio::{sync::Mutex, task::JoinHandle};
 
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
-    future_pool: UnorderedFuturePool<StaticFuture<Result<(), DaClientError>>>,
+    future_pool: UnorderedFuturePool<StaticFuture<()>>,
 }
 
 impl DaClientActor {
@@ -35,25 +35,27 @@ impl DaClientActor {
         da_client: Arc<Mutex<DaClient>>,
         batch: String,
         tx: OneshotSender<Result<BlobResponse, std::io::Error>>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::info!("DA Client asked to store blob");
         let blob_response = {
             let state = da_client.lock().await;
             state.disperse_blobs(batch).await
         };
-        let _ = tx.send(blob_response);
-        Ok(())
+        if let Err(err) = tx.send(blob_response) {
+            log::error!("DaClient Error: failed to send blob_response: {err:?}");
+        }
     }
     async fn validate_blob(
         da_client: Arc<Mutex<DaClient>>,
         request_id: String,
         tx: OneshotSender<(String, BlobVerificationProof)>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::info!("DA Client asked to validate blob");
-        let state = da_client.lock().await;
-        validate_blob(state.client.clone(), request_id, tx).await;
-        // Spawn a tokio task to poll EigenDa for the validated blob
-        Ok(())
+        let client = {
+            let state = da_client.lock().await;
+            state.client.clone()
+        };
+        validate_blob(client, request_id, tx).await;
     }
     async fn retrieve_account(
         da_client: Arc<Mutex<DaClient>>,
@@ -61,7 +63,7 @@ impl DaClientActor {
         batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::warn!("Received a RetrieveAccount message");
         let batch_header_hash = base64::encode(batch_header_hash.0);
         let res = {
@@ -78,7 +80,7 @@ impl DaClientActor {
                     let account = batch.get_user_account(address);
                     if let Err(Some(account)) = tx.send(account.clone()) {
                         log::error!(
-                            "DaClient Error: failed to send account data: {}",
+                            "DaClient Error: failed to send account data for address: {}",
                             account.owner_address()
                         );
                     }
@@ -91,13 +93,12 @@ impl DaClientActor {
                         }
                     }
                 } else {
-                    log::error!("{:?}", res);
+                    log::error!("{:?}", res.err());
                 }
             }
         } else {
-            log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {:?}", res);
+            log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {:?}", res.err());
         }
-        Ok(())
     }
 }
 
@@ -129,8 +130,7 @@ impl DaClient {
     }
 
     async fn disperse_blobs(&self, batch: String) -> Result<BlobResponse, std::io::Error> {
-        let response = self.client.disperse_blob(batch)?;
-        Ok(response)
+        self.client.disperse_blob(batch)
     }
 }
 
@@ -194,7 +194,7 @@ impl Actor for DaClientActor {
 }
 
 impl ActorExt for DaClientActor {
-    type Output = Result<(), DaClientError>;
+    type Output = ();
     type Future<O> = StaticFuture<Self::Output>;
     type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
     type FutureHandler = tokio_rayon::rayon::ThreadPool;
@@ -209,11 +209,7 @@ impl ActorExt for DaClientActor {
                 let futures = actor.future_pool();
                 let mut guard = futures.lock().await;
                 future_handler
-                    .install(|| async move {
-                        if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
-                        }
-                    })
+                    .install(|| async move { guard.next().await })
                     .await;
             }
         })
@@ -257,7 +253,7 @@ async fn validate_blob(
     tx: OneshotSender<(String, BlobVerificationProof)>,
 ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send>>> {
     log::info!("spawning blob validation task");
-    tokio::task::spawn(async move { poll_blob_status(client.clone(), request_id, tx).await })
+    tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
 pub struct DaSupervisor;

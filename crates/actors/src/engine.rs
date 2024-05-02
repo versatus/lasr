@@ -111,12 +111,17 @@ impl EngineActor {
         ))
     }
 
-    async fn write_to_cache(account: Account) -> Result<(), EngineError> {
+    fn write_to_cache(account: Account) -> Result<(), EngineError> {
+        let owner = account.owner_address();
         let message = AccountCacheMessage::Write { account };
-        let cache_actor = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
-            EngineError::Custom("unable to find AccountCacheActor in registry".to_string()),
-        )?;
-        cache_actor.send_message(message);
+        if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
+            if let Err(e) = cache_actor.send_message(message) {
+                log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
+            }
+        } else {
+            log::error!("unable to find AccountCacheActor in registry");
+            // TODO: notify actor manager
+        }
         Ok(())
     }
 
@@ -142,7 +147,7 @@ impl EngineActor {
                         return Ok(None)
                     }
                     Err(e) => {
-                        log::error!("{}", e);
+                        log::error!("{e:?}");
                     },
                 }
             }
@@ -460,7 +465,9 @@ impl Actor for EngineActor {
                 guard.push(fut.boxed());
             }
             EngineMessage::Cache { account, .. } => {
-                EngineActor::write_to_cache(account);
+                if let Err(err) = EngineActor::write_to_cache(account) {
+                    log::error!("{err:?}");
+                }
             }
             EngineMessage::Call { transaction } => {
                 let fut = EngineActor::handle_call(transaction);

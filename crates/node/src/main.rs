@@ -312,11 +312,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let futures = da_client_actor.future_pool();
                 let mut guard = futures.lock().await;
                 future_thread_pool
-                    .install(|| async move {
-                        if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
-                        }
-                    })
+                    .install(|| async move { guard.next().await })
                     .await;
             }
             {

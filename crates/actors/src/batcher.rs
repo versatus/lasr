@@ -154,7 +154,7 @@ impl Batch {
     pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
         let decompressed = Batch::decompress_batch(bytes)?;
         serde_json::from_str(&String::from_utf8_lossy(&decompressed))
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 89 {}", e)))
+            .map_err(|e| BatcherError::Custom(format!("ERROR: failed to deserialize batch: {e:?}")))
     }
 
     pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
@@ -171,12 +171,16 @@ impl Batch {
 
     pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
         let mut decompressor = ZlibDecoder::new(Vec::new());
-        decompressor
-            .write_all(&bytes[..])
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 92 {}", e)))?;
-        let decompressed = decompressor
-            .finish()
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 100 {}", e)))?;
+        decompressor.write_all(&bytes[..]).map_err(|e| {
+            BatcherError::Custom(format!(
+                "Batcher Error: failed to write bytes to decoder: {e:?}"
+            ))
+        })?;
+        let decompressed = decompressor.finish().map_err(|e| {
+            BatcherError::Custom(format!(
+                "Batcher Error: decoder failed to finalize decompressed batch: {e:?}"
+            ))
+        })?;
 
         Ok(decompressed)
     }
@@ -191,8 +195,11 @@ impl Batch {
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
         Self::deserialize_batch(kzgpad_rs::remove_empty_byte_from_padded_bytes(
-            &base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
+            &base64::decode(batch).map_err(|e| {
+                BatcherError::Custom(format!(
+                    "Batcher Error: failed to decode batch data to base64: {e:?}"
+                ))
+            })?,
         ))
     }
 
@@ -296,22 +303,24 @@ impl Batcher {
                 next_proof = pending_receivers.next() => {
                     if let Some(Ok((request_id, proof))) = next_proof {
                         log::info!("batcher received blob verification proof");
-                        let batcher: ActorRef<BatcherMessage> = {
+                        if let Some(batcher) =
                             ractor::registry::where_is(
                                 ActorType::Batcher.to_string()
-                            ).ok_or(
-                                BatcherError::Custom(
-                                    "unable to acquire batcher".to_string()
-                                )
-                            )?.into()
-                        };
+                            )
+                        {
+                            let batcher: ActorRef<BatcherMessage> = batcher.into();
+                            let message = BatcherMessage::BlobVerificationProof {
+                                request_id,
+                                proof
+                            };
 
-                        let message = BatcherMessage::BlobVerificationProof {
-                            request_id,
-                            proof
-                        };
-
-                        batcher.cast(message)?;
+                            if let Err(err) = batcher.cast(message) {
+                                log::error!("Batcher Error: failed to cast blob verification proof: {err:?}");
+                            }
+                        } else {
+                            log::error!("unable to acquire Batcher actor");
+                            // TODO: send notification to actor manager to restart batcher
+                        }
                     }
                 },
             }
@@ -368,7 +377,9 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            batch.insert_transaction(transaction.clone());
+            if let Err(err) = batch.insert_transaction(transaction.clone()) {
+                log::error!("{err:?}");
+            }
             guard.children.push_back(batch);
         }
     }
@@ -393,7 +404,9 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            batch.insert_account(account.clone());
+            if let Err(err) = batch.insert_account(account.clone()) {
+                log::error!("{err:?}");
+            }
             guard.children.push_back(batch);
         }
 
