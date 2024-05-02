@@ -76,9 +76,12 @@ impl DaClientActor {
                 let res = Batch::decode_batch(&blob.data());
                 if let Ok(batch) = &res {
                     let account = batch.get_user_account(address);
-                    let _ = tx
-                        .send(account.clone())
-                        .map_err(|e| DaClientError::Custom(format!("{:?}", e)))?;
+                    if let Err(Some(account)) = tx.send(account.clone()) {
+                        log::error!(
+                            "DaClient Error: failed to send account data: {}",
+                            account.owner_address()
+                        );
+                    }
                     log::warn!("successfully decoded account blob");
                     if let Some(acct) = account {
                         if let AccountType::Program(addr) = acct.account_type() {
@@ -92,10 +95,7 @@ impl DaClientActor {
                 }
             }
         } else {
-            log::error!(
-                "Error attempting to retreive account: da_client.rs: Line 87: {:?}",
-                res
-            );
+            log::error!("Error attempting to retreive account: {:?}", res);
         }
         Ok(())
     }
