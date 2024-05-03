@@ -38,7 +38,7 @@ use tokio::{
 use web3::types::BlockNumber;
 
 use crate::{
-    get_account, handle_actor_response, ActorExt, StaticFuture, ToActorResult, UnorderedFuturePool,
+    get_account, handle_actor_response, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use lasr_messages::{
     AccountCacheMessage, ActorType, BatcherMessage, DaClientMessage, EoMessage,
@@ -1737,7 +1737,7 @@ impl Batcher {
 
             if let Some(decoded) =
                 base64::decode(proof.batch_metadata().batch_header_hash().to_string())
-                    .to_ar()
+                    .cast()
                     .log_err(|e| {
                         BatcherError::Custom("unable to decode batch_header_hash()".to_string())
                     })

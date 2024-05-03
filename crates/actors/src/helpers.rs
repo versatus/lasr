@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,8 +68,8 @@ pub trait ActorExt: ractor::Actor {
 /// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
 /// This result type does not panic, but can be cast back into a `std::result::Result`
 /// for convenience of access to methods already available for `std::result::Result`.
-pub struct ActorResult<T, E: std::error::Error + std::fmt::Debug>(Result<T, E>);
-impl<T, E: std::error::Error + std::fmt::Debug> ActorResult<T, E> {
+pub struct ActorResult<T, E: StdError + Debug>(Result<T, E>);
+impl<T, E: StdError + Debug> ActorResult<T, E> {
     /// Maps a `Result<T, E>` to `Option<T>` by applying a function to a
     /// contained [`Err`] value, leaving an [`Ok`] value untouched.
     ///
@@ -89,7 +91,7 @@ impl<T, E: std::error::Error + std::fmt::Debug> ActorResult<T, E> {
     /// // In this case the `Err` is logged to the console, and `None` is returned:
     /// // [user@system] $: error code: 13
     /// ```
-    pub fn log_err<F: std::fmt::Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
+    pub fn log_err<F: Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
         match self.into() {
             Ok(t) => Some(t),
             Err(e) => {
@@ -98,27 +100,34 @@ impl<T, E: std::error::Error + std::fmt::Debug> ActorResult<T, E> {
             }
         }
     }
-    /// A convenience method for coercing an `ActorResult` back into a `std::result::Result`.
-    pub fn to_sr(self) -> Result<T, E> {
-        self.into()
-    }
 }
 
-/// A convenience trait for coercing the `std::result::Result` type into an `ActorResult`.
-pub trait ToActorResult<T, E: std::error::Error + std::fmt::Debug> {
-    fn to_ar(self) -> ActorResult<T, E>;
+/// A convenience trait for coercing one type into another via type hint.
+///
+/// This trait works synergistically with `From` and `Into` implementations,
+/// reducing cases of `let` bindings purely for type ascriptions.
+pub trait Coerce {
+    type Type;
+    fn cast(self) -> Self::Type;
 }
-impl<T, E: std::error::Error + std::fmt::Debug> ToActorResult<T, E> for Result<T, E> {
-    fn to_ar(self) -> ActorResult<T, E> {
+impl<T, E: StdError + Debug> Coerce for ActorResult<T, E> {
+    type Type = Result<T, E>;
+    fn cast(self) -> Self::Type {
         self.into()
     }
 }
-impl<T, E: std::error::Error + std::fmt::Debug> From<Result<T, E>> for ActorResult<T, E> {
+impl<T, E: StdError + Debug> Coerce for Result<T, E> {
+    type Type = ActorResult<T, E>;
+    fn cast(self) -> Self::Type {
+        self.into()
+    }
+}
+impl<T, E: StdError + Debug> From<Result<T, E>> for ActorResult<T, E> {
     fn from(value: Result<T, E>) -> Self {
         Self(value)
     }
 }
-impl<T, E: std::error::Error + std::fmt::Debug> From<ActorResult<T, E>> for Result<T, E> {
+impl<T, E: StdError + Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
     }
