@@ -108,17 +108,17 @@ impl<T, E: StdError + Debug> ActorResult<T, E> {
 /// reducing cases of `let` bindings purely for type ascriptions.
 pub trait Coerce {
     type Type;
-    fn cast(self) -> Self::Type;
+    fn typecast(self) -> Self::Type;
 }
 impl<T, E: StdError + Debug> Coerce for ActorResult<T, E> {
     type Type = Result<T, E>;
-    fn cast(self) -> Self::Type {
+    fn typecast(self) -> Self::Type {
         self.into()
     }
 }
 impl<T, E: StdError + Debug> Coerce for Result<T, E> {
     type Type = ActorResult<T, E>;
-    fn cast(self) -> Self::Type {
+    fn typecast(self) -> Self::Type {
         self.into()
     }
 }

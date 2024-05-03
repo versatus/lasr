@@ -141,16 +141,18 @@ impl Batch {
         None
     }
 
-    pub(super) fn serialize_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        Ok(serde_json::to_string(&self)
-            .map_err(|e| {
-                BatcherError::Custom(format!(
-                    "ERROR: batcher.rs in serialized_batch method: {}",
-                    e
-                ))
-            })?
-            .as_bytes()
-            .to_vec())
+    pub(super) fn serialize_batch(&self) -> Option<Vec<u8>> {
+        Some(
+            serde_json::to_string(&self)
+                .typecast()
+                .log_err(|e| {
+                    BatcherError::Custom(format!(
+                        "ERROR: failed to serialize batch to json string: {e:?}"
+                    ))
+                })?
+                .as_bytes()
+                .to_vec(),
+        )
     }
 
     pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
@@ -159,16 +161,19 @@ impl Batch {
             .map_err(|e| BatcherError::Custom(format!("ERROR: failed to deserialize batch: {e:?}")))
     }
 
-    pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        let mut compressor = ZlibEncoder::new(Vec::new(), Compression::best());
-        compressor
-            .write_all(&self.serialize_batch()?)
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
-        let compressed = compressor
-            .finish()
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
-
-        Ok(compressed)
+    pub(super) fn compress_batch(&self) -> Option<Vec<u8>> {
+        if let Some(serialized_batch) = &self.serialize_batch() {
+            let mut compressor = ZlibEncoder::new(Vec::new(), Compression::best());
+            compressor
+                .write_all(serialized_batch)
+                .typecast()
+                .log_err(|e| BatcherError::Custom(e.to_string()));
+            return compressor
+                .finish()
+                .typecast()
+                .log_err(|e| BatcherError::Custom(e.to_string()));
+        }
+        None
     }
 
     pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
@@ -187,12 +192,14 @@ impl Batch {
         Ok(decompressed)
     }
 
-    pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(
-            &self.compress_batch()?,
-        ));
-        log::info!("encoded batch: {:?}", &encoded);
-        Ok(encoded)
+    pub fn encode_batch(&self) -> Option<String> {
+        if let Some(compressed_batch) = &self.compress_batch() {
+            let encoded =
+                base64::encode(kzgpad_rs::convert_by_padding_empty_byte(compressed_batch));
+            log::info!("encoded batch: {:?}", &encoded);
+            return Some(encoded);
+        }
+        None
     }
 
     pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
@@ -205,16 +212,16 @@ impl Batch {
         ))
     }
 
-    pub(super) fn check_size(&self) -> Result<usize, BatcherError> {
+    pub(super) fn check_size(&self) -> Option<usize> {
         let encoded = self.encode_batch()?;
 
-        Ok(encoded.as_bytes().len())
+        Some(encoded.as_bytes().len())
     }
 
     pub(super) fn transaction_would_exceed_capacity(
         &self,
         transaction: Transaction,
-    ) -> Result<bool, BatcherError> {
+    ) -> Option<bool> {
         let mut test_batch = self.clone();
         test_batch
             .transactions
@@ -222,10 +229,7 @@ impl Batch {
         test_batch.at_capacity()
     }
 
-    pub(super) fn account_would_exceed_capacity(
-        &self,
-        account: Account,
-    ) -> Result<bool, BatcherError> {
+    pub(super) fn account_would_exceed_capacity(&self, account: Account) -> Option<bool> {
         let mut test_batch = self.clone();
         test_batch
             .accounts
@@ -233,12 +237,15 @@ impl Batch {
         test_batch.at_capacity()
     }
 
-    pub(super) fn at_capacity(&self) -> Result<bool, BatcherError> {
-        Ok(self.check_size()? >= 512 * 1024)
+    pub(super) fn at_capacity(&self) -> Option<bool> {
+        Some(self.check_size()? >= 512 * 1024)
     }
 
     pub fn insert_transaction(&mut self, transaction: Transaction) -> Result<(), BatcherError> {
-        if !self.transaction_would_exceed_capacity(transaction.clone())? {
+        if self
+            .transaction_would_exceed_capacity(transaction.clone())
+            .is_some_and(|at_cap| !at_cap)
+        {
             self.transactions
                 .insert(transaction.hash_string(), transaction.clone());
             return Ok(());
@@ -248,9 +255,10 @@ impl Batch {
     }
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
-        if !self
+        if self
             .clone()
-            .account_would_exceed_capacity(account.clone())?
+            .account_would_exceed_capacity(account.clone())
+            .is_some_and(|at_cap| !at_cap)
         {
             log::info!("inserting account into batch");
             match account.account_type() {
@@ -377,9 +385,10 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            if let Err(err) = batch.insert_transaction(transaction.clone()) {
-                log::error!("{err:?}");
-            }
+            batch
+                .insert_transaction(transaction)
+                .typecast()
+                .log_err(|e| e);
             guard.children.push_back(batch);
         }
     }
@@ -404,9 +413,7 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            if let Err(err) = batch.insert_account(account.clone()) {
-                log::error!("{err:?}");
-            }
+            batch.insert_account(account).typecast().log_err(|e| e);
             guard.children.push_back(batch);
         }
 
@@ -1651,12 +1658,16 @@ impl Batcher {
                     let (tx, rx) = oneshot();
                     log::info!("Sending message to DA Client to store batch");
                     let message = DaClientMessage::StoreBatch {
-                        batch: guard.parent.encode_batch()?,
+                        batch: guard
+                            .parent
+                            .encode_batch()
+                            .ok_or(BatcherError::Custom("failed to encode batch".to_string()))?,
                         tx,
                     };
                     da_client
                         .cast(message)
-                        .map_err(|e| BatcherError::Custom(e.to_string()))?;
+                        .typecast()
+                        .log_err(|e| BatcherError::Custom(e.to_string()));
                     let handler = |resp: Result<BlobResponse, std::io::Error>| match resp {
                         Ok(r) => Ok(r),
                         Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>),
@@ -1737,7 +1748,7 @@ impl Batcher {
 
             if let Some(decoded) =
                 base64::decode(proof.batch_metadata().batch_header_hash().to_string())
-                    .cast()
+                    .typecast()
                     .log_err(|e| {
                         BatcherError::Custom("unable to decode batch_header_hash()".to_string())
                     })
