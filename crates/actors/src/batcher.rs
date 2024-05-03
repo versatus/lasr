@@ -97,8 +97,8 @@ impl BatcherActor {
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Batch {
-    transactions: HashMap<String, Transaction>,
-    accounts: HashMap<String, Account>,
+    pub(crate) transactions: HashMap<String, Transaction>,
+    pub(crate) accounts: HashMap<String, Account>,
 }
 
 impl Batch {

@@ -1,5 +1,3 @@
-use std::{fmt::Display, sync::Arc, time::Duration};
-
 use crate::{ActorExt, Batch, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eigenda_client::{
@@ -14,15 +12,55 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
+use lasr_archive::{ArchiveBackends, ArchiveRecordType, ArchiveStoreBuilder};
 use lasr_messages::DaClientMessage;
-use lasr_types::{Account, AccountType, Address};
+use lasr_types::{
+    Account, AccountType, Address, AddressOrNamespace, ArbitraryData, Metadata,
+    RecoverableSignature, Token, TransactionType, U256,
+};
 use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+    sync::Arc,
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::{sync::Mutex, task::JoinHandle};
+
+const MONGODB_SECRET: &str = "mongodb+srv://ohbandrew:GoofyGoober@rusty-cluster.rstuvsa.mongodb.net/?retryWrites=true&w=majority&appName=rusty-cluster";
 
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), DaClientError>>>,
+}
+
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransactionDoc {
+    // transaction: Transaction,
+    transaction_type: TransactionType,
+    from: [u8; 20],
+    to: [u8; 20],
+    program_id: [u8; 20],
+    op: String,
+    inputs: String,
+    value: U256,
+    nonce: U256,
+    sig: RecoverableSignature,
+}
+
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountDoc {
+    // account: Account,
+    account_type: AccountType,
+    program_namespace: Option<AddressOrNamespace>,
+    owner_address: Address,
+    programs: BTreeMap<Address, Token>,
+    nonce: U256,
+    program_account_data: ArbitraryData,
+    program_account_metadata: Metadata,
+    program_account_linked_programs: BTreeSet<AddressOrNamespace>,
 }
 
 impl DaClientActor {
@@ -39,7 +77,74 @@ impl DaClientActor {
         log::info!("DA Client asked to store blob");
         let blob_response = {
             let state = da_client.lock().await;
-            state.disperse_blobs(batch).await
+            state.disperse_blobs(batch.clone()).await
+        };
+
+        // Get a handle on the persistence store
+        if let Ok(mut store) = ArchiveStoreBuilder::default()
+            .uri(MONGODB_SECRET.to_string())
+            .backend(ArchiveBackends::MongoDB)
+            .datastore("lasr_archive".to_string())
+            .build()
+        {
+            log::info!("archive store: {}", store);
+            if let Ok(decoded_batch) = Batch::decode_batch(&batch) {
+                let account_map = decoded_batch.accounts;
+                let transaction_map = decoded_batch.transactions;
+
+                while let Some(account) = account_map.clone().into_iter().next() {
+                    let data = account.1;
+                    let doc = AccountDoc {
+                        account_type: data.account_type(),
+                        program_namespace: data.program_namespace(),
+                        owner_address: data.owner_address(),
+                        programs: data.programs().clone(),
+                        nonce: data.nonce(),
+                        program_account_data: data.program_account_data().clone(),
+                        program_account_metadata: data.program_account_metadata().clone(),
+                        program_account_linked_programs: data
+                            .program_account_linked_programs()
+                            .clone(),
+                    };
+
+                    // Write Account data to persistance store
+                    if let Ok(id) = store.create(ArchiveRecordType::Account, &doc).await {
+                        log::info!("Inserted Account ID is: {}", id)
+                    } else {
+                        log::error!("ArchiverError: Failed to insert Account document.")
+                    };
+                }
+                while let Some(transaction) = transaction_map.clone().into_iter().next() {
+                    let data = transaction.1;
+                    let doc = TransactionDoc {
+                        transaction_type: data.transaction_type(),
+                        from: data.from().into(),
+                        to: data.to().into(),
+                        program_id: data.program_id().into(),
+                        op: data.op(),
+                        inputs: data.inputs(),
+                        value: data.value(),
+                        nonce: data.nonce(),
+                        sig: data
+                            .sig()
+                            .expect("Failed to retrieve Recoverable Signature."),
+                    };
+
+                    // Write Transaction data to persistance store
+                    if let Ok(id) = store
+                        .create(ArchiveRecordType::TransactionBatch, &doc)
+                        .await
+                    {
+                        log::info!("Inserted Transaction ID is: {}", id)
+                    } else {
+                        log::error!("ArchiverError: Failed to insert Transaction document.")
+                    }
+                }
+            } else {
+                log::error!("BatcherError: Failed to decode batch.")
+            }
+        } else {
+            log::error!("ArchiveError: Failed to get handle on persistence store.")
         };
         let _ = tx.send(blob_response);
         Ok(())
