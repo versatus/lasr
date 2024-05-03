@@ -63,6 +63,63 @@ pub trait ActorExt: ractor::Actor {
     fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;
 }
 
+/// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
+/// This result type does not panic, but can be cast back into a `std::result::Result`
+/// for convenience of access to methods already available for `std::result::Result`.
+pub struct ActorResult<T, E: std::error::Error + std::fmt::Debug>(Result<T, E>);
+impl<T, E: std::error::Error + std::fmt::Debug> ActorResult<T, E> {
+    /// Maps a `Result<T, E>` to `Option<T>` by applying a function to a
+    /// contained [`Err`] value, leaving an [`Ok`] value untouched.
+    ///
+    /// This function can be used to pass through a successful result while handling
+    /// an error via logging. It's important to note that the resulting type returned
+    /// from the applied function closure must impement `std::fmt::Debug`.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// fn stringify(x: u32) -> String { format!("error code: {x}") }
+    ///
+    /// let x: Result<u32, u32> = Ok(2);
+    /// assert_eq!(x.log_err(stringify), Some(2));
+    ///
+    /// let x: Result<u32, u32> = Err(13);
+    /// assert_eq!(x.log_err(stringify), None));
+    /// // In this case the `Err` is logged to the console, and `None` is returned:
+    /// // [user@system] $: error code: 13
+    /// ```
+    pub fn log_err<F: std::fmt::Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
+        match self.into() {
+            Ok(t) => Some(t),
+            Err(e) => {
+                log::error!("{:?}", op(e));
+                None
+            }
+        }
+    }
+}
+
+/// A convenience trait for coercing the `std::result::Result` type into an `ActorResult`.
+pub trait ToActorResult<T, E: std::error::Error + std::fmt::Debug> {
+    fn to_ar(self) -> ActorResult<T, E>;
+}
+impl<T, E: std::error::Error + std::fmt::Debug> ToActorResult<T, E> for Result<T, E> {
+    fn to_ar(self) -> ActorResult<T, E> {
+        self.into()
+    }
+}
+impl<T, E: std::error::Error + std::fmt::Debug> From<Result<T, E>> for ActorResult<T, E> {
+    fn from(value: Result<T, E>) -> Self {
+        Self(value)
+    }
+}
+impl<T, E: std::error::Error + std::fmt::Debug> From<ActorResult<T, E>> for Result<T, E> {
+    fn from(value: ActorResult<T, E>) -> Result<T, E> {
+        value.0
+    }
+}
+
 #[macro_export]
 macro_rules! create_handler {
     (rpc_response, call) => {

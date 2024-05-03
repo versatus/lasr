@@ -111,7 +111,7 @@ impl EngineActor {
         ))
     }
 
-    fn write_to_cache(account: Account) -> Result<(), EngineError> {
+    fn write_to_cache(account: Account) {
         let owner = account.owner_address();
         let message = AccountCacheMessage::Write { account };
         if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
@@ -120,9 +120,7 @@ impl EngineActor {
             }
         } else {
             log::error!("unable to find AccountCacheActor in registry");
-            // TODO: notify actor manager
         }
-        Ok(())
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
@@ -464,11 +462,7 @@ impl Actor for EngineActor {
                 let guard = self.future_pool.lock().await;
                 guard.push(fut.boxed());
             }
-            EngineMessage::Cache { account, .. } => {
-                if let Err(err) = EngineActor::write_to_cache(account) {
-                    log::error!("{err:?}");
-                }
-            }
+            EngineMessage::Cache { account, .. } => EngineActor::write_to_cache(account),
             EngineMessage::Call { transaction } => {
                 let fut = EngineActor::handle_call(transaction);
                 let guard = self.future_pool.lock().await;
