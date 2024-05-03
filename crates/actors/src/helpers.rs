@@ -98,6 +98,10 @@ impl<T, E: std::error::Error + std::fmt::Debug> ActorResult<T, E> {
             }
         }
     }
+    /// A convenience method for coercing an `ActorResult` back into a `std::result::Result`.
+    pub fn to_sr(self) -> Result<T, E> {
+        self.into()
+    }
 }
 
 /// A convenience trait for coercing the `std::result::Result` type into an `ActorResult`.
