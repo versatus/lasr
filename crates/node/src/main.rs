@@ -20,6 +20,8 @@ use lasr_actors::DaClient;
 use lasr_actors::DaClientActor;
 use lasr_actors::DaSupervisor;
 use lasr_actors::EngineActor;
+use lasr_actors::EoClient;
+use lasr_actors::EoClientActor;
 use lasr_actors::EoServerActor;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
@@ -30,8 +32,6 @@ use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
 use lasr_actors::ValidatorActor;
 use lasr_actors::ValidatorCore;
-use lasr_clients::EoClient;
-use lasr_clients::EoClientActor;
 use lasr_compute::OciBundler;
 use lasr_compute::OciBundlerBuilder;
 use lasr_compute::OciManager;
@@ -281,10 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(Err(err)) = guard.next().await {
                             log::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
-                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
-                                {
-                                    log::error!("{err:?}");
-                                }
+                                Batcher::handle_transaction_error(msg, *txn)
                             }
                         }
                     })
@@ -312,11 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let futures = da_client_actor.future_pool();
                 let mut guard = futures.lock().await;
                 future_thread_pool
-                    .install(|| async move {
-                        if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
-                        }
-                    })
+                    .install(|| async move { guard.next().await })
                     .await;
             }
             {

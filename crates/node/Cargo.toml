@@ -48,7 +48,6 @@ lasr_actors = { path = "../actors", features = ["local"] }
 lasr_compute = { path = "../compute", features = ["local"] }
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
-lasr_clients = { path = "../clients", features = ["local"] }
 lasr_rpc = { path = "../rpc" }
 
 [dev-dependencies]

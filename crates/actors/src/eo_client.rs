@@ -12,6 +12,7 @@ use ractor::concurrency::OneshotSender;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use secp256k1::SecretKey;
 use sha3::{Digest, Keccak256};
+use thiserror::Error;
 use tokio::sync::{mpsc::Receiver, Mutex};
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token as EthAbiToken;
@@ -20,13 +21,27 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use lasr_actors::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
+use crate::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
 use lasr_messages::{ActorType, EoMessage, HashOrError};
 use lasr_types::{Address, U256};
 
 #[derive(Clone, Debug)]
 pub struct EoClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+
+#[derive(Debug, Error)]
+pub enum EoClientError {
+    #[error("failed to acquire EoClientActor from registry")]
+    RactorRegistryError,
+
+    #[error("{0}")]
+    Custom(String),
+}
+impl Default for EoClientError {
+    fn default() -> Self {
+        EoClientError::RactorRegistryError
+    }
 }
 
 impl EoClientActor {

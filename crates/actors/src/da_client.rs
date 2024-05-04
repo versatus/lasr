@@ -22,7 +22,6 @@ use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, Su
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Display,
     sync::Arc,
     time::Duration,
 };
@@ -33,7 +32,7 @@ const MONGODB_SECRET: &str = "mongodb+srv://ohbandrew:GoofyGoober@rusty-cluster.
 
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
-    future_pool: UnorderedFuturePool<StaticFuture<Result<(), DaClientError>>>,
+    future_pool: UnorderedFuturePool<StaticFuture<()>>,
 }
 
 #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,7 +72,7 @@ impl DaClientActor {
         da_client: Arc<Mutex<DaClient>>,
         batch: String,
         tx: OneshotSender<Result<BlobResponse, std::io::Error>>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::info!("DA Client asked to store blob");
         let blob_response = {
             let state = da_client.lock().await;
@@ -88,7 +87,7 @@ impl DaClientActor {
             .build()
         {
             log::info!("archive store: {}", store);
-            if let Ok(decoded_batch) = Batch::decode_batch(&batch) {
+            if let Some(decoded_batch) = Batch::decode_batch(&batch) {
                 let account_map = decoded_batch.accounts;
                 let transaction_map = decoded_batch.transactions;
 
@@ -146,19 +145,21 @@ impl DaClientActor {
         } else {
             log::error!("ArchiveError: Failed to get handle on persistence store.")
         };
-        let _ = tx.send(blob_response);
-        Ok(())
+        if let Err(err) = tx.send(blob_response) {
+            log::error!("DaClient Error: failed to send blob_response: {err:?}");
+        }
     }
     async fn validate_blob(
         da_client: Arc<Mutex<DaClient>>,
         request_id: String,
         tx: OneshotSender<(String, BlobVerificationProof)>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::info!("DA Client asked to validate blob");
-        let state = da_client.lock().await;
-        validate_blob(state.client.clone(), request_id, tx).await;
-        // Spawn a tokio task to poll EigenDa for the validated blob
-        Ok(())
+        let client = {
+            let state = da_client.lock().await;
+            state.client.clone()
+        };
+        validate_blob(client, request_id, tx).await;
     }
     async fn retrieve_account(
         da_client: Arc<Mutex<DaClient>>,
@@ -166,7 +167,7 @@ impl DaClientActor {
         batch_header_hash: H256,
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
-    ) -> Result<(), DaClientError> {
+    ) {
         log::warn!("Received a RetrieveAccount message");
         let batch_header_hash = base64::encode(batch_header_hash.0);
         let res = {
@@ -175,34 +176,30 @@ impl DaClientActor {
                 .client
                 .retrieve_blob(&batch_header_hash.clone().into(), blob_index)
         };
-        if let Ok(blob) = res {
-            let encoded_blob = EncodedBlob::from_str(&blob);
-            if let Ok(blob) = encoded_blob {
-                let res = Batch::decode_batch(&blob.data());
-                if let Ok(batch) = &res {
-                    let account = batch.get_user_account(address);
-                    if let Err(Some(account)) = tx.send(account.clone()) {
-                        log::error!(
-                            "DaClient Error: failed to send account data: {}",
-                            account.owner_address()
-                        );
-                    }
-                    log::warn!("successfully decoded account blob");
-                    if let Some(acct) = account {
-                        if let AccountType::Program(addr) = acct.account_type() {
-                            log::warn!("found account: {}", addr.to_full_string());
-                        } else {
-                            log::warn!("found account: {}", acct.owner_address().to_full_string());
+        match res {
+            Ok(blob) => {
+                if let Ok(blob) = EncodedBlob::from_str(&blob) {
+                    Batch::decode_batch(&blob.data()).map(|batch| {
+                        let account = batch.get_user_account(address);
+                        if let Err(Some(account)) = tx.send(account.clone()) {
+                            log::error!(
+                                "DaClient Error: failed to send account data for address: {}",
+                                account.owner_address()
+                            );
                         }
-                    }
-                } else {
-                    log::error!("{:?}", res);
+                        log::warn!("successfully decoded account blob");
+                        if let Some(acct) = account {
+                            if let AccountType::Program(addr) = acct.account_type() {
+                                log::warn!("found account: {}", addr.to_full_string());
+                            } else {
+                                log::warn!("found account: {}", acct.owner_address().to_full_string());
+                            }
+                        }
+                    });
                 }
             }
-        } else {
-            log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {:?}", res);
+            Err(err) => log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {err:?}"),
         }
-        Ok(())
     }
 }
 
@@ -213,18 +210,16 @@ pub struct DaClient {
 
 #[derive(Clone, Debug, Error)]
 pub enum DaClientError {
-    Custom(String),
-}
+    #[error("failed to acquire DaClientActor from registry")]
+    RactorRegistryError,
 
-impl Display for DaClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for DaClientError {
     fn default() -> Self {
-        DaClientError::Custom("DA Client unable to acquire actor".to_string())
+        DaClientError::RactorRegistryError
     }
 }
 
@@ -234,8 +229,7 @@ impl DaClient {
     }
 
     async fn disperse_blobs(&self, batch: String) -> Result<BlobResponse, std::io::Error> {
-        let response = self.client.disperse_blob(batch)?;
-        Ok(response)
+        self.client.disperse_blob(batch)
     }
 }
 
@@ -299,7 +293,7 @@ impl Actor for DaClientActor {
 }
 
 impl ActorExt for DaClientActor {
-    type Output = Result<(), DaClientError>;
+    type Output = ();
     type Future<O> = StaticFuture<Self::Output>;
     type FuturePool<F> = UnorderedFuturePool<Self::Future<Self::Output>>;
     type FutureHandler = tokio_rayon::rayon::ThreadPool;
@@ -314,11 +308,7 @@ impl ActorExt for DaClientActor {
                 let futures = actor.future_pool();
                 let mut guard = futures.lock().await;
                 future_handler
-                    .install(|| async move {
-                        if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
-                        }
-                    })
+                    .install(|| async move { guard.next().await })
                     .await;
             }
         })
@@ -362,7 +352,7 @@ async fn validate_blob(
     tx: OneshotSender<(String, BlobVerificationProof)>,
 ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send>>> {
     log::info!("spawning blob validation task");
-    tokio::task::spawn(async move { poll_blob_status(client.clone(), request_id, tx).await })
+    tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
 pub struct DaSupervisor;
