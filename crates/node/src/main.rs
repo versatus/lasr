@@ -63,11 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //afterwards to minimize security vulnerabilities
     let (_, sk_string) = std::env::vars()
         .find(|(k, _)| k == "SECRET_KEY")
-        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
+        .expect("missing SECRET_KEY environment variable");
 
     let (_, block_processed_path) = std::env::vars()
         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
-        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
+        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()

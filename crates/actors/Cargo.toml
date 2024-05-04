@@ -52,6 +52,7 @@ lasr_rpc = { path = "../rpc" }
 lasr_compute = { path = "../compute" }
 lasr_contract = { path = "../contract" }
 lasr_messages = { path = "../messages" }
+lasr-metrics = { git = "https://github.com/versatus/lasr-metrics.git" }
 kzgpad-rs = { git = "https://github.com/Layr-Labs/kzgpad-rs.git" }
 
 [dev-dependencies]
