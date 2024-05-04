@@ -167,10 +167,11 @@ impl Batch {
         )
     }
 
-    pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
+    pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Option<Self> {
         let decompressed = Batch::decompress_batch(bytes)?;
         serde_json::from_str(&String::from_utf8_lossy(&decompressed))
-            .map_err(|e| BatcherError::Custom(format!("ERROR: failed to deserialize batch: {e:?}")))
+            .typecast()
+            .log_err(|e| BatcherError::Custom(format!("ERROR: failed to deserialize batch: {e:?}")))
     }
 
     pub(super) fn compress_batch(&self) -> Option<Vec<u8>> {
@@ -188,20 +189,18 @@ impl Batch {
         None
     }
 
-    pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
+    pub(super) fn decompress_batch(bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut decompressor = ZlibDecoder::new(Vec::new());
-        decompressor.write_all(&bytes[..]).map_err(|e| {
+        decompressor.write_all(&bytes[..]).typecast().log_err(|e| {
             BatcherError::Custom(format!(
                 "Batcher Error: failed to write bytes to decoder: {e:?}"
             ))
         })?;
-        let decompressed = decompressor.finish().map_err(|e| {
+        decompressor.finish().typecast().log_err(|e| {
             BatcherError::Custom(format!(
                 "Batcher Error: decoder failed to finalize decompressed batch: {e:?}"
             ))
-        })?;
-
-        Ok(decompressed)
+        })
     }
 
     pub fn encode_batch(&self) -> Option<String> {
@@ -214,9 +213,9 @@ impl Batch {
         None
     }
 
-    pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
+    pub fn decode_batch(batch: &str) -> Option<Self> {
         Self::deserialize_batch(kzgpad_rs::remove_empty_byte_from_padded_bytes(
-            &base64::decode(batch).map_err(|e| {
+            &base64::decode(batch).typecast().log_err(|e| {
                 BatcherError::Custom(format!(
                     "Batcher Error: failed to decode batch data to base64: {e:?}"
                 ))
@@ -331,9 +330,9 @@ impl Batcher {
                                 proof
                             };
 
-                            if let Err(err) = batcher.cast(message) {
-                                log::error!("Batcher Error: failed to cast blob verification proof: {err:?}");
-                            }
+                            batcher.cast(message).typecast().log_err(|err|  {
+                                BatcherError::Custom(format!("failed to cast blob verification proof: {err:?}"))
+                            });
                         }
                     }
                 },

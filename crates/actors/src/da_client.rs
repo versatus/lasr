@@ -72,32 +72,29 @@ impl DaClientActor {
                 .client
                 .retrieve_blob(&batch_header_hash.clone().into(), blob_index)
         };
-        if let Ok(blob) = res {
-            let encoded_blob = EncodedBlob::from_str(&blob);
-            if let Ok(blob) = encoded_blob {
-                let res = Batch::decode_batch(&blob.data());
-                if let Ok(batch) = &res {
-                    let account = batch.get_user_account(address);
-                    if let Err(Some(account)) = tx.send(account.clone()) {
-                        log::error!(
-                            "DaClient Error: failed to send account data for address: {}",
-                            account.owner_address()
-                        );
-                    }
-                    log::warn!("successfully decoded account blob");
-                    if let Some(acct) = account {
-                        if let AccountType::Program(addr) = acct.account_type() {
-                            log::warn!("found account: {}", addr.to_full_string());
-                        } else {
-                            log::warn!("found account: {}", acct.owner_address().to_full_string());
+        match res {
+            Ok(blob) => {
+                if let Ok(blob) = EncodedBlob::from_str(&blob) {
+                    Batch::decode_batch(&blob.data()).map(|batch| {
+                        let account = batch.get_user_account(address);
+                        if let Err(Some(account)) = tx.send(account.clone()) {
+                            log::error!(
+                                "DaClient Error: failed to send account data for address: {}",
+                                account.owner_address()
+                            );
                         }
-                    }
-                } else {
-                    log::error!("{:?}", res.err());
+                        log::warn!("successfully decoded account blob");
+                        if let Some(acct) = account {
+                            if let AccountType::Program(addr) = acct.account_type() {
+                                log::warn!("found account: {}", addr.to_full_string());
+                            } else {
+                                log::warn!("found account: {}", acct.owner_address().to_full_string());
+                            }
+                        }
+                    });
                 }
             }
-        } else {
-            log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {:?}", res.err());
+            Err(err) => log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {err:?}"),
         }
     }
 }
