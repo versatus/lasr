@@ -30,8 +30,8 @@ use lasr_actors::PendingTransactionActor;
 use lasr_actors::TaskScheduler;
 use lasr_actors::ValidatorActor;
 use lasr_actors::ValidatorCore;
-use lasr_clients::EoClient;
-use lasr_clients::EoClientActor;
+use lasr_actors::EoClient;
+use lasr_actors::EoClientActor;
 use lasr_compute::OciBundler;
 use lasr_compute::OciBundlerBuilder;
 use lasr_compute::OciManager;
@@ -63,11 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //afterwards to minimize security vulnerabilities
     let (_, sk_string) = std::env::vars()
         .find(|(k, _)| k == "SECRET_KEY")
-        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
+        .expect("missing SECRET_KEY environment variable");
 
     let (_, block_processed_path) = std::env::vars()
         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
-        .ok_or(Box::new(std::env::VarError::NotPresent) as Box<dyn std::error::Error>)?;
+        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
@@ -281,10 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(Err(err)) = guard.next().await {
                             log::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
-                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
-                                {
-                                    log::error!("{err:?}");
-                                }
+                                Batcher::handle_transaction_error(msg, *txn)
                             }
                         }
                     })

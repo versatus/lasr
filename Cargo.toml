@@ -2,7 +2,6 @@
 members = [
   "crates/actors",
   "crates/cli",
-  "crates/clients",
   "crates/compute",
   "crates/contract",
   "crates/messages",

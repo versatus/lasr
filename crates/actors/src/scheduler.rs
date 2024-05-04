@@ -21,19 +21,16 @@ use tokio::task::JoinHandle;
 /// and other actors that interact with it
 #[derive(Debug, Clone, Error)]
 pub enum SchedulerError {
-    Custom(String),
-}
+    #[error("failed to acquire SchedulerActor from registry")]
+    RactorRegistryError,
 
-/// Display implementation for Scheduler error
-impl Display for SchedulerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for SchedulerError {
     fn default() -> Self {
-        SchedulerError::Custom("Scheduler unable to acquire actor".to_string())
+        SchedulerError::RactorRegistryError
     }
 }
 

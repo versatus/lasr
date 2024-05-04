@@ -65,6 +65,20 @@ pub trait ActorExt: ractor::Actor {
     fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;
 }
 
+/// Takes any type implementing `ToString` for the actor name to search the `ractor::registry`,
+/// the message type for the `ActorRef` to coerce the `ActorCell` into, and the error variant of the actor
+/// and returns an `Option<ActorRef>`. This logs the default actor error in the event an actor cannot
+/// be acquired from the registry.
+pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
+    actor_name: impl ToString,
+) -> Option<ActorRef<M>> {
+    ractor::registry::where_is(actor_name.to_string())
+        .ok_or(E::default())
+        .typecast()
+        .log_err(|e| e)
+        .and_then(|a| Some(a.into()))
+}
+
 /// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
 /// This result type does not panic, but can be cast back into a `std::result::Result`
 /// for convenience of access to methods already available for `std::result::Result`.
@@ -266,7 +280,9 @@ macro_rules! create_handler {
     (account_cache_response) => {
         |resp| match resp {
             Some(account) => Ok(account),
-            None => Err(Box::new(AccountCacheError) as Box<dyn std::error::Error>),
+            None => Err(Box::new(AccountCacheError::Custom(
+                "no account found in account cache response from handler".to_string(),
+            )) as Box<dyn std::error::Error>),
         }
     };
 }

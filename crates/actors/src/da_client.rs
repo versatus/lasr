@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::{ActorExt, Batch, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
@@ -109,18 +109,16 @@ pub struct DaClient {
 
 #[derive(Clone, Debug, Error)]
 pub enum DaClientError {
-    Custom(String),
-}
+    #[error("failed to acquire DaClientActor from registry")]
+    RactorRegistryError,
 
-impl Display for DaClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for DaClientError {
     fn default() -> Self {
-        DaClientError::Custom("DA Client unable to acquire actor".to_string())
+        DaClientError::RactorRegistryError
     }
 }
 
