@@ -4,7 +4,7 @@ version = "0.9.0"
 edition = "2021"
 
 [dependencies]
-jsonrpsee = { version = "0.16.2", features = [
+jsonrpsee = { version = "0.16", features = [
   "macros",
   "client-core",
   "server-core",
