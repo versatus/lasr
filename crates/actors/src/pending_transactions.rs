@@ -13,8 +13,9 @@ use lasr_types::{Address, AddressOrNamespace, Outputs, Transaction, TransactionT
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
 use thiserror::Error;
+
+use crate::{get_actor_ref, helpers::Coerce, SchedulerError, ValidatorError};
 
 pub const PENDING_TIMEOUT: u64 = 15000;
 
@@ -511,17 +512,21 @@ impl PendingGraph {
             }
         }
 
-        let scheduler: ActorRef<SchedulerMessage> =
-            ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(PendingTransactionError)?
-                .into();
+        if let Some(scheduler) =
+            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        {
+            let message = SchedulerMessage::SendTransactionFailure {
+                transaction_hash: invalid_transaction_hash.to_string(),
+                error: e,
+            };
 
-        let message = SchedulerMessage::SendTransactionFailure {
-            transaction_hash: invalid_transaction_hash.to_string(),
-            error: e,
-        };
+            scheduler.cast(message).typecast().log_err(|e| {
+                SchedulerError::Custom(format!(
+                    "failed to cast SendTransactionFailure to scheduler: {e:?}"
+                ))
+            });
+        }
 
-        let _ = scheduler.cast(message);
         Ok(transactions_ready_for_validation)
     }
 
@@ -551,30 +556,37 @@ impl PendingGraph {
         transaction: Transaction,
         outputs: Option<Outputs>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let validator: ActorRef<ValidatorMessage> =
-            ractor::registry::where_is(ActorType::Validator.to_string())
-                .ok_or(PendingTransactionError)
-                .map_err(Box::new)?
-                .into();
-        log::warn!(
-            "casting message to validator to validate transaction: {}",
-            &transaction.hash_string()
-        );
-        let message = match transaction.transaction_type() {
-            TransactionType::Send(_) => ValidatorMessage::PendingTransaction { transaction },
-            TransactionType::Call(_) => ValidatorMessage::PendingCall {
-                outputs,
-                transaction,
-            },
-            TransactionType::BridgeIn(_) => ValidatorMessage::PendingTransaction { transaction },
-            _ => {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "have not implemented validation for this transaction type",
-                )) as Box<dyn std::error::Error>)
-            }
-        };
-        validator.cast(message)?;
+        if let Some(validator) =
+            get_actor_ref::<ValidatorMessage, ValidatorError>(ActorType::Validator)
+        {
+            log::warn!(
+                "casting message to validator to validate transaction: {}",
+                &transaction.hash_string()
+            );
+            let transaction_type = transaction.transaction_type();
+            let message = match &transaction_type {
+                TransactionType::Send(_) => ValidatorMessage::PendingTransaction { transaction },
+                TransactionType::Call(_) => ValidatorMessage::PendingCall {
+                    outputs,
+                    transaction,
+                },
+                TransactionType::BridgeIn(_) => {
+                    ValidatorMessage::PendingTransaction { transaction }
+                }
+                _ => {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "have not implemented validation for this transaction type",
+                    )) as Box<dyn std::error::Error>)
+                }
+            };
+            validator.cast(message).typecast().log_err(|e| {
+                ValidatorError::Custom(format!(
+                    "failed to cast {:?} message to ValidatorActor: {e:?}",
+                    transaction_type
+                ))
+            });
+        }
 
         Ok(())
     }
@@ -648,11 +660,17 @@ impl DependencyGraphs {
 pub struct PendingTransactionActor;
 
 #[derive(Debug, Clone, Error)]
-pub struct PendingTransactionError;
+pub enum PendingTransactionError {
+    #[error("failed to acquire PendingTransactionActor from registry")]
+    RactorRegistryError,
 
-impl Display for PendingTransactionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self)
+    #[error("{0}")]
+    Custom(String),
+}
+
+impl Default for PendingTransactionError {
+    fn default() -> Self {
+        PendingTransactionError::RactorRegistryError
     }
 }
 

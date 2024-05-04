@@ -980,7 +980,10 @@ pub struct ValidatorActor {
 
 #[derive(Debug, Error)]
 pub enum ValidatorError {
-    #[error("{0:?}")]
+    #[error("failed to acquire ValidatorActor from registry")]
+    RactorRegistryError,
+
+    #[error("{0}")]
     Custom(String),
 
     #[error(transparent)]
@@ -989,7 +992,7 @@ pub enum ValidatorError {
 
 impl Default for ValidatorError {
     fn default() -> Self {
-        ValidatorError::Custom("Validator unable to acquire actor".to_string())
+        ValidatorError::RactorRegistryError
     }
 }
 

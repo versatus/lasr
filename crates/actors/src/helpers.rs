@@ -1,3 +1,5 @@
+use std::error::Error as StdError;
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -61,6 +63,88 @@ pub trait ActorExt: ractor::Actor {
     /// This method assumes the thread will take ownership of the thread pool, so this method
     /// may not be convenient if the thread pool needs to be shared between actors.
     fn spawn_future_handler(actor: Self, future_handler: Self::FutureHandler) -> Self::JoinHandle;
+}
+
+/// Takes any type implementing `ToString` for the actor name to search the `ractor::registry`,
+/// the message type for the `ActorRef` to coerce the `ActorCell` into, and the error variant of the actor
+/// and returns an `Option<ActorRef>`. This logs the default actor error in the event an actor cannot
+/// be acquired from the registry.
+pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
+    actor_name: impl ToString,
+) -> Option<ActorRef<M>> {
+    ractor::registry::where_is(actor_name.to_string())
+        .ok_or(E::default())
+        .typecast()
+        .log_err(|e| e)
+        .and_then(|a| Some(a.into()))
+}
+
+/// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
+/// This result type does not panic, but can be cast back into a `std::result::Result`
+/// for convenience of access to methods already available for `std::result::Result`.
+pub struct ActorResult<T, E: StdError + Debug>(Result<T, E>);
+impl<T, E: StdError + Debug> ActorResult<T, E> {
+    /// Maps a `Result<T, E>` to `Option<T>` by applying a function to a
+    /// contained [`Err`] value, leaving an [`Ok`] value untouched.
+    ///
+    /// This function can be used to pass through a successful result while handling
+    /// an error via logging. It's important to note that the resulting type returned
+    /// from the applied function closure must impement `std::fmt::Debug`.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// fn stringify(x: u32) -> String { format!("error code: {x}") }
+    ///
+    /// let x: Result<u32, u32> = Ok(2);
+    /// assert_eq!(x.log_err(stringify), Some(2));
+    ///
+    /// let x: Result<u32, u32> = Err(13);
+    /// assert_eq!(x.log_err(stringify), None));
+    /// // In this case the `Err` is logged to the console, and `None` is returned:
+    /// // [user@system] $: error code: 13
+    /// ```
+    pub fn log_err<F: Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
+        match self.into() {
+            Ok(t) => Some(t),
+            Err(e) => {
+                log::error!("{:?}", op(e));
+                None
+            }
+        }
+    }
+}
+
+/// A convenience trait for coercing one type into another via type hint.
+///
+/// This trait works synergistically with `From` and `Into` implementations,
+/// reducing cases of `let` bindings purely for type ascriptions.
+pub trait Coerce {
+    type Type;
+    fn typecast(self) -> Self::Type;
+}
+impl<T, E: StdError + Debug> Coerce for ActorResult<T, E> {
+    type Type = Result<T, E>;
+    fn typecast(self) -> Self::Type {
+        self.into()
+    }
+}
+impl<T, E: StdError + Debug> Coerce for Result<T, E> {
+    type Type = ActorResult<T, E>;
+    fn typecast(self) -> Self::Type {
+        self.into()
+    }
+}
+impl<T, E: StdError + Debug> From<Result<T, E>> for ActorResult<T, E> {
+    fn from(value: Result<T, E>) -> Self {
+        Self(value)
+    }
+}
+impl<T, E: StdError + Debug> From<ActorResult<T, E>> for Result<T, E> {
+    fn from(value: ActorResult<T, E>) -> Result<T, E> {
+        value.0
+    }
 }
 
 #[macro_export]
@@ -196,7 +280,9 @@ macro_rules! create_handler {
     (account_cache_response) => {
         |resp| match resp {
             Some(account) => Ok(account),
-            None => Err(Box::new(AccountCacheError) as Box<dyn std::error::Error>),
+            None => Err(Box::new(AccountCacheError::Custom(
+                "no account found in account cache response from handler".to_string(),
+            )) as Box<dyn std::error::Error>),
         }
     };
 }

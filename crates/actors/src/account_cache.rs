@@ -6,7 +6,6 @@ use lasr_types::{Account, AccountType, Address};
 use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use std::{
     collections::HashMap,
-    fmt::Display,
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -15,17 +14,20 @@ use thiserror::Error;
 pub struct AccountCacheActor;
 
 #[derive(Debug, Clone, Error)]
-pub struct AccountCacheError;
+pub enum AccountCacheError {
+    #[error("failed to acquire AccountCacheActor from registry")]
+    RactorRegistryError,
 
-impl Display for AccountCacheError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    #[error("failed to acquire account data from cache for address {}", addr.to_full_string())]
+    FailedAccountAcquisition { addr: Address },
+
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for AccountCacheError {
     fn default() -> Self {
-        AccountCacheError
+        AccountCacheError::RactorRegistryError
     }
 }
 
@@ -71,12 +73,16 @@ impl AccountCache {
         &mut self,
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        if let Some(a) = self.cache.get_mut(&account.owner_address()) {
+        let addr = account.owner_address();
+        if let Some(a) = self.cache.get_mut(&addr) {
             *a = account;
             return Ok(());
         }
 
-        Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+        Err(
+            Box::new(AccountCacheError::FailedAccountAcquisition { addr })
+                as Box<dyn std::error::Error + Send>,
+        )
     }
 
     pub(crate) fn handle_cache_write(
