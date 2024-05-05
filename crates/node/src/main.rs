@@ -15,23 +15,33 @@ use lasr_actors::ActorExt;
 use lasr_actors::Batcher;
 use lasr_actors::BatcherActor;
 use lasr_actors::BatcherError;
+use lasr_actors::BatcherSupervisor;
 use lasr_actors::BlobCacheActor;
+use lasr_actors::BlobCacheSupervisor;
 use lasr_actors::DaClient;
 use lasr_actors::DaClientActor;
 use lasr_actors::DaSupervisor;
 use lasr_actors::EngineActor;
+use lasr_actors::EngineSupervisor;
 use lasr_actors::EoClient;
 use lasr_actors::EoClientActor;
+use lasr_actors::EoClientSupervisor;
 use lasr_actors::EoServerActor;
+use lasr_actors::EoServerSupervisor;
 use lasr_actors::EoServerWrapper;
 use lasr_actors::ExecutionEngine;
 use lasr_actors::ExecutorActor;
+use lasr_actors::ExecutorSupervisor;
 use lasr_actors::LasrRpcServerActor;
 use lasr_actors::LasrRpcServerImpl;
+use lasr_actors::LasrRpcServerSupervisor;
 use lasr_actors::PendingTransactionActor;
+use lasr_actors::PendingTransactionSupervisor;
 use lasr_actors::TaskScheduler;
+use lasr_actors::TaskSchedulerSupervisor;
 use lasr_actors::ValidatorActor;
 use lasr_actors::ValidatorCore;
+use lasr_actors::ValidatorSupervisor;
 use lasr_compute::OciBundler;
 use lasr_compute::OciBundlerBuilder;
 use lasr_compute::OciManager;
@@ -128,20 +138,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(compute_rpc_client, storage_rpc_client);
 
+    let blob_cache_supervisor = BlobCacheSupervisor::new();
+    let account_cache_supervisor = AccountCacheSupervisor::new();
+    let pending_tx_supervisor = PendingTransactionSupervisor::new();
+    let lasr_rpc_server_supervisor = LasrRpcServerSupervisor::new();
+    let scheduler_supervisor = TaskSchedulerSupervisor::new();
+    let eo_server_supervisor = EoServerSupervisor::new();
+    let engine_supervisor = EngineSupervisor::new();
+    let validator_supervisor = ValidatorSupervisor::new();
+    let eo_client_supervisor = EoClientSupervisor::new();
+    let da_supervisor = DaSupervisor::new();
+    let batcher_supervisor = BatcherSupervisor::new();
+    let executor_supervisor = ExecutorSupervisor::new();
+
     let blob_cache_actor = BlobCacheActor::new();
     let account_cache_actor = AccountCacheActor::new();
-    let pending_transaction_actor = PendingTransactionActor;
+    let pending_transaction_actor = PendingTransactionActor::new();
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
     let eo_server_actor = EoServerActor::new();
     let engine_actor = EngineActor::new();
     let validator_actor = ValidatorActor::new();
     let eo_client_actor = EoClientActor::new();
-    let da_supervisor = DaSupervisor;
-    let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClientActor::new();
     let batcher_actor = BatcherActor::new();
     let executor_actor = ExecutorActor::new();
+
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
@@ -153,14 +175,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
     let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
+    let (blob_cache_supervisor, _blob_cache_supervisor_handle) = Actor::spawn(
+        Some("blob_cache_supervisor".to_string()),
+        blob_cache_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
+        Some("account_cache_supervisor".to_string()),
+        account_cache_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (pending_tx_supervisor, _pending_tx_supervisor_handle) = Actor::spawn(
+        Some("pending_transaction_supervisor".to_string()),
+        pending_tx_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (lasr_rpc_server_supervisor, _lasr_rpc_server_supervisor_handle) = Actor::spawn(
+        Some("lasr_rpc_server_supervisor".to_string()),
+        lasr_rpc_server_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (scheduler_supervisor, _scheduler_supervisor_handle) = Actor::spawn(
+        Some("scheduler_supervisor".to_string()),
+        scheduler_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (eo_server_supervisor, _eo_server_supervisor_handle) = Actor::spawn(
+        Some("eo_server_supervisor".to_string()),
+        eo_server_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (engine_supervisor, _engine_supervisor_handle) =
+        Actor::spawn(Some("engine_supervisor".to_string()), engine_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+
+    let (validator_supervisor, _validator_supervisor_handle) = Actor::spawn(
+        Some("validator_supervisor".to_string()),
+        validator_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (eo_client_supervisor, _eo_client_supervisor_handle) = Actor::spawn(
+        Some("eo_client_supervisor".to_string()),
+        eo_client_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
     let (da_supervisor, _da_supervisor_handle) =
         Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
             .await
             .map_err(Box::new)?;
 
-    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
-        Some("account_cache_supervisor".to_string()),
-        account_cache_supervisor,
+    let (batcher_supervisor, _batcher_supervisor_handle) = Actor::spawn(
+        Some("batcher_supervisor".to_string()),
+        batcher_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+
+    let (executor_supervisor, _executor_supervisor_handle) = Actor::spawn(
+        Some("executor_supervisor".to_string()),
+        executor_supervisor,
         (),
     )
     .await

@@ -22,7 +22,7 @@ use lasr_messages::{
 };
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
-    Actor, ActorProcessingErr, ActorRef,
+    Actor, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
@@ -525,6 +525,59 @@ impl ActorExt for EngineActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct EngineSupervisor;
+impl EngineSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Actor for EngineSupervisor {
+    type Msg = EngineMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
+        Ok(())
     }
 }
 

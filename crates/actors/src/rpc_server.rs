@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use std::str::FromStr;
 
 use crate::{create_handler, handle_actor_response};
-use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{
+    concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent,
+};
 
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
@@ -370,6 +372,59 @@ impl Actor for LasrRpcServerActor {
             }
         }
 
+        Ok(())
+    }
+}
+
+pub struct LasrRpcServerSupervisor;
+impl LasrRpcServerSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Actor for LasrRpcServerSupervisor {
+    type Msg = RpcMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
         Ok(())
     }
 }

@@ -252,6 +252,11 @@ async fn validate_blob(
 }
 
 pub struct DaSupervisor;
+impl DaSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 #[async_trait]
 impl Actor for DaSupervisor {

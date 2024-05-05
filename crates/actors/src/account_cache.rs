@@ -234,6 +234,11 @@ impl Actor for AccountCacheActor {
 }
 
 pub struct AccountCacheSupervisor;
+impl AccountCacheSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 #[async_trait]
 impl Actor for AccountCacheSupervisor {
@@ -246,7 +251,6 @@ impl Actor for AccountCacheSupervisor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Da Client running prestart routine");
         Ok(())
     }
 

@@ -952,6 +952,11 @@ impl ActorExt for ExecutorActor {
 }
 
 pub struct ExecutorSupervisor;
+impl ExecutorSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 #[async_trait]
 impl Actor for ExecutorSupervisor {

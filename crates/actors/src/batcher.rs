@@ -22,7 +22,7 @@ use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     errors::MessagingErr,
     factory::CustomHashFunction,
-    Actor, ActorCell, ActorProcessingErr, ActorRef,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1836,6 +1836,7 @@ impl Actor for BatcherActor {
         Ok(())
     }
 }
+
 impl ActorExt for BatcherActor {
     type Output = Result<(), BatcherError>;
     type Future<O> = StaticFuture<Self::Output>;
@@ -1864,6 +1865,59 @@ impl ActorExt for BatcherActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct BatcherSupervisor;
+impl BatcherSupervisor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Actor for BatcherSupervisor {
+    type Msg = BatcherMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
+        Ok(())
     }
 }
 
