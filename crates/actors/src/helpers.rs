@@ -95,15 +95,23 @@ impl<T, E: StdError + Debug> ActorResult<T, E> {
     /// # Examples
     ///
     /// ```
-    /// fn stringify(x: u32) -> String { format!("error code: {x}") }
+    /// use lasr_actors::helpers::{ActorResult, Coerce};
+    /// use thiserror::Error;
     ///
-    /// let x: Result<u32, u32> = Ok(2);
-    /// assert_eq!(x.log_err(stringify), Some(2));
+    /// #[derive(Error, Debug)]
+    /// enum MyError {
+    ///     #[error("failed because: {reason}")]
+    ///     Failed {
+    ///         reason: String,
+    ///     }
+    /// }
     ///
-    /// let x: Result<u32, u32> = Err(13);
-    /// assert_eq!(x.log_err(stringify), None));
-    /// // In this case the `Err` is logged to the console, and `None` is returned:
-    /// // [user@system] $: error code: 13
+    /// let x: Result<u32, std::fmt::Error> = Ok(2);
+    /// assert_eq!(x.typecast().log_err(|e| MyError::Failed { reason: e.to_string() }), Some(2));
+    ///
+    /// // In the `Err` case the error is logged to the console, and `None` is returned:
+    /// let x: Result<u32, std::fmt::Error> = Err(std::fmt::Error);
+    /// assert_eq!(x.typecast().log_err(|e| MyError::Failed { reason: e.to_string() }), None);
     /// ```
     pub fn log_err<F: Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
         match self.into() {

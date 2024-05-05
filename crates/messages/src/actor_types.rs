@@ -44,6 +44,40 @@ impl ToString for ActorType {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialOrd, Ord, PartialEq, Eq)]
+pub enum SupervisorType {
+    BlobCache,
+    AccountCache,
+    PendingTransaction,
+    LasrRpcServer,
+    Scheduler,
+    EoServer,
+    Engine,
+    Validator,
+    EoClient,
+    DaClient,
+    Batcher,
+    Executor,
+}
+impl ToString for SupervisorType {
+    fn to_string(&self) -> String {
+        match self {
+            SupervisorType::BlobCache => "blob_cache_supervisor".to_string(),
+            SupervisorType::AccountCache => "account_cache_supervisor".to_string(),
+            SupervisorType::PendingTransaction => "pending_transaction_supervisor".to_string(),
+            SupervisorType::LasrRpcServer => "lasr_rpc_server_supervisor".to_string(),
+            SupervisorType::Scheduler => "scheduler_supervisor".to_string(),
+            SupervisorType::EoServer => "eo_server_supervisor".to_string(),
+            SupervisorType::Engine => "engine_supervisor".to_string(),
+            SupervisorType::Validator => "validator_supervisor".to_string(),
+            SupervisorType::EoClient => "eo_client_supervisor".to_string(),
+            SupervisorType::DaClient => "da_client_supervisor".to_string(),
+            SupervisorType::Batcher => "batcher_supervisor".to_string(),
+            SupervisorType::Executor => "executor_supervisor".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
     Call { transaction: Transaction },

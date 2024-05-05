@@ -251,15 +251,15 @@ async fn validate_blob(
     tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
-pub struct DaSupervisor;
-impl DaSupervisor {
+pub struct DaClientSupervisor;
+impl DaClientSupervisor {
     pub fn new() -> Self {
         Self
     }
 }
 
 #[async_trait]
-impl Actor for DaSupervisor {
+impl Actor for DaClientSupervisor {
     type Msg = DaClientMessage;
     type State = ();
     type Arguments = ();
