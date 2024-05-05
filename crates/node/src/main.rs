@@ -1,57 +1,25 @@
 #![allow(unreachable_code)]
-use std::collections::BTreeSet;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::EoServer as EoListener;
-use eo_listener::EoServerError;
+use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
-use lasr_actors::graph_cleaner;
-use lasr_actors::AccountCacheActor;
-use lasr_actors::AccountCacheSupervisor;
-use lasr_actors::ActorExt;
-use lasr_actors::Batcher;
-use lasr_actors::BatcherActor;
-use lasr_actors::BatcherError;
-use lasr_actors::BatcherSupervisor;
-use lasr_actors::BlobCacheActor;
-use lasr_actors::BlobCacheSupervisor;
-use lasr_actors::DaClient;
-use lasr_actors::DaClientActor;
-use lasr_actors::DaSupervisor;
-use lasr_actors::EngineActor;
-use lasr_actors::EngineSupervisor;
-use lasr_actors::EoClient;
-use lasr_actors::EoClientActor;
-use lasr_actors::EoClientSupervisor;
-use lasr_actors::EoServerActor;
-use lasr_actors::EoServerSupervisor;
-use lasr_actors::EoServerWrapper;
-use lasr_actors::ExecutionEngine;
-use lasr_actors::ExecutorActor;
-use lasr_actors::ExecutorSupervisor;
-use lasr_actors::LasrRpcServerActor;
-use lasr_actors::LasrRpcServerImpl;
-use lasr_actors::LasrRpcServerSupervisor;
-use lasr_actors::PendingTransactionActor;
-use lasr_actors::PendingTransactionSupervisor;
-use lasr_actors::TaskScheduler;
-use lasr_actors::TaskSchedulerSupervisor;
-use lasr_actors::ValidatorActor;
-use lasr_actors::ValidatorCore;
-use lasr_actors::ValidatorSupervisor;
-use lasr_compute::OciBundler;
-use lasr_compute::OciBundlerBuilder;
-use lasr_compute::OciManager;
+use lasr_actors::{
+    graph_cleaner, AccountCacheActor, AccountCacheSupervisor, ActorExt, Batcher, BatcherActor,
+    BatcherError, BatcherSupervisor, BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor,
+    DaSupervisor, EngineActor, EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor,
+    EoServerActor, EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor,
+    ExecutorSupervisor, LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor,
+    PendingTransactionActor, PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor,
+    ValidatorActor, ValidatorCore, ValidatorSupervisor,
+};
+use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::ActorType;
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
 use ractor::Actor;
-use tokio::sync::Mutex;
-
 use secp256k1::Secp256k1;
+use tokio::sync::Mutex;
 use web3::types::BlockNumber;
 
 #[tokio::main]
