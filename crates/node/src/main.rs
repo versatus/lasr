@@ -226,19 +226,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .validator(
             validator_actor.clone(),
-            validator_core,
+            validator_core.clone(),
             validator_supervisor,
         )
         .await?
-        .eo_client(eo_client_actor.clone(), eo_client, eo_client_supervisor)
+        .eo_client(
+            eo_client_actor.clone(),
+            eo_client.clone(),
+            eo_client_supervisor,
+        )
         .await?
-        .da_client(da_client_actor.clone(), da_client, da_client_supervisor)
+        .da_client(
+            da_client_actor.clone(),
+            da_client.clone(),
+            da_client_supervisor,
+        )
         .await?
-        .batcher(batcher_actor.clone(), batcher, batcher_supervisor)
+        .batcher(batcher_actor.clone(), batcher.clone(), batcher_supervisor)
         .await?
         .executor(
             executor_actor.clone(),
-            execution_engine,
+            execution_engine.clone(),
             executor_supervisor,
         )
         .await?
@@ -247,6 +255,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lasr_rpc_actor_ref = actor_manager_inner.get_lasr_rpc_actor_ref();
 
     let actor_manager = Arc::new(Mutex::new(actor_manager_inner));
+    let engine_actor_clone = engine_actor.clone();
+    let validator_actor_clone = validator_actor.clone();
+    let validator_core_clone = validator_core.clone();
+    let eo_client_actor_clone = eo_client_actor.clone();
+    let eo_client_clone = eo_client.clone();
+    let da_client_actor_clone = da_client_actor.clone();
+    let da_client_clone = da_client.clone();
+    let batcher_actor_clone = batcher_actor.clone();
+    let batcher_clone = batcher.clone();
+    let executor_actor_clone = executor_actor.clone();
+    let execution_engine_clone = execution_engine.clone();
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
@@ -315,69 +334,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .log_err(|e| e);
                         }
                         ActorType::Engine => {
-                            // ActorManager::respawn_engine(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     engine_actor.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_engine(
+                                manager_ptr,
+                                actor_name,
+                                engine_actor_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         ActorType::Validator => {
-                            // ActorManager::respawn_validator(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     validator_actor.clone(),
-                            //     validator_core.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_validator(
+                                manager_ptr,
+                                actor_name,
+                                validator_actor_clone.clone(),
+                                validator_core_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         ActorType::EoClient => {
-                            // ActorManager::respawn_eo_client(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     eo_client_actor.clone(),
-                            //     eo_client.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_eo_client(
+                                manager_ptr,
+                                actor_name,
+                                eo_client_actor_clone.clone(),
+                                eo_client_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         ActorType::DaClient => {
-                            // ActorManager::respawn_da_client(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     da_client_actor.clone(),
-                            //     da_client.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_da_client(
+                                manager_ptr,
+                                actor_name,
+                                da_client_actor_clone.clone(),
+                                da_client_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         ActorType::Batcher => {
-                            // ActorManager::respawn_batcher(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     batcher_actor.clone(),
-                            //     batcher.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_batcher(
+                                manager_ptr,
+                                actor_name,
+                                batcher_actor_clone.clone(),
+                                batcher_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         ActorType::Executor => {
-                            // ActorManager::respawn_executor(
-                            //     manager_ptr,
-                            //     actor_name,
-                            //     executor_actor.clone(),
-                            //     execution_engine.clone(),
-                            // )
-                            // .await
-                            // .typecast()
-                            // .log_err(|e| e);
+                            ActorManager::respawn_executor(
+                                manager_ptr,
+                                actor_name,
+                                executor_actor_clone.clone(),
+                                execution_engine_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         _ => unreachable!("Actor is not a child of a supervisor"),
                     }
