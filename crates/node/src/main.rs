@@ -6,7 +6,7 @@ use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
     graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
-    ActorManager, ActorPair, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
+    ActorManager, ActorSpawn, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
     BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor, DaClientSupervisor, EngineActor,
     EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
@@ -306,10 +306,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let actor_manager = Arc::new(Mutex::new(ActorManager::new(ActorPair::new(
-        blob_cache_supervisor,
-        (_blob_cache_actor_ref, _blob_cache_handle),
-    ))));
+    let actor_manager = Arc::new(Mutex::new(ActorManager::new(ActorSpawn::new((
+        _blob_cache_actor_ref,
+        _blob_cache_handle,
+    )))));
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
