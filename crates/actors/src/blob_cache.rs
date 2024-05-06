@@ -5,16 +5,19 @@ use futures::stream::FuturesUnordered;
 use lasr_messages::{ActorName, SupervisorType};
 use lasr_messages::{ActorType, BlobCacheMessage, DaClientMessage};
 use lasr_types::{Address, Transaction};
-use ractor::Actor;
 use ractor::ActorRef;
 use ractor::SupervisionEvent;
 use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     ActorProcessingErr,
 };
+use ractor::{Actor, ActorCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
+
+use crate::Coerce;
 
 #[derive(Debug, Default)]
 pub struct PendingBlobCache {
@@ -116,10 +119,12 @@ impl Actor for BlobCacheActor {
     }
 }
 
-pub struct BlobCacheSupervisor;
+pub struct BlobCacheSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl BlobCacheSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for BlobCacheSupervisor {
@@ -159,6 +164,7 @@ impl Actor for BlobCacheSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

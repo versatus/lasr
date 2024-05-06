@@ -1873,10 +1873,12 @@ impl ActorExt for BatcherActor {
     }
 }
 
-pub struct BatcherSupervisor;
+pub struct BatcherSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl BatcherSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for BatcherSupervisor {
@@ -1916,6 +1918,7 @@ impl Actor for BatcherSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

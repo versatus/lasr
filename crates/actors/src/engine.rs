@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     check_account_cache, check_da_for_account, create_handler, handle_actor_response, ActorExt,
-    StaticFuture, UnorderedFuturePool,
+    Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -23,7 +23,7 @@ use lasr_messages::{
 };
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
-    Actor, ActorProcessingErr, ActorRef, SupervisionEvent,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
@@ -534,10 +534,12 @@ impl ActorExt for EngineActor {
     }
 }
 
-pub struct EngineSupervisor;
+pub struct EngineSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl EngineSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for EngineSupervisor {
@@ -577,6 +579,7 @@ impl Actor for EngineSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

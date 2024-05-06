@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{ActorExt, Batch, StaticFuture, UnorderedFuturePool};
+use crate::{ActorExt, Batch, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eigenda_client::{
     blob::EncodedBlob,
@@ -16,9 +16,14 @@ use futures::{
 };
 use lasr_messages::{ActorName, ActorType, DaClientMessage, SupervisorType};
 use lasr_types::{Account, AccountType, Address};
-use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{
+    concurrency::OneshotSender, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
+};
 use thiserror::Error;
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+    sync::{mpsc::Sender, Mutex},
+    task::JoinHandle,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
@@ -257,10 +262,12 @@ async fn validate_blob(
     tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
-pub struct DaClientSupervisor;
+pub struct DaClientSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl DaClientSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for DaClientSupervisor {
@@ -301,6 +308,7 @@ impl Actor for DaClientSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

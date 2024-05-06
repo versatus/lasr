@@ -1,5 +1,5 @@
 use crate::{
-    check_account_cache, check_da_for_account, ActorExt, StaticFuture, UnorderedFuturePool,
+    check_account_cache, check_da_for_account, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use futures::{
@@ -10,10 +10,10 @@ use lasr_messages::{
     ActorName, ActorType, BatcherMessage, PendingTransactionMessage, SupervisorType,
     ValidatorMessage,
 };
-use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc::Sender, Mutex};
 
 use lasr_types::{
     Account, AccountType, AddressOrNamespace, Instruction, Outputs, TokenFieldValue,
@@ -1270,10 +1270,12 @@ impl ActorExt for ValidatorActor {
     }
 }
 
-pub struct ValidatorSupervisor;
+pub struct ValidatorSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl ValidatorSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for ValidatorSupervisor {
@@ -1313,6 +1315,7 @@ impl Actor for ValidatorSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

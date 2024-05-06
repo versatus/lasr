@@ -7,11 +7,12 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
+use tokio::sync::mpsc::Sender;
 
 use async_trait::async_trait;
 use chrono::prelude::*;
 use lasr_types::{Address, AddressOrNamespace, Outputs, Transaction, TransactionType};
-use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -806,10 +807,12 @@ pub async fn graph_cleaner() -> std::io::Result<()> {
     }
 }
 
-pub struct PendingTransactionSupervisor;
+pub struct PendingTransactionSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl PendingTransactionSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for PendingTransactionSupervisor {
@@ -849,6 +852,7 @@ impl Actor for PendingTransactionSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

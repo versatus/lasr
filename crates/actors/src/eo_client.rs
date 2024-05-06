@@ -9,10 +9,11 @@ use futures::stream::{FuturesUnordered, Stream, StreamExt};
 use futures::{Future, FutureExt};
 use hex;
 use ractor::concurrency::OneshotSender;
-use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use secp256k1::SecretKey;
 use sha3::{Digest, Keccak256};
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc::Receiver, Mutex};
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token as EthAbiToken;
@@ -21,7 +22,7 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use crate::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
+use crate::{ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool};
 use lasr_messages::{ActorName, ActorType, EoMessage, HashOrError, SupervisorType};
 use lasr_types::{Address, U256};
 
@@ -597,10 +598,12 @@ impl ActorExt for EoClientActor {
     }
 }
 
-pub struct EoClientSupervisor;
+pub struct EoClientSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl EoClientSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for EoClientSupervisor {
@@ -640,6 +643,7 @@ impl Actor for EoClientSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

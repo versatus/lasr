@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use std::str::FromStr;
+use tokio::sync::mpsc::Sender;
 
-use crate::{create_handler, handle_actor_response};
+use crate::{create_handler, handle_actor_response, Coerce};
 use ractor::{
-    concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SupervisionEvent,
+    concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, RpcReplyPort,
+    SupervisionEvent,
 };
 
 use jsonrpsee::core::Error as RpcError;
@@ -383,10 +385,12 @@ impl Actor for LasrRpcServerActor {
     }
 }
 
-pub struct LasrRpcServerSupervisor;
+pub struct LasrRpcServerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl LasrRpcServerSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for LasrRpcServerSupervisor {
@@ -426,6 +430,7 @@ impl Actor for LasrRpcServerSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

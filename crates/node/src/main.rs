@@ -115,18 +115,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (panic_tx, mut panic_rx): (Sender<ActorCell>, Receiver<ActorCell>) =
         tokio::sync::mpsc::channel(120);
 
-    let blob_cache_supervisor = BlobCacheSupervisor::new();
-    let account_cache_supervisor = AccountCacheSupervisor::new();
-    let pending_tx_supervisor = PendingTransactionSupervisor::new();
-    let lasr_rpc_server_supervisor = LasrRpcServerSupervisor::new();
-    let scheduler_supervisor = TaskSchedulerSupervisor::new();
-    let eo_server_supervisor = EoServerSupervisor::new();
-    let engine_supervisor = EngineSupervisor::new();
-    let validator_supervisor = ValidatorSupervisor::new();
-    let eo_client_supervisor = EoClientSupervisor::new();
-    let da_client_supervisor = DaClientSupervisor::new();
-    let batcher_supervisor = BatcherSupervisor::new();
-    let executor_supervisor = ExecutorSupervisor::new();
+    let blob_cache_supervisor = BlobCacheSupervisor::new(panic_tx.clone());
+    let account_cache_supervisor = AccountCacheSupervisor::new(panic_tx.clone());
+    let pending_tx_supervisor = PendingTransactionSupervisor::new(panic_tx.clone());
+    let lasr_rpc_server_supervisor = LasrRpcServerSupervisor::new(panic_tx.clone());
+    let scheduler_supervisor = TaskSchedulerSupervisor::new(panic_tx.clone());
+    let eo_server_supervisor = EoServerSupervisor::new(panic_tx.clone());
+    let engine_supervisor = EngineSupervisor::new(panic_tx.clone());
+    let validator_supervisor = ValidatorSupervisor::new(panic_tx.clone());
+    let eo_client_supervisor = EoClientSupervisor::new(panic_tx.clone());
+    let da_client_supervisor = DaClientSupervisor::new(panic_tx.clone());
+    let batcher_supervisor = BatcherSupervisor::new(panic_tx.clone());
+    let executor_supervisor = ExecutorSupervisor::new(panic_tx);
 
     let (blob_cache_supervisor, _blob_cache_supervisor_handle) = Actor::spawn(
         Some(blob_cache_supervisor.name()),

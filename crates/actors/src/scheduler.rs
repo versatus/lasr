@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
     check_account_cache, check_da_for_account, create_handler, da_client, eo_server,
-    handle_actor_response,
+    handle_actor_response, Coerce,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
@@ -12,11 +12,12 @@ use lasr_messages::{
     ValidatorMessage,
 };
 use lasr_types::{Address, RecoverableSignature, Transaction};
-use ractor::SupervisionEvent;
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{ActorCell, SupervisionEvent};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Display};
 use thiserror::*;
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
 /// A generic error type to propagate errors from this actor
@@ -300,10 +301,12 @@ impl Actor for TaskScheduler {
     }
 }
 
-pub struct TaskSchedulerSupervisor;
+pub struct TaskSchedulerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl TaskSchedulerSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for TaskSchedulerSupervisor {
@@ -343,6 +346,7 @@ impl Actor for TaskSchedulerSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

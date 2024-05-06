@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::{fmt::Display, sync::Arc};
 
-use crate::{create_handler, ActorExt, StaticFuture, UnorderedFuturePool};
+use crate::{create_handler, ActorExt, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
 use futures::{
@@ -339,10 +339,12 @@ impl Actor for EoServerActor {
     }
 }
 
-pub struct EoServerSupervisor;
+pub struct EoServerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl EoServerSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for EoServerSupervisor {
@@ -382,6 +384,7 @@ impl Actor for EoServerSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

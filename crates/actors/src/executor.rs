@@ -1,4 +1,4 @@
-use crate::{get_account, ActorExt, StaticFuture, UnorderedFuturePool};
+use crate::{get_account, ActorExt, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::FutureExt;
@@ -14,7 +14,7 @@ use lasr_messages::{
     ActorType, EngineMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
 };
 use lasr_types::{Inputs, ProgramSchema, Required, Transaction};
-use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
@@ -956,10 +956,12 @@ impl ActorExt for ExecutorActor {
     }
 }
 
-pub struct ExecutorSupervisor;
+pub struct ExecutorSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
 impl ExecutorSupervisor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
     }
 }
 impl ActorName for ExecutorSupervisor {
@@ -1000,6 +1002,7 @@ impl Actor for ExecutorSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
