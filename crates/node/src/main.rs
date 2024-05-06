@@ -306,10 +306,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let actor_manager = ActorManager::new(ActorPair::new(
-        (blob_cache_supervisor, _blob_cache_supervisor_handle),
+    let actor_manager = Arc::new(Mutex::new(ActorManager::new(ActorPair::new(
+        blob_cache_supervisor,
         (_blob_cache_actor_ref, _blob_cache_handle),
-    ));
+    ))));
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
@@ -317,11 +317,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(actor_name) = actor.get_name() {
                     match actor_name.to_actor_type() {
                         ActorType::BlobCache => {
-                            actor_manager
-                                .respawn_blob_cache(actor_name, blob_cache_actor.clone())
-                                .await
-                                .typecast()
-                                .log_err(|e| e);
+                            ActorManager::respawn_blob_cache(
+                                Arc::clone(&actor_manager),
+                                actor_name,
+                                blob_cache_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
                         }
                         _ => {}
                     }

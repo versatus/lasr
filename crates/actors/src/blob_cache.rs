@@ -132,6 +132,12 @@ impl ActorName for BlobCacheSupervisor {
         SupervisorType::BlobCache.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum BlobCacheSupervisorError {
+    #[default]
+    #[error("failed to acquire BlobCacheSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for BlobCacheSupervisor {
