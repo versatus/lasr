@@ -14,9 +14,9 @@ use crate::{
     BatcherSupervisorError, BlobCacheActor, BlobCacheSupervisorError, DaClient, DaClientActor,
     DaClientSupervisorError, EngineActor, EngineSupervisorError, EoClient, EoClientActor,
     EoClientSupervisorError, EoServerActor, EoServerSupervisorError, ExecutionEngine,
-    ExecutorActor, ExecutorSupervisorError, LasrRpcServerActor, PendingTransactionActor,
-    PendingTransactionSupervisorError, TaskScheduler, TaskSchedulerSupervisorError, ValidatorActor,
-    ValidatorCore, ValidatorSupervisorError,
+    ExecutorActor, ExecutorSupervisorError, LasrRpcServerActor, LasrRpcServerSupervisorError,
+    PendingTransactionActor, PendingTransactionSupervisorError, TaskScheduler,
+    TaskSchedulerSupervisorError, ValidatorActor, ValidatorCore, ValidatorSupervisorError,
 };
 
 #[derive(Debug, Error)]
@@ -68,10 +68,10 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.blob_cache = actor_link;
+                guard.blob_cache = actor_spawn;
             }
             Ok(())
         } else {
@@ -94,10 +94,10 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.account_cache = actor_link;
+                guard.account_cache = actor_spawn;
             }
             Ok(())
         } else {
@@ -122,10 +122,36 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.pending_tx = actor_link;
+                guard.pending_tx = actor_spawn;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::LasrRpcServerActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_lasr_rpc_server(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: LasrRpcServerActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<RpcMessage, LasrRpcServerSupervisorError>(SupervisorType::LasrRpcServer)
+        {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_spawn = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.lasr_rpc_server = actor_spawn;
             }
             Ok(())
         } else {
@@ -148,10 +174,10 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.scheduler = actor_link;
+                guard.scheduler = actor_spawn;
             }
             Ok(())
         } else {
@@ -174,10 +200,10 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.eo_server = actor_link;
+                guard.eo_server = actor_spawn;
             }
             Ok(())
         } else {
@@ -200,10 +226,10 @@ impl ActorManager {
                 Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
                     .await
                     .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.engine = actor_link;
+                guard.engine = actor_spawn;
             }
             Ok(())
         } else {
@@ -231,10 +257,10 @@ impl ActorManager {
             )
             .await
             .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.validator = actor_link;
+                guard.validator = actor_spawn;
             }
             Ok(())
         } else {
@@ -262,10 +288,10 @@ impl ActorManager {
             )
             .await
             .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.eo_client = actor_link;
+                guard.eo_client = actor_spawn;
             }
             Ok(())
         } else {
@@ -293,10 +319,10 @@ impl ActorManager {
             )
             .await
             .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.da_client = actor_link;
+                guard.da_client = actor_spawn;
             }
             Ok(())
         } else {
@@ -324,10 +350,10 @@ impl ActorManager {
             )
             .await
             .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.batcher = actor_link;
+                guard.batcher = actor_spawn;
             }
             Ok(())
         } else {
@@ -355,10 +381,10 @@ impl ActorManager {
             )
             .await
             .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
-            let actor_link = ActorSpawn::new(actor);
+            let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
-                guard.executor = actor_link;
+                guard.executor = actor_spawn;
             }
             Ok(())
         } else {

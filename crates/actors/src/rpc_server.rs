@@ -15,6 +15,7 @@ use lasr_messages::{
 };
 use lasr_rpc::LasrRpcServer;
 use lasr_types::{Address, Transaction};
+use thiserror::Error;
 
 #[derive(Debug)]
 pub struct LasrRpcServerImpl {
@@ -397,6 +398,12 @@ impl ActorName for LasrRpcServerSupervisor {
     fn name(&self) -> ractor::ActorName {
         SupervisorType::LasrRpcServer.to_string()
     }
+}
+#[derive(Debug, Error, Default)]
+pub enum LasrRpcServerSupervisorError {
+    #[default]
+    #[error("failed to acquire LasrRpcServerSupervisor from registry")]
+    RactorRegistryError,
 }
 
 #[async_trait]

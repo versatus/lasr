@@ -252,10 +252,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(actor) = panic_rx.recv().await {
             if let ActorStatus::Stopped = actor.get_status() {
                 if let Some(actor_name) = actor.get_name() {
+                    let manager_ptr = Arc::clone(&actor_manager);
                     match actor_name.to_actor_type() {
                         ActorType::BlobCache => {
                             ActorManager::respawn_blob_cache(
-                                Arc::clone(&actor_manager),
+                                manager_ptr,
                                 actor_name,
                                 blob_cache_actor.clone(),
                             )
@@ -263,7 +264,122 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .typecast()
                             .log_err(|e| e);
                         }
-                        _ => {}
+                        ActorType::AccountCache => {
+                            ActorManager::respawn_account_cache(
+                                manager_ptr,
+                                actor_name,
+                                account_cache_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::PendingTransactions => {
+                            ActorManager::respawn_pending_tx(
+                                manager_ptr,
+                                actor_name,
+                                pending_transaction_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::RpcServer => {
+                            ActorManager::respawn_lasr_rpc_server(
+                                manager_ptr,
+                                actor_name,
+                                lasr_rpc_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Scheduler => {
+                            ActorManager::respawn_scheduler(
+                                manager_ptr,
+                                actor_name,
+                                scheduler_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::EoServer => {
+                            ActorManager::respawn_eo_server(
+                                manager_ptr,
+                                actor_name,
+                                eo_server_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Engine => {
+                            // ActorManager::respawn_engine(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     engine_actor.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        ActorType::Validator => {
+                            // ActorManager::respawn_validator(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     validator_actor.clone(),
+                            //     validator_core.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        ActorType::EoClient => {
+                            // ActorManager::respawn_eo_client(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     eo_client_actor.clone(),
+                            //     eo_client.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        ActorType::DaClient => {
+                            // ActorManager::respawn_da_client(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     da_client_actor.clone(),
+                            //     da_client.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        ActorType::Batcher => {
+                            // ActorManager::respawn_batcher(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     batcher_actor.clone(),
+                            //     batcher.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        ActorType::Executor => {
+                            // ActorManager::respawn_executor(
+                            //     manager_ptr,
+                            //     actor_name,
+                            //     executor_actor.clone(),
+                            //     execution_engine.clone(),
+                            // )
+                            // .await
+                            // .typecast()
+                            // .log_err(|e| e);
+                        }
+                        _ => unreachable!("Actor is not a child of a supervisor"),
                     }
                 }
             }
