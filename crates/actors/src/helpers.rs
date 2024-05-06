@@ -82,8 +82,8 @@ pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
 /// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
 /// This result type does not panic, but can be cast back into a `std::result::Result`
 /// for convenience of access to methods already available for `std::result::Result`.
-pub struct ActorResult<T, E: StdError + Debug>(Result<T, E>);
-impl<T, E: StdError + Debug> ActorResult<T, E> {
+pub struct ActorResult<T, E: Debug>(Result<T, E>);
+impl<T, E: Debug> ActorResult<T, E> {
     /// Maps a `ActorResult<T, E>` to `Option<T>` by applying a function to a
     /// contained [`Err`] value, leaving an [`Ok`] value untouched.
     ///
@@ -130,24 +130,24 @@ pub trait Coerce {
     type Type;
     fn typecast(self) -> Self::Type;
 }
-impl<T, E: StdError + Debug> Coerce for ActorResult<T, E> {
+impl<T, E: Debug> Coerce for ActorResult<T, E> {
     type Type = Result<T, E>;
     fn typecast(self) -> Self::Type {
         self.into()
     }
 }
-impl<T, E: StdError + Debug> Coerce for Result<T, E> {
+impl<T, E: Debug> Coerce for Result<T, E> {
     type Type = ActorResult<T, E>;
     fn typecast(self) -> Self::Type {
         self.into()
     }
 }
-impl<T, E: StdError + Debug> From<Result<T, E>> for ActorResult<T, E> {
+impl<T, E: Debug> From<Result<T, E>> for ActorResult<T, E> {
     fn from(value: Result<T, E>) -> Self {
         Self(value)
     }
 }
-impl<T, E: StdError + Debug> From<ActorResult<T, E>> for Result<T, E> {
+impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
     }

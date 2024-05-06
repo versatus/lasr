@@ -82,6 +82,31 @@ pub trait ActorName {
     fn name(&self) -> ractor::ActorName;
 }
 
+pub trait ToActorType {
+    fn to_actor_type(&self) -> ActorType;
+}
+impl ToActorType for ractor::ActorName {
+    fn to_actor_type(&self) -> ActorType {
+        match self.as_str() {
+            "registry" => ActorType::Registry,
+            "rpc_server" => ActorType::RpcServer,
+            "scheduler" => ActorType::Scheduler,
+            "validator" => ActorType::Validator,
+            "engine" => ActorType::Engine,
+            "eo_server" => ActorType::EoServer,
+            "da_client" => ActorType::DaClient,
+            "account_cache" => ActorType::AccountCache,
+            "blob_cache" => ActorType::BlobCache,
+            "pending_transactions" => ActorType::PendingTransactions,
+            "eo_client" => ActorType::EoClient,
+            "batcher" => ActorType::Batcher,
+            "executor" => ActorType::Executor,
+            "remote_executor" => ActorType::RemoteExecutor,
+            _ => unreachable!("Actor name is not an ActorType variant"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
     Call { transaction: Transaction },

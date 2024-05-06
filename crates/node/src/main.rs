@@ -1,30 +1,29 @@
 #![allow(unreachable_code)]
-use std::{
-    collections::{BTreeSet, HashMap},
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
-};
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 
 use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
-    graph_cleaner, AccountCacheActor, AccountCacheSupervisor, ActorExt, Batcher, BatcherActor,
-    BatcherError, BatcherSupervisor, BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor,
-    DaClientSupervisor, EngineActor, EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor,
-    EoServerActor, EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor,
-    ExecutorSupervisor, LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor,
-    PendingTransactionActor, PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor,
-    ValidatorActor, ValidatorCore, ValidatorSupervisor,
+    graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
+    ActorManager, ActorPair, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
+    BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor, DaClientSupervisor, EngineActor,
+    EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
+    EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
+    LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
+    PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
+    ValidatorCore, ValidatorSupervisor,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
-use lasr_messages::{ActorName, ActorType, SupervisorType};
+use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
-use ractor::Actor;
+use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
-use tokio::sync::Mutex;
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    Mutex,
+};
 use web3::types::BlockNumber;
 
 #[tokio::main]
@@ -113,7 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(compute_rpc_client, storage_rpc_client);
 
-    let actor_map = HashMap::with_capacity(12);
+    let (panic_tx, mut panic_rx): (Sender<ActorCell>, Receiver<ActorCell>) =
+        tokio::sync::mpsc::channel(120);
 
     let blob_cache_supervisor = BlobCacheSupervisor::new();
     let account_cache_supervisor = AccountCacheSupervisor::new();
@@ -127,19 +127,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_client_supervisor = DaClientSupervisor::new();
     let batcher_supervisor = BatcherSupervisor::new();
     let executor_supervisor = ExecutorSupervisor::new();
-
-    let blob_cache_actor = BlobCacheActor::new();
-    let account_cache_actor = AccountCacheActor::new();
-    let pending_transaction_actor = PendingTransactionActor::new();
-    let lasr_rpc_actor = LasrRpcServerActor::new();
-    let scheduler_actor = TaskScheduler::new();
-    let eo_server_actor = EoServerActor::new();
-    let engine_actor = EngineActor::new();
-    let validator_actor = ValidatorActor::new();
-    let eo_client_actor = EoClientActor::new();
-    let da_client_actor = DaClientActor::new();
-    let batcher_actor = BatcherActor::new();
-    let executor_actor = ExecutorActor::new();
 
     let (blob_cache_supervisor, _blob_cache_supervisor_handle) = Actor::spawn(
         Some(blob_cache_supervisor.name()),
@@ -202,6 +189,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(Box::new)?;
 
+    let blob_cache_actor = BlobCacheActor::new();
+    let account_cache_actor = AccountCacheActor::new();
+    let pending_transaction_actor = PendingTransactionActor::new();
+    let lasr_rpc_actor = LasrRpcServerActor::new();
+    let scheduler_actor = TaskScheduler::new();
+    let eo_server_actor = EoServerActor::new();
+    let engine_actor = EngineActor::new();
+    let validator_actor = ValidatorActor::new();
+    let eo_client_actor = EoClientActor::new();
+    let da_client_actor = DaClientActor::new();
+    let batcher_actor = BatcherActor::new();
+    let executor_actor = ExecutorActor::new();
+
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
     let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
@@ -211,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_blob_cache_actor_ref, _blob_cache_handle) = Actor::spawn_linked(
         Some(blob_cache_actor.name()),
-        blob_cache_actor,
+        blob_cache_actor.clone(),
         (),
         blob_cache_supervisor.get_cell(),
     )
@@ -306,7 +306,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
+    let actor_manager = ActorManager::new(ActorPair::new(
+        (blob_cache_supervisor, _blob_cache_supervisor_handle),
+        (_blob_cache_actor_ref, _blob_cache_handle),
+    ));
+
+    tokio::spawn(async move {
+        while let Some(actor) = panic_rx.recv().await {
+            if let ActorStatus::Stopped = actor.get_status() {
+                if let Some(actor_name) = actor.get_name() {
+                    match actor_name.to_actor_type() {
+                        ActorType::BlobCache => {
+                            actor_manager
+                                .respawn_blob_cache(actor_name, blob_cache_actor.clone())
+                                .await
+                                .typecast()
+                                .log_err(|e| e);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    });
+
+    let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
         .build(format!("0.0.0.0:{}", port))
