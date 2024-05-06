@@ -10,10 +10,13 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    get_actor_ref, AccountCacheActor, Batcher, BatcherActor, BlobCacheActor,
-    BlobCacheSupervisorError, DaClient, DaClientActor, EngineActor, EoClient, EoClientActor,
-    EoServerActor, ExecutionEngine, ExecutorActor, LasrRpcServerActor, PendingTransactionActor,
-    TaskScheduler, ValidatorActor, ValidatorCore,
+    get_actor_ref, AccountCacheActor, AccountCacheSupervisorError, Batcher, BatcherActor,
+    BatcherSupervisorError, BlobCacheActor, BlobCacheSupervisorError, DaClient, DaClientActor,
+    DaClientSupervisorError, EngineActor, EngineSupervisorError, EoClient, EoClientActor,
+    EoClientSupervisorError, EoServerActor, EoServerSupervisorError, ExecutionEngine,
+    ExecutorActor, ExecutorSupervisorError, LasrRpcServerActor, PendingTransactionActor,
+    PendingTransactionSupervisorError, TaskScheduler, TaskSchedulerSupervisorError, ValidatorActor,
+    ValidatorCore, ValidatorSupervisorError,
 };
 
 #[derive(Debug, Error)]
@@ -52,7 +55,7 @@ impl ActorManager {
 
     /// Respawn a panicked [`lasr_actors::BlobCacheActor`].
     ///
-    /// Checks the registry for the supervisor prior to creating a new [`ractor::Actor::spawn_linked`].
+    /// Returns an error if the supervisor can't be acquired from the registry.
     pub async fn respawn_blob_cache(
         actor_manager: Arc<Mutex<ActorManager>>,
         actor_name: ractor::ActorName,
@@ -75,9 +78,296 @@ impl ActorManager {
             Err(ActorManagerError::RespawnFailed(actor_name))
         }
     }
+
+    /// Respawn a panicked [`lasr_actors::AccountCacheActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_account_cache(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: AccountCacheActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) = get_actor_ref::<AccountCacheMessage, AccountCacheSupervisorError>(
+            SupervisorType::AccountCache,
+        ) {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.account_cache = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::PendingTransactionActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_pending_tx(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: PendingTransactionActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) = get_actor_ref::<
+            PendingTransactionMessage,
+            PendingTransactionSupervisorError,
+        >(SupervisorType::PendingTransaction)
+        {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.pending_tx = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::TaskScheduler`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_scheduler(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: TaskScheduler,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) = get_actor_ref::<SchedulerMessage, TaskSchedulerSupervisorError>(
+            SupervisorType::Scheduler,
+        ) {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.scheduler = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::EoServerActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_eo_server(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: EoServerActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<EoMessage, EoServerSupervisorError>(SupervisorType::EoServer)
+        {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.eo_server = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::EngineActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_engine(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: EngineActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<EngineMessage, EngineSupervisorError>(SupervisorType::Engine)
+        {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.engine = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::ValidatorActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_validator(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: ValidatorActor,
+        startup_args: Arc<Mutex<ValidatorCore>>,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<ValidatorMessage, ValidatorSupervisorError>(SupervisorType::Validator)
+        {
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.validator = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::EoClientActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_eo_client(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: EoClientActor,
+        startup_args: Arc<Mutex<EoClient>>,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<EoMessage, EoClientSupervisorError>(SupervisorType::EoClient)
+        {
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.eo_client = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::DaClientActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_da_client(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: DaClientActor,
+        startup_args: Arc<Mutex<DaClient>>,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<DaClientMessage, DaClientSupervisorError>(SupervisorType::DaClient)
+        {
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.da_client = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::BatcherActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_batcher(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: BatcherActor,
+        startup_args: Arc<Mutex<Batcher>>,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<BatcherMessage, BatcherSupervisorError>(SupervisorType::Batcher)
+        {
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.batcher = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::ExecutorActor`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_executor(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: ExecutorActor,
+        startup_args: Arc<Mutex<ExecutionEngine<WsClient>>>,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) =
+            get_actor_ref::<ExecutorMessage, ExecutorSupervisorError>(SupervisorType::Executor)
+        {
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_link = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.executor = actor_link;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
 }
 
-/// Custom async builder for constructing a [`ActorManager`].
+/// Custom async builder for constructing an [`ActorManager`].
 #[derive(Default)]
 pub struct ActorManagerBuilder {
     blob_cache: Option<ActorSpawn<BlobCacheMessage>>,
@@ -217,7 +507,7 @@ impl ActorManagerBuilder {
         new.engine = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(engine_actor.name()),
-                engine_actor.clone(),
+                engine_actor,
                 (),
                 engine_supervisor.get_cell(),
             )
@@ -237,7 +527,7 @@ impl ActorManagerBuilder {
         new.validator = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(validator_actor.name()),
-                validator_actor.clone(),
+                validator_actor,
                 validator_core,
                 validator_supervisor.get_cell(),
             )
@@ -257,7 +547,7 @@ impl ActorManagerBuilder {
         new.eo_client = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(eo_client_actor.name()),
-                eo_client_actor.clone(),
+                eo_client_actor,
                 eo_client,
                 eo_client_supervisor.get_cell(),
             )
@@ -277,7 +567,7 @@ impl ActorManagerBuilder {
         new.da_client = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(da_client_actor.name()),
-                da_client_actor.clone(),
+                da_client_actor,
                 da_client,
                 da_client_supervisor.get_cell(),
             )
@@ -297,8 +587,8 @@ impl ActorManagerBuilder {
         new.batcher = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(batcher_actor.name()),
-                batcher_actor.clone(),
-                batcher.clone(),
+                batcher_actor,
+                batcher,
                 batcher_supervisor.get_cell(),
             )
             .await
@@ -317,7 +607,7 @@ impl ActorManagerBuilder {
         new.executor = Some(ActorSpawn::new(
             Actor::spawn_linked(
                 Some(executor_actor.name()),
-                executor_actor.clone(),
+                executor_actor,
                 execution_engine,
                 executor_supervisor.get_cell(),
             )

@@ -275,6 +275,12 @@ impl ActorName for DaClientSupervisor {
         SupervisorType::DaClient.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum DaClientSupervisorError {
+    #[default]
+    #[error("failed to acquire DaClientSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for DaClientSupervisor {

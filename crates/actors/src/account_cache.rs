@@ -258,6 +258,12 @@ impl ActorName for AccountCacheSupervisor {
         SupervisorType::AccountCache.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum AccountCacheSupervisorError {
+    #[default]
+    #[error("failed to acquire AccountCacheSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for AccountCacheSupervisor {

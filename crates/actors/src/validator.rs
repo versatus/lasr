@@ -1283,6 +1283,12 @@ impl ActorName for ValidatorSupervisor {
         SupervisorType::Validator.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum ValidatorSupervisorError {
+    #[default]
+    #[error("failed to acquire ValidatorSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for ValidatorSupervisor {

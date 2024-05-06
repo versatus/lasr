@@ -547,6 +547,12 @@ impl ActorName for EngineSupervisor {
         SupervisorType::Engine.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum EngineSupervisorError {
+    #[default]
+    #[error("failed to acquire EngineSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for EngineSupervisor {

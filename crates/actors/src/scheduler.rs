@@ -314,6 +314,12 @@ impl ActorName for TaskSchedulerSupervisor {
         SupervisorType::Scheduler.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum TaskSchedulerSupervisorError {
+    #[default]
+    #[error("failed to acquire TaskSchedulerSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for TaskSchedulerSupervisor {

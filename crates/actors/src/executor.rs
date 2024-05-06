@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
 use std::{collections::HashMap, path::Path, sync::Arc};
+use thiserror::Error;
 #[cfg(feature = "remote")]
 use tokio::sync::mpsc::Receiver;
 use tokio::{
@@ -968,6 +969,12 @@ impl ActorName for ExecutorSupervisor {
     fn name(&self) -> ractor::ActorName {
         SupervisorType::Executor.to_string()
     }
+}
+#[derive(Debug, Error, Default)]
+pub enum ExecutorSupervisorError {
+    #[default]
+    #[error("failed to acquire ExecutorSupervisor from registry")]
+    RactorRegistryError,
 }
 
 #[async_trait]

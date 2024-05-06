@@ -1886,6 +1886,12 @@ impl ActorName for BatcherSupervisor {
         SupervisorType::Batcher.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum BatcherSupervisorError {
+    #[default]
+    #[error("failed to acquire BatcherSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for BatcherSupervisor {

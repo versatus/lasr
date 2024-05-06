@@ -352,6 +352,12 @@ impl ActorName for EoServerSupervisor {
         SupervisorType::EoServer.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum EoServerSupervisorError {
+    #[default]
+    #[error("failed to acquire EoServerSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for EoServerSupervisor {

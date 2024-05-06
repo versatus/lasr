@@ -820,6 +820,12 @@ impl ActorName for PendingTransactionSupervisor {
         SupervisorType::PendingTransaction.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum PendingTransactionSupervisorError {
+    #[default]
+    #[error("failed to acquire PendingTransactionSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for PendingTransactionSupervisor {

@@ -611,6 +611,12 @@ impl ActorName for EoClientSupervisor {
         SupervisorType::EoClient.to_string()
     }
 }
+#[derive(Debug, Error, Default)]
+pub enum EoClientSupervisorError {
+    #[default]
+    #[error("failed to acquire EoClientSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for EoClientSupervisor {
