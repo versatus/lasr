@@ -8,7 +8,8 @@ use ractor::{
 
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
-    ActorType, RpcMessage, RpcRequestMethod, SchedulerMessage, TransactionResponse,
+    ActorName, ActorType, RpcMessage, RpcRequestMethod, SchedulerMessage, SupervisorType,
+    TransactionResponse,
 };
 use lasr_rpc::LasrRpcServer;
 use lasr_types::{Address, Transaction};
@@ -20,6 +21,12 @@ pub struct LasrRpcServerImpl {
 
 #[derive(Debug, Clone, Default)]
 pub struct LasrRpcServerActor;
+
+impl ActorName for LasrRpcServerActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::RpcServer.to_string()
+    }
+}
 
 impl LasrRpcServerActor {
     pub fn new() -> Self {
@@ -380,6 +387,11 @@ pub struct LasrRpcServerSupervisor;
 impl LasrRpcServerSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for LasrRpcServerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::LasrRpcServer.to_string()
     }
 }
 

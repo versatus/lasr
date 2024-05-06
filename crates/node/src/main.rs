@@ -1,5 +1,10 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+};
 
 use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
@@ -14,7 +19,7 @@ use lasr_actors::{
     ValidatorActor, ValidatorCore, ValidatorSupervisor,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
-use lasr_messages::{ActorType, SupervisorType};
+use lasr_messages::{ActorName, ActorType, SupervisorType};
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
 use ractor::Actor;
@@ -108,6 +113,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(compute_rpc_client, storage_rpc_client);
 
+    let actor_map = HashMap::with_capacity(12);
+
     let blob_cache_supervisor = BlobCacheSupervisor::new();
     let account_cache_supervisor = AccountCacheSupervisor::new();
     let pending_tx_supervisor = PendingTransactionSupervisor::new();
@@ -135,89 +142,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let executor_actor = ExecutorActor::new();
 
     let (blob_cache_supervisor, _blob_cache_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::BlobCache.to_string()),
+        Some(blob_cache_supervisor.name()),
         blob_cache_supervisor,
         (),
     )
     .await
     .map_err(Box::new)?;
     let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::AccountCache.to_string()),
+        Some(account_cache_supervisor.name()),
         account_cache_supervisor,
         (),
     )
     .await
     .map_err(Box::new)?;
     let (pending_tx_supervisor, _pending_tx_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::PendingTransaction.to_string()),
+        Some(pending_tx_supervisor.name()),
         pending_tx_supervisor,
         (),
     )
     .await
     .map_err(Box::new)?;
     let (lasr_rpc_server_supervisor, _lasr_rpc_server_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::LasrRpcServer.to_string()),
+        Some(lasr_rpc_server_supervisor.name()),
         lasr_rpc_server_supervisor,
         (),
     )
     .await
     .map_err(Box::new)?;
-    let (scheduler_supervisor, _scheduler_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::Scheduler.to_string()),
-        scheduler_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (eo_server_supervisor, _eo_server_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::EoServer.to_string()),
-        eo_server_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (engine_supervisor, _engine_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::Engine.to_string()),
-        engine_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (validator_supervisor, _validator_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::Validator.to_string()),
-        validator_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (eo_client_supervisor, _eo_client_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::EoClient.to_string()),
-        eo_client_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (da_client_supervisor, _da_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::DaClient.to_string()),
-        da_client_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (batcher_supervisor, _batcher_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::Batcher.to_string()),
-        batcher_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (executor_supervisor, _executor_supervisor_handle) = Actor::spawn(
-        Some(SupervisorType::Executor.to_string()),
-        executor_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
+    let (scheduler_supervisor, _scheduler_supervisor_handle) =
+        Actor::spawn(Some(scheduler_supervisor.name()), scheduler_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (eo_server_supervisor, _eo_server_supervisor_handle) =
+        Actor::spawn(Some(eo_server_supervisor.name()), eo_server_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (engine_supervisor, _engine_supervisor_handle) =
+        Actor::spawn(Some(engine_supervisor.name()), engine_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (validator_supervisor, _validator_supervisor_handle) =
+        Actor::spawn(Some(validator_supervisor.name()), validator_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (eo_client_supervisor, _eo_client_supervisor_handle) =
+        Actor::spawn(Some(eo_client_supervisor.name()), eo_client_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (da_client_supervisor, _da_supervisor_handle) =
+        Actor::spawn(Some(da_client_supervisor.name()), da_client_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (batcher_supervisor, _batcher_supervisor_handle) =
+        Actor::spawn(Some(batcher_supervisor.name()), batcher_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (executor_supervisor, _executor_supervisor_handle) =
+        Actor::spawn(Some(executor_supervisor.name()), executor_supervisor, ())
+            .await
+            .map_err(Box::new)?;
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
     let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
@@ -227,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
     let (_blob_cache_actor_ref, _blob_cache_handle) = Actor::spawn_linked(
-        Some(ActorType::BlobCache.to_string()),
+        Some(blob_cache_actor.name()),
         blob_cache_actor,
         (),
         blob_cache_supervisor.get_cell(),
@@ -235,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_account_cache_actor_ref, _account_cache_handle) = Actor::spawn_linked(
-        Some(ActorType::AccountCache.to_string()),
+        Some(account_cache_actor.name()),
         account_cache_actor,
         (),
         account_cache_supervisor.get_cell(),
@@ -243,7 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_pending_transaction_actor_ref, _pending_transaction_handle) = Actor::spawn_linked(
-        Some(ActorType::PendingTransactions.to_string()),
+        Some(pending_transaction_actor.name()),
         pending_transaction_actor,
         (),
         pending_tx_supervisor.get_cell(),
@@ -251,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (lasr_rpc_actor_ref, _rpc_server_handle) = Actor::spawn_linked(
-        Some(ActorType::RpcServer.to_string()),
+        Some(lasr_rpc_actor.name()),
         lasr_rpc_actor,
         (),
         lasr_rpc_server_supervisor.get_cell(),
@@ -259,7 +242,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_scheduler_actor_ref, _scheduler_handle) = Actor::spawn_linked(
-        Some(ActorType::Scheduler.to_string()),
+        Some(scheduler_actor.name()),
         scheduler_actor,
         (),
         scheduler_supervisor.get_cell(),
@@ -267,7 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_eo_server_actor_ref, _eo_server_handle) = Actor::spawn_linked(
-        Some(ActorType::EoServer.to_string()),
+        Some(eo_server_actor.name()),
         eo_server_actor,
         (),
         eo_server_supervisor.get_cell(),
@@ -275,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_engine_actor_ref, _engine_handle) = Actor::spawn_linked(
-        Some(ActorType::Engine.to_string()),
+        Some(engine_actor.name()),
         engine_actor.clone(),
         (),
         engine_supervisor.get_cell(),
@@ -283,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_validator_actor_ref, _validator_handle) = Actor::spawn_linked(
-        Some(ActorType::Validator.to_string()),
+        Some(validator_actor.name()),
         validator_actor.clone(),
         validator_core,
         validator_supervisor.get_cell(),
@@ -291,7 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn_linked(
-        Some(ActorType::EoClient.to_string()),
+        Some(eo_client_actor.name()),
         eo_client_actor.clone(),
         eo_client,
         eo_client_supervisor.get_cell(),
@@ -299,7 +282,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
-        Some(ActorType::DaClient.to_string()),
+        Some(da_client_actor.name()),
         da_client_actor.clone(),
         da_client,
         da_client_supervisor.get_cell(),
@@ -307,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_batcher_actor_ref, _batcher_handle) = Actor::spawn_linked(
-        Some(ActorType::Batcher.to_string()),
+        Some(batcher_actor.name()),
         batcher_actor.clone(),
         batcher.clone(),
         batcher_supervisor.get_cell(),
@@ -315,7 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
     let (_executor_actor_ref, _executor_handle) = Actor::spawn_linked(
-        Some(ActorType::Executor.to_string()),
+        Some(executor_actor.name()),
         executor_actor.clone(),
         execution_engine,
         executor_supervisor.get_cell(),

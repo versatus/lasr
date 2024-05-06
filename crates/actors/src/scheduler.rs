@@ -7,8 +7,9 @@ use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
-    AccountCacheMessage, ActorType, DaClientMessage, EngineMessage, EoMessage, RpcMessage,
-    RpcResponseError, SchedulerMessage, TransactionResponse, ValidatorMessage,
+    AccountCacheMessage, ActorName, ActorType, DaClientMessage, EngineMessage, EoMessage,
+    RpcMessage, RpcResponseError, SchedulerMessage, SupervisorType, TransactionResponse,
+    ValidatorMessage,
 };
 use lasr_types::{Address, RecoverableSignature, Transaction};
 use ractor::SupervisionEvent;
@@ -46,6 +47,11 @@ pub struct SchedulerState {
 /// The actor struct for the scheduler actor
 #[derive(Debug, Clone, Default)]
 pub struct TaskScheduler;
+impl ActorName for TaskScheduler {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Scheduler.to_string()
+    }
+}
 
 impl TaskScheduler {
     /// Creates a new TaskScheduler with a reference to the Registry actor
@@ -298,6 +304,11 @@ pub struct TaskSchedulerSupervisor;
 impl TaskSchedulerSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for TaskSchedulerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Scheduler.to_string()
     }
 }
 

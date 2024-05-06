@@ -1,7 +1,10 @@
 use crate::MAX_BATCH_SIZE;
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use lasr_messages::{AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse};
+use lasr_messages::{
+    AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
+    TransactionResponse,
+};
 use lasr_types::{Account, AccountType, Address};
 use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use std::{
@@ -12,6 +15,12 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
+
+impl ActorName for AccountCacheActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::AccountCache.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Error)]
 pub enum AccountCacheError {
@@ -237,6 +246,11 @@ pub struct AccountCacheSupervisor;
 impl AccountCacheSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for AccountCacheSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::AccountCache.to_string()
     }
 }
 

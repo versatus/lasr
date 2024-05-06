@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use eigenda_client::proof::BlobVerificationProof;
 use eigenda_client::response::BlobResponse;
 use futures::stream::FuturesUnordered;
+use lasr_messages::{ActorName, SupervisorType};
 use lasr_messages::{ActorType, BlobCacheMessage, DaClientMessage};
 use lasr_types::{Address, Transaction};
 use ractor::Actor;
@@ -85,6 +86,11 @@ impl BlobCacheActor {
         Self
     }
 }
+impl ActorName for BlobCacheActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::BlobCache.to_string()
+    }
+}
 
 #[async_trait]
 impl Actor for BlobCacheActor {
@@ -114,6 +120,11 @@ pub struct BlobCacheSupervisor;
 impl BlobCacheSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for BlobCacheSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::BlobCache.to_string()
     }
 }
 

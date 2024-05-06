@@ -17,8 +17,9 @@ use futures::{
 };
 use lasr_contract::create_program_id;
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BridgeEvent, DaClientMessage, EngineMessage, EoEvent,
-    EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
+    AccountCacheMessage, ActorName, ActorType, BridgeEvent, DaClientMessage, EngineMessage,
+    EoEvent, EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
+    SupervisorType, ValidatorMessage,
 };
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
@@ -39,6 +40,11 @@ use tokio::sync::{mpsc::Sender, Mutex};
 #[derive(Clone, Debug, Default)]
 pub struct EngineActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), EngineError>>>,
+}
+impl ActorName for EngineActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Engine.to_string()
+    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -532,6 +538,11 @@ pub struct EngineSupervisor;
 impl EngineSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for EngineSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Engine.to_string()
     }
 }
 

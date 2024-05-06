@@ -22,12 +22,19 @@ use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam};
 use crate::{handle_actor_response, scheduler::SchedulerError};
 
 use lasr_messages::{
-    ActorType, BridgeEvent, BridgeEventBuilder, DaClientMessage, EngineMessage, EoEvent, EoMessage,
-    SchedulerMessage, SettlementEvent, SettlementEventBuilder, ValidatorMessage,
+    ActorName, ActorType, BridgeEvent, BridgeEventBuilder, DaClientMessage, EngineMessage, EoEvent,
+    EoMessage, SchedulerMessage, SettlementEvent, SettlementEventBuilder, SupervisorType,
+    ValidatorMessage,
 };
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
+
+impl ActorName for EoServerActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::EoServer.to_string()
+    }
+}
 
 pub struct EoServerWrapper {
     server: InnerEoServer,
@@ -336,6 +343,11 @@ pub struct EoServerSupervisor;
 impl EoServerSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for EoServerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::EoServer.to_string()
     }
 }
 

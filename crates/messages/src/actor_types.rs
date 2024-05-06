@@ -78,6 +78,10 @@ impl ToString for SupervisorType {
     }
 }
 
+pub trait ActorName {
+    fn name(&self) -> ractor::ActorName;
+}
+
 #[derive(Debug, Clone)]
 pub enum RpcRequestMethod {
     Call { transaction: Transaction },

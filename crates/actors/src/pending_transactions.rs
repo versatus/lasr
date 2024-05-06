@@ -1,5 +1,6 @@
 use lasr_messages::{
-    ActorType, ExecutorMessage, PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
+    ActorName, ActorType, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
+    SupervisorType, ValidatorMessage,
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -663,6 +664,11 @@ impl PendingTransactionActor {
         Self
     }
 }
+impl ActorName for PendingTransactionActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::PendingTransactions.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Error)]
 pub enum PendingTransactionError {
@@ -804,6 +810,11 @@ pub struct PendingTransactionSupervisor;
 impl PendingTransactionSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for PendingTransactionSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::PendingTransaction.to_string()
     }
 }
 

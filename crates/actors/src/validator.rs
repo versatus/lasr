@@ -6,7 +6,10 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
-use lasr_messages::{ActorType, BatcherMessage, PendingTransactionMessage, ValidatorMessage};
+use lasr_messages::{
+    ActorName, ActorType, BatcherMessage, PendingTransactionMessage, SupervisorType,
+    ValidatorMessage,
+};
 use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -977,6 +980,11 @@ impl ValidatorCore {
 pub struct ValidatorActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), ValidatorError>>>,
 }
+impl ActorName for ValidatorActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Validator.to_string()
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ValidatorError {
@@ -1266,6 +1274,11 @@ pub struct ValidatorSupervisor;
 impl ValidatorSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for ValidatorSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Validator.to_string()
     }
 }
 

@@ -22,12 +22,17 @@ use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt,
 use web3::Web3;
 
 use crate::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
-use lasr_messages::{ActorType, EoMessage, HashOrError};
+use lasr_messages::{ActorName, ActorType, EoMessage, HashOrError, SupervisorType};
 use lasr_types::{Address, U256};
 
 #[derive(Clone, Debug)]
 pub struct EoClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+impl ActorName for EoClientActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::EoClient.to_string()
+    }
 }
 
 #[derive(Debug, Error)]
@@ -596,6 +601,11 @@ pub struct EoClientSupervisor;
 impl EoClientSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for EoClientSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::EoClient.to_string()
     }
 }
 

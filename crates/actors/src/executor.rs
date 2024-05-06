@@ -9,7 +9,7 @@ use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 #[cfg(feature = "local")]
 use lasr_compute::OciManager;
 use lasr_contract::create_program_id;
-use lasr_messages::BatcherMessage;
+use lasr_messages::{ActorName, BatcherMessage, SupervisorType};
 use lasr_messages::{
     ActorType, EngineMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
 };
@@ -262,6 +262,11 @@ impl<C: ClientT> ExecutionEngine<C> {
 #[derive(Clone)]
 pub struct ExecutorActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+impl ActorName for ExecutorActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Executor.to_string()
+    }
 }
 
 impl ExecutorActor {
@@ -955,6 +960,11 @@ pub struct ExecutorSupervisor;
 impl ExecutorSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for ExecutorSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Executor.to_string()
     }
 }
 

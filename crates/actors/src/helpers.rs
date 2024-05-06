@@ -84,7 +84,7 @@ pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
 /// for convenience of access to methods already available for `std::result::Result`.
 pub struct ActorResult<T, E: StdError + Debug>(Result<T, E>);
 impl<T, E: StdError + Debug> ActorResult<T, E> {
-    /// Maps a `Result<T, E>` to `Option<T>` by applying a function to a
+    /// Maps a `ActorResult<T, E>` to `Option<T>` by applying a function to a
     /// contained [`Err`] value, leaving an [`Ok`] value untouched.
     ///
     /// This function can be used to pass through a successful result while handling
@@ -101,9 +101,7 @@ impl<T, E: StdError + Debug> ActorResult<T, E> {
     /// #[derive(Error, Debug)]
     /// enum MyError {
     ///     #[error("failed because: {reason}")]
-    ///     Failed {
-    ///         reason: String,
-    ///     }
+    ///     Failed { reason: String },
     /// }
     ///
     /// let x: Result<u32, std::fmt::Error> = Ok(2);

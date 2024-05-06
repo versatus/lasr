@@ -44,8 +44,8 @@ use crate::{
     UnorderedFuturePool,
 };
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BatcherMessage, DaClientMessage, EoMessage,
-    PendingTransactionMessage, SchedulerMessage,
+    AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
+    PendingTransactionMessage, SchedulerMessage, SupervisorType,
 };
 
 use lasr_contract::create_program_id;
@@ -106,6 +106,11 @@ impl BatcherActor {
         Self {
             future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
         }
+    }
+}
+impl ActorName for BatcherActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Batcher.to_string()
     }
 }
 
@@ -1872,6 +1877,11 @@ pub struct BatcherSupervisor;
 impl BatcherSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for BatcherSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Batcher.to_string()
     }
 }
 

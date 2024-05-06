@@ -14,7 +14,7 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
-use lasr_messages::DaClientMessage;
+use lasr_messages::{ActorName, ActorType, DaClientMessage, SupervisorType};
 use lasr_types::{Account, AccountType, Address};
 use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use thiserror::Error;
@@ -23,6 +23,12 @@ use tokio::{sync::Mutex, task::JoinHandle};
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+
+impl ActorName for DaClientActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::DaClient.to_string()
+    }
 }
 
 impl DaClientActor {
@@ -255,6 +261,11 @@ pub struct DaClientSupervisor;
 impl DaClientSupervisor {
     pub fn new() -> Self {
         Self
+    }
+}
+impl ActorName for DaClientSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::DaClient.to_string()
     }
 }
 
