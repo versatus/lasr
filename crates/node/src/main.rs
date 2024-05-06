@@ -6,7 +6,7 @@ use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
     graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
-    ActorManager, ActorSpawn, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
+    ActorManager, ActorManagerBuilder, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
     BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor, DaClientSupervisor, EngineActor,
     EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
@@ -209,107 +209,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
     let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
-    let (_blob_cache_actor_ref, _blob_cache_handle) = Actor::spawn_linked(
-        Some(blob_cache_actor.name()),
-        blob_cache_actor.clone(),
-        (),
-        blob_cache_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_account_cache_actor_ref, _account_cache_handle) = Actor::spawn_linked(
-        Some(account_cache_actor.name()),
-        account_cache_actor,
-        (),
-        account_cache_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_pending_transaction_actor_ref, _pending_transaction_handle) = Actor::spawn_linked(
-        Some(pending_transaction_actor.name()),
-        pending_transaction_actor,
-        (),
-        pending_tx_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (lasr_rpc_actor_ref, _rpc_server_handle) = Actor::spawn_linked(
-        Some(lasr_rpc_actor.name()),
-        lasr_rpc_actor,
-        (),
-        lasr_rpc_server_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_scheduler_actor_ref, _scheduler_handle) = Actor::spawn_linked(
-        Some(scheduler_actor.name()),
-        scheduler_actor,
-        (),
-        scheduler_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_eo_server_actor_ref, _eo_server_handle) = Actor::spawn_linked(
-        Some(eo_server_actor.name()),
-        eo_server_actor,
-        (),
-        eo_server_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_engine_actor_ref, _engine_handle) = Actor::spawn_linked(
-        Some(engine_actor.name()),
-        engine_actor.clone(),
-        (),
-        engine_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_validator_actor_ref, _validator_handle) = Actor::spawn_linked(
-        Some(validator_actor.name()),
-        validator_actor.clone(),
-        validator_core,
-        validator_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn_linked(
-        Some(eo_client_actor.name()),
-        eo_client_actor.clone(),
-        eo_client,
-        eo_client_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
-        Some(da_client_actor.name()),
-        da_client_actor.clone(),
-        da_client,
-        da_client_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_batcher_actor_ref, _batcher_handle) = Actor::spawn_linked(
-        Some(batcher_actor.name()),
-        batcher_actor.clone(),
-        batcher.clone(),
-        batcher_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-    let (_executor_actor_ref, _executor_handle) = Actor::spawn_linked(
-        Some(executor_actor.name()),
-        executor_actor.clone(),
-        execution_engine,
-        executor_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
+    let actor_manager_inner: ActorManager = ActorManagerBuilder::default()
+        .blob_cache(blob_cache_actor.clone(), blob_cache_supervisor)
+        .await?
+        .account_cache(account_cache_actor.clone(), account_cache_supervisor)
+        .await?
+        .pending_tx(pending_transaction_actor.clone(), pending_tx_supervisor)
+        .await?
+        .lasr_rpc_server(lasr_rpc_actor.clone(), lasr_rpc_server_supervisor)
+        .await?
+        .scheduler(scheduler_actor.clone(), scheduler_supervisor)
+        .await?
+        .eo_server(eo_server_actor.clone(), eo_server_supervisor)
+        .await?
+        .engine(engine_actor.clone(), engine_supervisor)
+        .await?
+        .validator(
+            validator_actor.clone(),
+            validator_core,
+            validator_supervisor,
+        )
+        .await?
+        .eo_client(eo_client_actor.clone(), eo_client, eo_client_supervisor)
+        .await?
+        .da_client(da_client_actor.clone(), da_client, da_client_supervisor)
+        .await?
+        .batcher(batcher_actor.clone(), batcher, batcher_supervisor)
+        .await?
+        .executor(
+            executor_actor.clone(),
+            execution_engine,
+            executor_supervisor,
+        )
+        .await?
+        .build();
 
-    let actor_manager = Arc::new(Mutex::new(ActorManager::new(ActorSpawn::new((
-        _blob_cache_actor_ref,
-        _blob_cache_handle,
-    )))));
+    let lasr_rpc_actor_ref = actor_manager_inner.get_lasr_rpc_actor_ref();
+
+    let actor_manager = Arc::new(Mutex::new(actor_manager_inner));
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
