@@ -45,11 +45,13 @@ impl EoServerWrapper {
                 ))?
                 .into();
 
+        log::info!("attempting to load processed blocks");
         if let Err(e) = self.server.load_processed_blocks().await {
             log::error!("unable to load processed blocks from file: {}", e);
         }
 
         loop {
+            log::info!("EO Actor running");
             let logs = self.server.next().await;
             if let Ok(log) = &logs.log_result {
                 if !log.is_empty() {
