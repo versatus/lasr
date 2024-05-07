@@ -51,20 +51,22 @@ impl EoServerWrapper {
         }
 
         loop {
-            log::info!("EO Actor running");
             let logs = self.server.next().await;
-            if let Ok(log) = &logs.log_result {
-                if !log.is_empty() {
-                    log::info!("non-empty log found: {:?}", log);
-                    eo_actor
-                        .cast(EoMessage::Log {
-                            log_type: logs.event_type,
-                            log: log.to_vec(),
-                        })
-                        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+            match &logs.log_result {
+                Ok(log) => {
+                    if !log.is_empty() {
+                        log::info!("non-empty log found: {:?}", log);
+                        eo_actor
+                            .cast(EoMessage::Log {
+                                log_type: logs.event_type,
+                                log: log.to_vec(),
+                            })
+                            .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-                    self.server.save_blocks_processed();
+                        self.server.save_blocks_processed();
+                    }
                 }
+                Err(e) => log::error!("EoServer Error: server log returned an error: {e:?}"),
             }
 
             if let ActorStatus::Stopped = eo_actor.get_status() {
