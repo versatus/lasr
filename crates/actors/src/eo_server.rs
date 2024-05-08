@@ -16,7 +16,7 @@ use ractor::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex};
-use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam};
+use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 
 use crate::{handle_actor_response, scheduler::SchedulerError};
 
@@ -113,11 +113,19 @@ impl EoServerActor {
     }
 
     fn parse_bridge_log(
-        logs: Vec<Log>,
+        mut logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
         log::warn!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
+        logs.sort_unstable_by(|a, b| {
+            let a_value = a.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+                .and_then(|p| p.value.clone().into_uint()?.into());
+            let b_value = b.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+                .and_then(|p| p.value.clone().into_uint()?.into());
+
+            a_value.cmp(&b_value)
+        });
         for log in logs {
             for param in log.params {
                 match &param.name[..] {

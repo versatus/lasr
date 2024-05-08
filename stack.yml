@@ -1,0 +1,48 @@
+version: "3.7"
+
+x-defaults: &defaults
+    init: true
+    volumes:
+        - ./entrypoints:/entrypoints
+    environment:
+        SLOT: "{{.Task.Slot}}"
+        NAME: "{{.Task.Name}}"
+    entrypoint: /bin/sh
+    deploy:
+        replicas: 1
+        restart_policy:
+            condition: on-failure
+            delay: 5s
+
+services:
+    pd:
+        <<: *defaults
+        image: pingcap/pd
+        hostname: "{{.Task.Name}}.tikv"
+        init: true
+        networks:
+            tikv:
+                aliases:
+                    - pd.tikv
+        ports:
+            - "2379:2379"
+            - "2380:2380"
+        command: /entrypoints/pd.sh
+    tikv:
+        <<: *defaults
+        image: pingcap/tikv
+        hostname: "{{.Task.Name}}.tikv"
+
+        networks:
+            tikv:
+                aliases:
+                    - tikv.tikv
+        ports:
+            - "20160:20160"
+        command: /entrypoints/tikv.sh
+
+networks:
+    tikv:
+        name: "tikv"
+        driver: "overlay"
+        attachable: true
