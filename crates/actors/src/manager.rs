@@ -681,3 +681,217 @@ impl<M: Sized> ActorSpawn<M> {
         Self { actor }
     }
 }
+
+#[cfg(test)]
+mod actor_manager_tests {
+    use std::sync::Arc;
+
+    use super::ActorSpawn;
+    use crate::{get_actor_ref, ActorManagerError};
+
+    use async_trait::async_trait;
+    use ractor::{
+        errors::ActorProcessingErr, Actor, ActorCell, ActorRef, ActorStatus, SupervisionEvent,
+    };
+    use ractor_cluster::RactorMessage;
+    use thiserror::Error;
+    use tokio::sync::{
+        mpsc::{self, Sender},
+        Mutex,
+    };
+
+    // Minimal reproduction types for proving the effectiveness
+    // of the ActorManager's ability to respawn panicked actors
+
+    struct TestSupervisor {
+        panic_tx: Sender<ActorCell>,
+    }
+
+    #[async_trait]
+    impl Actor for TestSupervisor {
+        type Msg = TestMessage;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _args: (),
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle_supervisor_evt(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            message: SupervisionEvent,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            match message {
+                SupervisionEvent::ActorTerminated(who, ..) => {
+                    self.panic_tx
+                        .send(who)
+                        .await
+                        .map_err(|e| println!("{e:?}"))
+                        .unwrap();
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Error, Default)]
+    pub enum TestSupervisorError {
+        #[default]
+        #[error("failed to acquire TestSupervisor from registry")]
+        RactorRegistryError,
+    }
+
+    #[derive(Clone)]
+    struct TestActor;
+
+    #[async_trait]
+    impl Actor for TestActor {
+        type Msg = TestMessage;
+        type State = ();
+        type Arguments = ();
+
+        async fn pre_start(
+            &self,
+            _myself: ActorRef<Self::Msg>,
+            _: (),
+        ) -> Result<Self::State, ActorProcessingErr> {
+            Ok(())
+        }
+
+        async fn handle(
+            &self,
+            myself: ActorRef<Self::Msg>,
+            message: Self::Msg,
+            _state: &mut Self::State,
+        ) -> Result<(), ActorProcessingErr> {
+            match message {
+                TestMessage::Panic => myself.get_cell().kill(),
+                TestMessage::Continue => {}
+            }
+            Ok(())
+        }
+    }
+
+    #[allow(unused)]
+    #[derive(RactorMessage)]
+    enum TestMessage {
+        Panic,
+        Continue,
+    }
+
+    struct TestActorManager {
+        pub(crate) test_actor: ActorSpawn<TestMessage>,
+    }
+    impl TestActorManager {
+        async fn new(test_supervisor: ActorRef<TestMessage>, test_actor: TestActor) -> Self {
+            Self {
+                test_actor: ActorSpawn::new(
+                    Actor::spawn_linked(
+                        Some("test_actor".to_string()),
+                        test_actor,
+                        (),
+                        test_supervisor.get_cell(),
+                    )
+                    .await
+                    .expect("failed to spawn test actor"),
+                ),
+            }
+        }
+
+        pub async fn respawn_test_actor(
+            actor_manager: Arc<Mutex<TestActorManager>>,
+            actor_name: ractor::ActorName,
+            handler: TestActor,
+        ) -> Result<(), ActorManagerError> {
+            if let Some(supervisor) =
+                get_actor_ref::<TestMessage, TestSupervisorError>("test_supervisor")
+            {
+                let actor = Actor::spawn_linked(
+                    Some(actor_name.clone()),
+                    handler,
+                    (),
+                    supervisor.get_cell(),
+                )
+                .await
+                .map_err(|e| ActorManagerError::Custom(e.to_string()))
+                .unwrap();
+                let actor_spawn = ActorSpawn::new(actor);
+                {
+                    let mut guard = actor_manager.lock().await;
+                    guard.test_actor = actor_spawn;
+                }
+                Ok(())
+            } else {
+                Err(ActorManagerError::RespawnFailed(actor_name))
+            }
+        }
+    }
+
+    // Constructs a test actor and supervisor, sends a signal to stop the supervised actor
+    // and waits up to 10s to restart the stopped actor. In production this process will
+    // only occur when an actor panics.
+    #[tokio::test]
+    async fn test_panicked_actor_can_be_respawned() {
+        // create panic mpsc::channel
+        let (panic_tx, mut panic_rx) = mpsc::channel(1);
+        // start supervisor with panic tx
+        let supervisor = TestSupervisor { panic_tx };
+        let (supervisor_ref, _handle) =
+            Actor::spawn(Some("test_supervisor".to_string()), supervisor, ())
+                .await
+                .expect("failed to spawn test supervisor");
+        // build TestActorManager which spawns a supervised actor
+        let test_actor = TestActor;
+        let actor_manager = Arc::new(Mutex::new(
+            TestActorManager::new(supervisor_ref, test_actor.clone()).await,
+        ));
+        // send panic message to test actor
+        let test_actor_ref = {
+            let guard = actor_manager.lock().await;
+            guard.test_actor.actor.0.clone()
+        };
+        test_actor
+            .handle(test_actor_ref, TestMessage::Panic, &mut ())
+            .await
+            .expect("failed to send panic message");
+        // spawn thread with panic rx awaiting panicked actor signal
+        let actor_manager_clone = actor_manager.clone();
+        tokio::spawn(async move {
+            while let Some(actor) = panic_rx.recv().await {
+                // assert the actor status is stopped & panic actor is the expected actor
+                assert!(
+                    actor.get_status() == ActorStatus::Stopped
+                        || actor.get_status() == ActorStatus::Stopping
+                );
+                assert_eq!(actor.get_name(), Some("test_actor".to_string()));
+                let actor_name = actor.get_name().unwrap();
+                let manager_ptr = Arc::clone(&actor_manager_clone);
+                TestActorManager::respawn_test_actor(manager_ptr, actor_name, test_actor.clone())
+                    .await
+                    .map_err(|e| println!("{e:?}"))
+                    .unwrap();
+            }
+        });
+        // respawn the actor and assert the actor status is running, fail if the process takes longer than 10s
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+        let mut timeout = 0;
+        loop {
+            assert_ne!(timeout, 6);
+            {
+                let guard = actor_manager.lock().await;
+                if guard.test_actor.actor.0.get_status() == ActorStatus::Running {
+                    break;
+                }
+            }
+            interval.tick().await;
+            timeout += 1;
+        }
+    }
+}
