@@ -1864,9 +1864,9 @@ impl Actor for BatcherActor {
         let batcher_ptr = Arc::clone(state);
         match message {
             BatcherMessage::GetNextBatch => {
-                let fut = Batcher::handle_next_batch_request(batcher_ptr);
-                let mut guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
+                Batcher::handle_next_batch_request(batcher_ptr).await?;
+                // let mut guard = self.future_pool.lock().await;
+                // guard.push(fut.boxed());
             }
             BatcherMessage::AppendTransaction {
                 transaction,

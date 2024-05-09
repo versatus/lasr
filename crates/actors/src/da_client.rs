@@ -165,9 +165,9 @@ impl Actor for DaClientActor {
         match message {
             // Optimistically and naively store account blobs
             DaClientMessage::StoreBatch { batch, tx } => {
-                let fut = DaClientActor::store_batch(da_client_ptr, batch, tx);
-                let guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
+                DaClientActor::store_batch(da_client_ptr, batch, tx).await;
+                // let guard = self.future_pool.lock().await;
+                // guard.push(fut.boxed());
             }
             DaClientMessage::ValidateBlob { request_id, tx } => {
                 let fut = DaClientActor::validate_blob(da_client_ptr, request_id, tx);
