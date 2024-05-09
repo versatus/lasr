@@ -17,7 +17,7 @@ use ractor::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex};
-use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam};
+use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 
 use crate::{handle_actor_response, scheduler::SchedulerError};
 
@@ -53,24 +53,28 @@ impl EoServerWrapper {
                 ))?
                 .into();
 
+        log::info!("attempting to load processed blocks");
         if let Err(e) = self.server.load_processed_blocks().await {
             log::error!("unable to load processed blocks from file: {}", e);
         }
 
         loop {
             let logs = self.server.next().await;
-            if let Ok(log) = &logs.log_result {
-                if !log.is_empty() {
-                    log::info!("non-empty log found: {:?}", log);
-                    eo_actor
-                        .cast(EoMessage::Log {
-                            log_type: logs.event_type,
-                            log: log.to_vec(),
-                        })
-                        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+            match &logs.log_result {
+                Ok(log) => {
+                    if !log.is_empty() {
+                        log::info!("non-empty log found: {:?}", log);
+                        eo_actor
+                            .cast(EoMessage::Log {
+                                log_type: logs.event_type,
+                                log: log.to_vec(),
+                            })
+                            .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-                    self.server.save_blocks_processed();
+                        self.server.save_blocks_processed();
+                    }
                 }
+                Err(e) => log::error!("EoServer Error: server log returned an error: {e:?}"),
             }
 
             if let ActorStatus::Stopped = eo_actor.get_status() {
@@ -121,11 +125,19 @@ impl EoServerActor {
     }
 
     fn parse_bridge_log(
-        logs: Vec<Log>,
+        mut logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
         log::warn!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
+        logs.sort_unstable_by(|a, b| {
+            let a_value = a.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+                .and_then(|p| p.value.clone().into_uint()?.into());
+            let b_value = b.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+                .and_then(|p| p.value.clone().into_uint()?.into());
+
+            a_value.cmp(&b_value)
+        });
         for log in logs {
             for param in log.params {
                 match &param.name[..] {
