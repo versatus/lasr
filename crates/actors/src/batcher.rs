@@ -29,6 +29,7 @@ use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use std::io::Write;
 use thiserror::Error;
+use tikv_client::RawClient;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender, UnboundedSender},
@@ -118,6 +119,18 @@ impl ActorName for BatcherActor {
 pub struct Batch {
     transactions: HashMap<String, Transaction>,
     accounts: HashMap<String, Account>,
+}
+
+// Structure for persistence layer `Account` values
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountValue {
+    account: Account,
+}
+
+// Structure for persistence layer `Transaction` values
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransactionValue {
+    transaction: Transaction,
 }
 
 impl Batch {
@@ -1649,6 +1662,64 @@ impl Batcher {
             let mut guard = batcher.lock().await;
             if !guard.parent.empty() {
                 log::info!("found next batch: {:?}", guard.parent);
+
+                // todo: set pd_endpoints to be env var
+                if let Ok(client) = RawClient::new(vec!["127.0.0.1:2379"]).await {
+                    log::info!("Connected to persistence layer successfully.");
+
+                    if let Some(batch) = guard.parent.to_owned().into() {
+                        let account_map = &guard.parent.accounts;
+                        // let transaction_map = &guard.parent.transactions;
+
+                        while let Some(account) = account_map.iter().next() {
+                            let data = account.1.clone();
+                            //note: this can be serialized as well need be.
+                            //TiKV will accept any key if of type String, OR Vec<u8>
+                            let acc_key = data.owner_address().to_string();
+
+                            let acc_val = AccountValue { account: data };
+
+                            // Serialize `Account` data to be stored.
+                            if let Some(val) = bincode::serialize(&acc_val).ok() {
+                                if let Ok(acc_addr) = client.put(acc_key, val).await {
+                                    log::info!("Inserted Account with address of {:?}", acc_addr)
+                                } else {
+                                    log::error!("failed to push Account data to persistence store")
+                                }
+                            } else {
+                                log::error!("failed to serialize account data")
+                            }
+                        }
+
+                        // while let Some(transaction) = transaction_map.iter().next() {
+                        //     let data = transaction.1.clone();
+                        //     if let Some(txn_sig) = data.sig().ok() {
+                        //         log::info!("Recoverable signature obtained.");
+
+                        //         // note: this can be serialized as well need be
+                        //         let txn_key = txn_sig.to_vec();
+
+                        //         let txn_val = TransactionValue { transaction: data };
+
+                        //         // Serialize `Transaction` data to be stored.
+                        //         if let Some(val) = bincode::serialize(&txn_val).ok() {
+                        //             if let Ok(txn_key) = client.put(txn_key, val).await {
+                        //                 log::info!("Inserted Txn with signature: {:?}", txn_key)
+                        //             } else {
+                        //                 log::error!("failed to push Txn data to persistence store.")
+                        //             }
+                        //         } else {
+                        //             log::error!("failed to serialize txn data")
+                        //         }
+                        //     } else {
+                        //         log::error!("failed to obtain recoverable signature")
+                        //     }
+                        // }
+                    }
+                } else {
+                    log::error!("failed to connect to persistence store")
+                }
+
                 if let Some(da_client) =
                     get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
                 {
