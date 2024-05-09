@@ -515,15 +515,15 @@ fn setup_eo_server(
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(239.into()))
-        .to_block(BlockNumber::Number(239.into()))
+        .from_block(BlockNumber::Number(0.into()))
+        .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(312.into()))
-        .to_block(BlockNumber::Number(312.into()))
+        .from_block(BlockNumber::Number(0.into()))
+        .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
         .build();
@@ -557,6 +557,7 @@ fn setup_eo_server(
     let eo_server = eo_listener::EoServerBuilder::default()
         .web3(web3_instance)
         .eo_address(eo_address)
+        .block_time(std::time::Duration::from_millis(2500))
         .bridge_processed_blocks(BTreeSet::new())
         .settled_processed_blocks(BTreeSet::new())
         .contract(contract)
