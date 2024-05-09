@@ -1669,20 +1669,20 @@ impl Batcher {
 
                     if let Some(batch) = guard.parent.to_owned().into() {
                         let account_map = &guard.parent.accounts;
+                        log::info!("{account_map:?}");
                         // let transaction_map = &guard.parent.transactions;
 
-                        while let Some(account) = account_map.iter().next() {
-                            let data = account.1.clone();
+                        while let Some((addr, account)) = account_map.iter().next() {
+                            let data = account.clone();
                             //note: this can be serialized as well need be.
                             //TiKV will accept any key if of type String, OR Vec<u8>
-                            let acc_key = data.owner_address().to_string();
 
                             let acc_val = AccountValue { account: data };
 
                             // Serialize `Account` data to be stored.
                             if let Some(val) = bincode::serialize(&acc_val).ok() {
-                                if let Ok(acc_addr) = client.put(acc_key, val).await {
-                                    log::info!("Inserted Account with address of {:?}", acc_addr)
+                                if client.put(addr.clone(), val).await.is_ok() {
+                                    log::info!("Inserted Account with address of {}", addr)
                                 } else {
                                     log::error!("failed to push Account data to persistence store")
                                 }
