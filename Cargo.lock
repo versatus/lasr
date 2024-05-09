@@ -2744,7 +2744,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "thiserror",
- "tikv-client 0.3.0 (git+https://github.com/tikv/client-rust.git)",
+ "tikv-client",
  "tokio",
  "tokio-rayon",
  "tokio-stream",
@@ -2851,7 +2851,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simple_logger",
- "tikv-client 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tikv-client",
  "tokio",
  "tokio-rayon",
  "tokio-stream",
@@ -4808,12 +4808,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "take_mut"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
-
-[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4898,34 +4892,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_derive",
- "thiserror",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "tikv-client"
-version = "0.3.0"
-source = "git+https://github.com/tikv/client-rust.git#c6110dd8087a4d9e7bf48da77bbbfafa79614b10"
-dependencies = [
- "async-recursion 0.3.2",
- "async-trait",
- "derive-new",
- "either",
- "fail",
- "futures",
- "lazy_static",
- "log",
- "pin-project",
- "prometheus",
- "prost 0.12.4",
- "rand 0.8.5",
- "regex",
- "semver",
- "serde",
- "serde_derive",
- "serde_json",
- "take_mut",
  "thiserror",
  "tokio",
  "tonic",

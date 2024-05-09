@@ -1664,7 +1664,7 @@ impl Batcher {
 
                     if let Some(batch) = guard.parent.to_owned().into() {
                         let account_map = &guard.parent.accounts;
-                        let transaction_map = &guard.parent.transactions;
+                        // let transaction_map = &guard.parent.transactions;
 
                         while let Some(account) = account_map.iter().next() {
                             let data = account.1.clone();
@@ -1676,8 +1676,8 @@ impl Batcher {
 
                             // Serialize `Account` data to be stored.
                             if let Some(val) = bincode::serialize(&acc_val).ok() {
-                                if let Ok(acc_key) = client.put(acc_key, val).await {
-                                    log::info!("Inserted Account with address of {:?}", acc_key)
+                                if let Ok(acc_addr) = client.put(acc_key, val).await {
+                                    log::info!("Inserted Account with address of {:?}", acc_addr)
                                 } else {
                                     log::error!("failed to push Account data to persistence store")
                                 }
@@ -1686,30 +1686,30 @@ impl Batcher {
                             }
                         }
 
-                        while let Some(transaction) = transaction_map.iter().next() {
-                            let data = transaction.1.clone();
-                            if let Some(txn_sig) = data.sig().ok() {
-                                log::info!("Recoverable signature obtained.");
+                        // while let Some(transaction) = transaction_map.iter().next() {
+                        //     let data = transaction.1.clone();
+                        //     if let Some(txn_sig) = data.sig().ok() {
+                        //         log::info!("Recoverable signature obtained.");
 
-                                // note: this can be serialized as well need be
-                                let txn_key = txn_sig.to_vec();
+                        //         // note: this can be serialized as well need be
+                        //         let txn_key = txn_sig.to_vec();
 
-                                let txn_val = TransactionValue { transaction: data };
+                        //         let txn_val = TransactionValue { transaction: data };
 
-                                // Serialize `Transaction` data to be stored.
-                                if let Some(val) = bincode::serialize(&txn_val).ok() {
-                                    if let Ok(txn_key) = client.put(txn_key, val).await {
-                                        log::info!("Inserted Txn with signature: {:?}", txn_key)
-                                    } else {
-                                        log::error!("failed to push Txn data to persistence store.")
-                                    }
-                                } else {
-                                    log::error!("failed to serialize txn data")
-                                }
-                            } else {
-                                log::error!("failed to obtain recoverable signature")
-                            }
-                        }
+                        //         // Serialize `Transaction` data to be stored.
+                        //         if let Some(val) = bincode::serialize(&txn_val).ok() {
+                        //             if let Ok(txn_key) = client.put(txn_key, val).await {
+                        //                 log::info!("Inserted Txn with signature: {:?}", txn_key)
+                        //             } else {
+                        //                 log::error!("failed to push Txn data to persistence store.")
+                        //             }
+                        //         } else {
+                        //             log::error!("failed to serialize txn data")
+                        //         }
+                        //     } else {
+                        //         log::error!("failed to obtain recoverable signature")
+                        //     }
+                        // }
                     }
                 } else {
                     log::error!("failed to connect to persistence store")
