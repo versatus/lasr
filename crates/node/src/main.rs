@@ -1,47 +1,29 @@
 #![allow(unreachable_code)]
-use std::collections::BTreeSet;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::EoServer as EoListener;
-use eo_listener::EoServerError;
+use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
-use lasr_actors::graph_cleaner;
-use lasr_actors::AccountCacheActor;
-use lasr_actors::AccountCacheSupervisor;
-use lasr_actors::ActorExt;
-use lasr_actors::Batcher;
-use lasr_actors::BatcherActor;
-use lasr_actors::BatcherError;
-use lasr_actors::BlobCacheActor;
-use lasr_actors::DaClient;
-use lasr_actors::DaClientActor;
-use lasr_actors::DaSupervisor;
-use lasr_actors::EngineActor;
-use lasr_actors::EoClient;
-use lasr_actors::EoClientActor;
-use lasr_actors::EoServerActor;
-use lasr_actors::EoServerWrapper;
-use lasr_actors::ExecutionEngine;
-use lasr_actors::ExecutorActor;
-use lasr_actors::LasrRpcServerActor;
-use lasr_actors::LasrRpcServerImpl;
-use lasr_actors::PendingTransactionActor;
-use lasr_actors::TaskScheduler;
-use lasr_actors::ValidatorActor;
-use lasr_actors::ValidatorCore;
-use lasr_compute::OciBundler;
-use lasr_compute::OciBundlerBuilder;
-use lasr_compute::OciManager;
-use lasr_messages::ActorType;
+use lasr_actors::{
+    graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
+    ActorManager, ActorManagerBuilder, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
+    BlobCacheActor, BlobCacheSupervisor, DaClient, DaClientActor, DaClientSupervisor, EngineActor,
+    EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
+    EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
+    LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
+    PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
+    ValidatorCore, ValidatorSupervisor,
+};
+use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
+use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
-use ractor::Actor;
-use tokio::sync::Mutex;
-
+use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    Mutex,
+};
 use web3::types::BlockNumber;
 
 #[tokio::main]
@@ -84,6 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_client = Arc::new(Mutex::new(
         setup_eo_client(web3_instance.clone(), sk).await?,
     ));
+    let inner_eo_server =
+        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -128,131 +112,300 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     let execution_engine = ExecutionEngine::new(compute_rpc_client, storage_rpc_client);
 
+    let (panic_tx, mut panic_rx): (Sender<ActorCell>, Receiver<ActorCell>) =
+        tokio::sync::mpsc::channel(120);
+
+    let blob_cache_supervisor = BlobCacheSupervisor::new(panic_tx.clone());
+    let account_cache_supervisor = AccountCacheSupervisor::new(panic_tx.clone());
+    let pending_tx_supervisor = PendingTransactionSupervisor::new(panic_tx.clone());
+    let lasr_rpc_server_supervisor = LasrRpcServerSupervisor::new(panic_tx.clone());
+    let scheduler_supervisor = TaskSchedulerSupervisor::new(panic_tx.clone());
+    let eo_server_supervisor = EoServerSupervisor::new(panic_tx.clone());
+    let engine_supervisor = EngineSupervisor::new(panic_tx.clone());
+    let validator_supervisor = ValidatorSupervisor::new(panic_tx.clone());
+    let eo_client_supervisor = EoClientSupervisor::new(panic_tx.clone());
+    let da_client_supervisor = DaClientSupervisor::new(panic_tx.clone());
+    let batcher_supervisor = BatcherSupervisor::new(panic_tx.clone());
+    let executor_supervisor = ExecutorSupervisor::new(panic_tx);
+
+    let (blob_cache_supervisor, _blob_cache_supervisor_handle) = Actor::spawn(
+        Some(blob_cache_supervisor.name()),
+        blob_cache_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
+        Some(account_cache_supervisor.name()),
+        account_cache_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+    let (pending_tx_supervisor, _pending_tx_supervisor_handle) = Actor::spawn(
+        Some(pending_tx_supervisor.name()),
+        pending_tx_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+    let (lasr_rpc_server_supervisor, _lasr_rpc_server_supervisor_handle) = Actor::spawn(
+        Some(lasr_rpc_server_supervisor.name()),
+        lasr_rpc_server_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
+    let (scheduler_supervisor, _scheduler_supervisor_handle) =
+        Actor::spawn(Some(scheduler_supervisor.name()), scheduler_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (eo_server_supervisor, _eo_server_supervisor_handle) =
+        Actor::spawn(Some(eo_server_supervisor.name()), eo_server_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (engine_supervisor, _engine_supervisor_handle) =
+        Actor::spawn(Some(engine_supervisor.name()), engine_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (validator_supervisor, _validator_supervisor_handle) =
+        Actor::spawn(Some(validator_supervisor.name()), validator_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (eo_client_supervisor, _eo_client_supervisor_handle) =
+        Actor::spawn(Some(eo_client_supervisor.name()), eo_client_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (da_client_supervisor, _da_supervisor_handle) =
+        Actor::spawn(Some(da_client_supervisor.name()), da_client_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (batcher_supervisor, _batcher_supervisor_handle) =
+        Actor::spawn(Some(batcher_supervisor.name()), batcher_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+    let (executor_supervisor, _executor_supervisor_handle) =
+        Actor::spawn(Some(executor_supervisor.name()), executor_supervisor, ())
+            .await
+            .map_err(Box::new)?;
+
     let blob_cache_actor = BlobCacheActor::new();
     let account_cache_actor = AccountCacheActor::new();
-    let pending_transaction_actor = PendingTransactionActor;
+    let pending_transaction_actor = PendingTransactionActor::new();
     let lasr_rpc_actor = LasrRpcServerActor::new();
     let scheduler_actor = TaskScheduler::new();
     let eo_server_actor = EoServerActor::new();
     let engine_actor = EngineActor::new();
     let validator_actor = ValidatorActor::new();
     let eo_client_actor = EoClientActor::new();
-    let da_supervisor = DaSupervisor;
-    let account_cache_supervisor = AccountCacheSupervisor;
     let da_client_actor = DaClientActor::new();
     let batcher_actor = BatcherActor::new();
     let executor_actor = ExecutorActor::new();
-    let inner_eo_server =
-        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
     let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
-
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
     let validator_core = Arc::new(Mutex::new(ValidatorCore::default()));
 
-    let (da_supervisor, _da_supervisor_handle) =
-        Actor::spawn(Some("da_supervisor".to_string()), da_supervisor, ())
-            .await
-            .map_err(Box::new)?;
+    let actor_manager_inner: ActorManager = ActorManagerBuilder::default()
+        .blob_cache(blob_cache_actor.clone(), blob_cache_supervisor)
+        .await?
+        .account_cache(account_cache_actor.clone(), account_cache_supervisor)
+        .await?
+        .pending_tx(pending_transaction_actor.clone(), pending_tx_supervisor)
+        .await?
+        .lasr_rpc_server(lasr_rpc_actor.clone(), lasr_rpc_server_supervisor)
+        .await?
+        .scheduler(scheduler_actor.clone(), scheduler_supervisor)
+        .await?
+        .eo_server(eo_server_actor.clone(), eo_server_supervisor)
+        .await?
+        .engine(engine_actor.clone(), engine_supervisor)
+        .await?
+        .validator(
+            validator_actor.clone(),
+            validator_core.clone(),
+            validator_supervisor,
+        )
+        .await?
+        .eo_client(
+            eo_client_actor.clone(),
+            eo_client.clone(),
+            eo_client_supervisor,
+        )
+        .await?
+        .da_client(
+            da_client_actor.clone(),
+            da_client.clone(),
+            da_client_supervisor,
+        )
+        .await?
+        .batcher(batcher_actor.clone(), batcher.clone(), batcher_supervisor)
+        .await?
+        .executor(
+            executor_actor.clone(),
+            execution_engine.clone(),
+            executor_supervisor,
+        )
+        .await?
+        .build();
 
-    let (account_cache_supervisor, _account_cache_supervisor_handle) = Actor::spawn(
-        Some("account_cache_supervisor".to_string()),
-        account_cache_supervisor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
+    let lasr_rpc_actor_ref = actor_manager_inner.get_lasr_rpc_actor_ref();
 
-    let (lasr_rpc_actor_ref, _rpc_server_handle) =
-        Actor::spawn(Some(ActorType::RpcServer.to_string()), lasr_rpc_actor, ())
-            .await
-            .map_err(Box::new)?;
+    let actor_manager = Arc::new(Mutex::new(actor_manager_inner));
+    let engine_actor_clone = engine_actor.clone();
+    let validator_actor_clone = validator_actor.clone();
+    let validator_core_clone = validator_core.clone();
+    let eo_client_actor_clone = eo_client_actor.clone();
+    let eo_client_clone = eo_client.clone();
+    let da_client_actor_clone = da_client_actor.clone();
+    let da_client_clone = da_client.clone();
+    let batcher_actor_clone = batcher_actor.clone();
+    let batcher_clone = batcher.clone();
+    let executor_actor_clone = executor_actor.clone();
+    let execution_engine_clone = execution_engine.clone();
 
-    let (_scheduler_actor_ref, _scheduler_handle) =
-        Actor::spawn(Some(ActorType::Scheduler.to_string()), scheduler_actor, ())
-            .await
-            .map_err(Box::new)?;
+    tokio::spawn(async move {
+        while let Some(actor) = panic_rx.recv().await {
+            if let ActorStatus::Stopped = actor.get_status() {
+                if let Some(actor_name) = actor.get_name() {
+                    let manager_ptr = Arc::clone(&actor_manager);
+                    match actor_name.to_actor_type() {
+                        ActorType::BlobCache => {
+                            ActorManager::respawn_blob_cache(
+                                manager_ptr,
+                                actor_name,
+                                blob_cache_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::AccountCache => {
+                            ActorManager::respawn_account_cache(
+                                manager_ptr,
+                                actor_name,
+                                account_cache_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::PendingTransactions => {
+                            ActorManager::respawn_pending_tx(
+                                manager_ptr,
+                                actor_name,
+                                pending_transaction_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::RpcServer => {
+                            ActorManager::respawn_lasr_rpc_server(
+                                manager_ptr,
+                                actor_name,
+                                lasr_rpc_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Scheduler => {
+                            ActorManager::respawn_scheduler(
+                                manager_ptr,
+                                actor_name,
+                                scheduler_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::EoServer => {
+                            ActorManager::respawn_eo_server(
+                                manager_ptr,
+                                actor_name,
+                                eo_server_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Engine => {
+                            ActorManager::respawn_engine(
+                                manager_ptr,
+                                actor_name,
+                                engine_actor_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Validator => {
+                            ActorManager::respawn_validator(
+                                manager_ptr,
+                                actor_name,
+                                validator_actor_clone.clone(),
+                                validator_core_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::EoClient => {
+                            ActorManager::respawn_eo_client(
+                                manager_ptr,
+                                actor_name,
+                                eo_client_actor_clone.clone(),
+                                eo_client_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::DaClient => {
+                            ActorManager::respawn_da_client(
+                                manager_ptr,
+                                actor_name,
+                                da_client_actor_clone.clone(),
+                                da_client_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Batcher => {
+                            ActorManager::respawn_batcher(
+                                manager_ptr,
+                                actor_name,
+                                batcher_actor_clone.clone(),
+                                batcher_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::Executor => {
+                            ActorManager::respawn_executor(
+                                manager_ptr,
+                                actor_name,
+                                executor_actor_clone.clone(),
+                                execution_engine_clone.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        _ => unreachable!("Actor is not a child of a supervisor"),
+                    }
+                }
+            }
+        }
+    });
 
-    let (_engine_actor_ref, _engine_handle) = Actor::spawn(
-        Some(ActorType::Engine.to_string()),
-        engine_actor.clone(),
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_validator_actor_ref, _validator_handle) = Actor::spawn(
-        Some(ActorType::Validator.to_string()),
-        validator_actor.clone(),
-        validator_core,
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_eo_server_actor_ref, _eo_server_handle) =
-        Actor::spawn(Some(ActorType::EoServer.to_string()), eo_server_actor, ())
-            .await
-            .map_err(Box::new)?;
-
-    let (_eo_client_actor_ref, _eo_client_handle) = Actor::spawn(
-        Some(ActorType::EoClient.to_string()),
-        eo_client_actor.clone(),
-        eo_client,
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_da_client_actor_ref, _da_client_handle) = Actor::spawn_linked(
-        Some(ActorType::DaClient.to_string()),
-        da_client_actor.clone(),
-        da_client,
-        da_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_pending_transaction_actor_ref, _pending_transaction_handle) = Actor::spawn(
-        Some(ActorType::PendingTransactions.to_string()),
-        pending_transaction_actor,
-        (),
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_batcher_actor_ref, _batcher_handle) = Actor::spawn(
-        Some(ActorType::Batcher.to_string()),
-        batcher_actor.clone(),
-        batcher.clone(),
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_executor_actor_ref, _executor_handle) = Actor::spawn(
-        Some(ActorType::Executor.to_string()),
-        executor_actor.clone(),
-        execution_engine,
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_account_cache_actor_ref, _account_cache_handle) = Actor::spawn_linked(
-        Some(ActorType::AccountCache.to_string()),
-        account_cache_actor,
-        (),
-        account_cache_supervisor.get_cell(),
-    )
-    .await
-    .map_err(Box::new)?;
-
-    let (_blob_cache_actor_ref, _blob_cache_handle) =
-        Actor::spawn(Some(ActorType::BlobCache.to_string()), blob_cache_actor, ())
-            .await
-            .map_err(Box::new)?;
-
-    let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref.clone());
+    let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
         .build(format!("0.0.0.0:{}", port))

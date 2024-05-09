@@ -82,9 +82,9 @@ pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
 /// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.
 /// This result type does not panic, but can be cast back into a `std::result::Result`
 /// for convenience of access to methods already available for `std::result::Result`.
-pub struct ActorResult<T, E: StdError + Debug>(Result<T, E>);
-impl<T, E: StdError + Debug> ActorResult<T, E> {
-    /// Maps a `Result<T, E>` to `Option<T>` by applying a function to a
+pub struct ActorResult<T, E: Debug>(Result<T, E>);
+impl<T, E: Debug> ActorResult<T, E> {
+    /// Maps a `ActorResult<T, E>` to `Option<T>` by applying a function to a
     /// contained [`Err`] value, leaving an [`Ok`] value untouched.
     ///
     /// This function can be used to pass through a successful result while handling
@@ -95,15 +95,21 @@ impl<T, E: StdError + Debug> ActorResult<T, E> {
     /// # Examples
     ///
     /// ```
-    /// fn stringify(x: u32) -> String { format!("error code: {x}") }
+    /// use lasr_actors::helpers::{ActorResult, Coerce};
+    /// use thiserror::Error;
     ///
-    /// let x: Result<u32, u32> = Ok(2);
-    /// assert_eq!(x.log_err(stringify), Some(2));
+    /// #[derive(Error, Debug)]
+    /// enum MyError {
+    ///     #[error("failed because: {reason}")]
+    ///     Failed { reason: String },
+    /// }
     ///
-    /// let x: Result<u32, u32> = Err(13);
-    /// assert_eq!(x.log_err(stringify), None));
-    /// // In this case the `Err` is logged to the console, and `None` is returned:
-    /// // [user@system] $: error code: 13
+    /// let x: Result<u32, std::fmt::Error> = Ok(2);
+    /// assert_eq!(x.typecast().log_err(|e| MyError::Failed { reason: e.to_string() }), Some(2));
+    ///
+    /// // In the `Err` case the error is logged to the console, and `None` is returned:
+    /// let x: Result<u32, std::fmt::Error> = Err(std::fmt::Error);
+    /// assert_eq!(x.typecast().log_err(|e| MyError::Failed { reason: e.to_string() }), None);
     /// ```
     pub fn log_err<F: Debug, O: FnOnce(E) -> F>(self, op: O) -> Option<T> {
         match self.into() {
@@ -124,24 +130,24 @@ pub trait Coerce {
     type Type;
     fn typecast(self) -> Self::Type;
 }
-impl<T, E: StdError + Debug> Coerce for ActorResult<T, E> {
+impl<T, E: Debug> Coerce for ActorResult<T, E> {
     type Type = Result<T, E>;
     fn typecast(self) -> Self::Type {
         self.into()
     }
 }
-impl<T, E: StdError + Debug> Coerce for Result<T, E> {
+impl<T, E: Debug> Coerce for Result<T, E> {
     type Type = ActorResult<T, E>;
     fn typecast(self) -> Self::Type {
         self.into()
     }
 }
-impl<T, E: StdError + Debug> From<Result<T, E>> for ActorResult<T, E> {
+impl<T, E: Debug> From<Result<T, E>> for ActorResult<T, E> {
     fn from(value: Result<T, E>) -> Self {
         Self(value)
     }
 }
-impl<T, E: StdError + Debug> From<ActorResult<T, E>> for Result<T, E> {
+impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
     }

@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     check_account_cache, check_da_for_account, create_handler, handle_actor_response, ActorExt,
-    StaticFuture, UnorderedFuturePool,
+    Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -17,12 +17,13 @@ use futures::{
 };
 use lasr_contract::create_program_id;
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BridgeEvent, DaClientMessage, EngineMessage, EoEvent,
-    EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
+    AccountCacheMessage, ActorName, ActorType, BridgeEvent, DaClientMessage, EngineMessage,
+    EoEvent, EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
+    SupervisorType, ValidatorMessage,
 };
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
-    Actor, ActorProcessingErr, ActorRef,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
@@ -39,6 +40,11 @@ use tokio::sync::{mpsc::Sender, Mutex};
 #[derive(Clone, Debug, Default)]
 pub struct EngineActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), EngineError>>>,
+}
+impl ActorName for EngineActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Engine.to_string()
+    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -525,6 +531,73 @@ impl ActorExt for EngineActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct EngineSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl EngineSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for EngineSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Engine.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum EngineSupervisorError {
+    #[default]
+    #[error("failed to acquire EngineSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for EngineSupervisor {
+    type Msg = EngineMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
+        Ok(())
     }
 }
 

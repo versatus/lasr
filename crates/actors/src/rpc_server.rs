@@ -1,15 +1,21 @@
 use async_trait::async_trait;
 use std::str::FromStr;
+use tokio::sync::mpsc::Sender;
 
-use crate::{create_handler, handle_actor_response};
-use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use crate::{create_handler, handle_actor_response, Coerce};
+use ractor::{
+    concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, RpcReplyPort,
+    SupervisionEvent,
+};
 
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
-    ActorType, RpcMessage, RpcRequestMethod, SchedulerMessage, TransactionResponse,
+    ActorName, ActorType, RpcMessage, RpcRequestMethod, SchedulerMessage, SupervisorType,
+    TransactionResponse,
 };
 use lasr_rpc::LasrRpcServer;
 use lasr_types::{Address, Transaction};
+use thiserror::Error;
 
 #[derive(Debug)]
 pub struct LasrRpcServerImpl {
@@ -18,6 +24,12 @@ pub struct LasrRpcServerImpl {
 
 #[derive(Debug, Clone, Default)]
 pub struct LasrRpcServerActor;
+
+impl ActorName for LasrRpcServerActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::RpcServer.to_string()
+    }
+}
 
 impl LasrRpcServerActor {
     pub fn new() -> Self {
@@ -370,6 +382,73 @@ impl Actor for LasrRpcServerActor {
             }
         }
 
+        Ok(())
+    }
+}
+
+pub struct LasrRpcServerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl LasrRpcServerSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for LasrRpcServerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::LasrRpcServer.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum LasrRpcServerSupervisorError {
+    #[default]
+    #[error("failed to acquire LasrRpcServerSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for LasrRpcServerSupervisor {
+    type Msg = RpcMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
         Ok(())
     }
 }

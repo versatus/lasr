@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{ActorExt, Batch, StaticFuture, UnorderedFuturePool};
+use crate::{ActorExt, Batch, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eigenda_client::{
     blob::EncodedBlob,
@@ -14,15 +14,26 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
-use lasr_messages::DaClientMessage;
+use lasr_messages::{ActorName, ActorType, DaClientMessage, SupervisorType};
 use lasr_types::{Account, AccountType, Address};
-use ractor::{concurrency::OneshotSender, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{
+    concurrency::OneshotSender, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
+};
 use thiserror::Error;
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+    sync::{mpsc::Sender, Mutex},
+    task::JoinHandle,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct DaClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+
+impl ActorName for DaClientActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::DaClient.to_string()
+    }
 }
 
 impl DaClientActor {
@@ -251,10 +262,28 @@ async fn validate_blob(
     tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
-pub struct DaSupervisor;
+pub struct DaClientSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl DaClientSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for DaClientSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::DaClient.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum DaClientSupervisorError {
+    #[default]
+    #[error("failed to acquire DaClientSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
-impl Actor for DaSupervisor {
+impl Actor for DaClientSupervisor {
     type Msg = DaClientMessage;
     type State = ();
     type Arguments = ();
@@ -285,6 +314,7 @@ impl Actor for DaSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);

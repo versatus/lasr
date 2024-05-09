@@ -22,7 +22,7 @@ use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     errors::MessagingErr,
     factory::CustomHashFunction,
-    Actor, ActorCell, ActorProcessingErr, ActorRef,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,8 +44,8 @@ use crate::{
     UnorderedFuturePool,
 };
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BatcherMessage, DaClientMessage, EoMessage,
-    PendingTransactionMessage, SchedulerMessage,
+    AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
+    PendingTransactionMessage, SchedulerMessage, SupervisorType,
 };
 
 use lasr_contract::create_program_id;
@@ -106,6 +106,11 @@ impl BatcherActor {
         Self {
             future_pool: Arc::new(Mutex::new(FuturesUnordered::new())),
         }
+    }
+}
+impl ActorName for BatcherActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Batcher.to_string()
     }
 }
 
@@ -1836,6 +1841,7 @@ impl Actor for BatcherActor {
         Ok(())
     }
 }
+
 impl ActorExt for BatcherActor {
     type Output = Result<(), BatcherError>;
     type Future<O> = StaticFuture<Self::Output>;
@@ -1864,6 +1870,73 @@ impl ActorExt for BatcherActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct BatcherSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl BatcherSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for BatcherSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Batcher.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum BatcherSupervisorError {
+    #[default]
+    #[error("failed to acquire BatcherSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for BatcherSupervisor {
+    type Msg = BatcherMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
+            }
+        }
+        Ok(())
     }
 }
 

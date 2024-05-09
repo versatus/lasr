@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::{fmt::Display, sync::Arc};
 
-use crate::{create_handler, ActorExt, StaticFuture, UnorderedFuturePool};
+use crate::{create_handler, ActorExt, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
 use futures::{
@@ -13,6 +13,7 @@ use lasr_types::{Account, Address, Token};
 use ractor::{
     concurrency::{oneshot, OneshotSender},
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,
+    SupervisionEvent,
 };
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex};
@@ -21,12 +22,19 @@ use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 use crate::{handle_actor_response, scheduler::SchedulerError};
 
 use lasr_messages::{
-    ActorType, BridgeEvent, BridgeEventBuilder, DaClientMessage, EngineMessage, EoEvent, EoMessage,
-    SchedulerMessage, SettlementEvent, SettlementEventBuilder, ValidatorMessage,
+    ActorName, ActorType, BridgeEvent, BridgeEventBuilder, DaClientMessage, EngineMessage, EoEvent,
+    EoMessage, SchedulerMessage, SettlementEvent, SettlementEventBuilder, SupervisorType,
+    ValidatorMessage,
 };
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
+
+impl ActorName for EoServerActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::EoServer.to_string()
+    }
+}
 
 pub struct EoServerWrapper {
     server: InnerEoServer,
@@ -337,6 +345,73 @@ impl Actor for EoServerActor {
             }
             _ => {
                 log::info!("Eo Server received unhandled message");
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct EoServerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl EoServerSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for EoServerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::EoServer.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum EoServerSupervisorError {
+    #[default]
+    #[error("failed to acquire EoServerSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for EoServerSupervisor {
+    type Msg = EoMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                log::warn!("process group changed: {:?}", m.get_group());
             }
         }
         Ok(())

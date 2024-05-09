@@ -1,17 +1,29 @@
-use crate::MAX_BATCH_SIZE;
+use crate::{Coerce, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use lasr_messages::{AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse};
+use lasr_messages::{
+    AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
+    TransactionResponse,
+};
 use lasr_types::{Account, AccountType, Address};
-use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{
+    concurrency::OneshotReceiver, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
+};
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
+
+impl ActorName for AccountCacheActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::AccountCache.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Error)]
 pub enum AccountCacheError {
@@ -233,7 +245,25 @@ impl Actor for AccountCacheActor {
     }
 }
 
-pub struct AccountCacheSupervisor;
+pub struct AccountCacheSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl AccountCacheSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for AccountCacheSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::AccountCache.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum AccountCacheSupervisorError {
+    #[default]
+    #[error("failed to acquire AccountCacheSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for AccountCacheSupervisor {
@@ -246,7 +276,6 @@ impl Actor for AccountCacheSupervisor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Da Client running prestart routine");
         Ok(())
     }
 
@@ -267,6 +296,7 @@ impl Actor for AccountCacheSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
