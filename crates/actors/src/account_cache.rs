@@ -2,7 +2,8 @@ use crate::{AccountValue, Coerce, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
-    AccountCacheMessage, ActorName, ActorType, RpcMessage, SupervisorType, TransactionResponse,
+    AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
+    TransactionResponse,
 };
 use lasr_types::{Account, AccountType, Address};
 use ractor::{
@@ -222,9 +223,37 @@ impl Actor for AccountCacheActor {
                     "Recieved account cache read request for account: {:?}",
                     &address
                 );
-                let account = state.inner.get(&address);
+                let account = if let Some(account) = state.inner.get(&address) {
+                    Some(account.clone())
+                } else {
+                    // Pass to persistence store
+                    log::info!(
+                        "Account not found in AccountCache, connecting to persistence store."
+                    );
+                    let acc_key = address.to_string();
+
+                    // Pull `Account` data from persistence store
+                    if let Ok(Some(returned_data)) = state.tikv_client.get(acc_key.to_owned()).await
+                    {
+                        if let Ok(Some(AccountValue { account })) =
+                            bincode::deserialize(&returned_data)
+                        {
+                            state.inner.cache.insert(address, account.clone());
+                            Some(account)
+                        } else {
+                            log::error!("failed to deserialize Account data");
+                            None
+                        }
+                    } else {
+                        log::error!(
+                            "failed to find Account with address: {:?} in persistence store",
+                            address
+                        );
+                        None
+                    }
+                };
                 log::info!("acquired account option: {:?}", &account);
-                let _ = tx.send(account.cloned());
+                let _ = tx.send(account);
             }
             AccountCacheMessage::Remove { address } => {
                 let _ = state.inner.remove(&address);
@@ -241,33 +270,16 @@ impl Actor for AccountCacheActor {
                         reply: None,
                     });
                 } else {
-                    // Pass to persistence store
-                    log::info!(
-                        "Account not found in AccountCache, connecting to persistence store."
-                    );
-                    let acc_key = address.to_string();
-
-                    // Pull `Account` data from persistence store
-                    if let Ok(Some(returned_data)) = state.tikv_client.get(acc_key.to_owned()).await
-                    {
-                        if let Ok(Some(AccountValue { account })) =
-                            bincode::deserialize(&returned_data)
-                        {
-                            let _ = reply.send(RpcMessage::Response {
-                                response: Ok(TransactionResponse::GetAccountResponse(
-                                    account.clone(),
-                                )),
-                                reply: None,
-                            });
-                        } else {
-                            log::error!("failed to deserialize Account data")
-                        }
-                    } else {
-                        log::error!(
-                            "failed to find Account with address: {:?} in persistence store",
-                            address
-                        )
-                    }
+                    // Pass along to EO
+                    // EO passes along to DA if Account Blob discovered
+                    let response = Err(RpcResponseError {
+                        description: "Unable to acquire account from DA or Protocol Cache"
+                            .to_string(),
+                    });
+                    let _ = reply.send(RpcMessage::Response {
+                        response,
+                        reply: None,
+                    });
                 }
             }
         }
