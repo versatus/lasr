@@ -124,14 +124,14 @@ pub struct Batch {
 // Structure for persistence layer `Account` values
 #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountValue {
-    account: Account,
+    pub account: Account,
 }
 
-// Structure for persistence layer `Transaction` values
-#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TransactionValue {
-    transaction: Transaction,
-}
+// // Structure for persistence layer `Transaction` values
+// #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+// pub struct TransactionValue {
+//     transaction: Transaction,
+// }
 
 impl Batch {
     pub fn new() -> Self {

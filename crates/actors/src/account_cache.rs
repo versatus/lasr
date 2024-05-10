@@ -1,9 +1,8 @@
-use crate::{Coerce, MAX_BATCH_SIZE};
+use crate::{AccountValue, Coerce, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
-    AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
-    TransactionResponse,
+    AccountCacheMessage, ActorName, ActorType, RpcMessage, SupervisorType, TransactionResponse,
 };
 use lasr_types::{Account, AccountType, Address};
 use ractor::{
@@ -14,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tikv_client::RawClient;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Default)]
@@ -228,16 +228,36 @@ impl Actor for AccountCacheActor {
                         reply: None,
                     });
                 } else {
-                    // Pass along to EO
-                    // EO passes along to DA if Account Blob discovered
-                    let response = Err(RpcResponseError {
-                        description: "Unable to acquire account from DA or Protocol Cache"
-                            .to_string(),
-                    });
-                    let _ = reply.send(RpcMessage::Response {
-                        response,
-                        reply: None,
-                    });
+                    // Pass to persistence store
+                    if let Ok(client) = RawClient::new(vec!["127.0.0.1:2379"]).await {
+                        log::info!(
+                            "Account not found in AccountCache, connecting to persistence store."
+                        );
+                        let acc_key = address.to_string();
+
+                        // Pull `Account` data from persistence store
+                        if let Ok(Some(returned_data)) = client.get(acc_key.to_owned()).await {
+                            if let Ok(Some(AccountValue { account })) =
+                                bincode::deserialize(&returned_data)
+                            {
+                                let _ = reply.send(RpcMessage::Response {
+                                    response: Ok(TransactionResponse::GetAccountResponse(
+                                        account.clone(),
+                                    )),
+                                    reply: None,
+                                });
+                            } else {
+                                log::error!("failed to deserialize Account data")
+                            }
+                        } else {
+                            log::error!(
+                                "failed to find Account with address: {:?} in persistence store",
+                                address
+                            )
+                        }
+                    } else {
+                        log::error!("failed to connect to persistence store")
+                    }
                 }
             }
         }
