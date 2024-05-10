@@ -1670,13 +1670,11 @@ impl Batcher {
                     log::info!("{account_map:?}");
                     // let transaction_map = &guard.parent.transactions;
 
-                    while let Some((addr, account)) = account_map.iter().next() {
+                    for (addr, account) in account_map.iter() {
                         let data = account.clone();
                         //note: this can be serialized as well need be.
                         //TiKV will accept any key if of type String, OR Vec<u8>
-
                         let acc_val = AccountValue { account: data };
-
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
                             if tikv_client.put(addr.clone(), val).await.is_ok() {
