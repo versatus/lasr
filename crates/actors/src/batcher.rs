@@ -316,7 +316,6 @@ impl Batch {
     }
 }
 
-#[derive(Debug)]
 pub struct Batcher {
     parent: Batch,
     children: VecDeque<Batch>,

@@ -7,6 +7,7 @@ use lasr_messages::{
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use std::sync::Arc;
 use thiserror::Error;
+use tikv_client::RawClient as TikvClient;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -86,14 +87,19 @@ impl ActorManager {
         actor_manager: Arc<Mutex<ActorManager>>,
         actor_name: ractor::ActorName,
         handler: AccountCacheActor,
+        startup_args: TikvClient,
     ) -> Result<(), ActorManagerError> {
         if let Some(supervisor) = get_actor_ref::<AccountCacheMessage, AccountCacheSupervisorError>(
             SupervisorType::AccountCache,
         ) {
-            let actor =
-                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
-                    .await
-                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
             let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
@@ -432,6 +438,7 @@ impl ActorManagerBuilder {
     pub async fn account_cache(
         self,
         account_cache_actor: AccountCacheActor,
+        startup_args: TikvClient,
         account_cache_supervisor: ActorRef<AccountCacheMessage>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut new = self;
@@ -439,7 +446,7 @@ impl ActorManagerBuilder {
             Actor::spawn_linked(
                 Some(account_cache_actor.name()),
                 account_cache_actor,
-                (),
+                startup_args,
                 account_cache_supervisor.get_cell(),
             )
             .await

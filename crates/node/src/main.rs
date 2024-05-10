@@ -20,6 +20,7 @@ use lasr_rpc::LasrRpcServer;
 use lasr_types::Address;
 use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
+use tikv_client::RawClient as TikvClient;
 use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
@@ -68,6 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
+
+    const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
+    let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT]).await?;
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -212,7 +216,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actor_manager_inner: ActorManager = ActorManagerBuilder::default()
         .blob_cache(blob_cache_actor.clone(), blob_cache_supervisor)
         .await?
-        .account_cache(account_cache_actor.clone(), account_cache_supervisor)
+        .account_cache(
+            account_cache_actor.clone(),
+            tikv_client.clone(),
+            account_cache_supervisor,
+        )
         .await?
         .pending_tx(pending_transaction_actor.clone(), pending_tx_supervisor)
         .await?
@@ -288,6 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 account_cache_actor.clone(),
+                                tikv_client.clone(),
                             )
                             .await
                             .typecast()
