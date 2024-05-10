@@ -12,6 +12,7 @@ use ractor::RpcReplyPort;
 use ractor_cluster::RactorMessage;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
+use tikv_client::RawClient as TikvClient;
 use web3::ethabi::{Address as EthereumAddress, FixedBytes};
 use web3::types::TransactionReceipt;
 
@@ -447,13 +448,15 @@ pub enum PendingTransactionMessage {
     CleanGraph,
 }
 
-#[derive(Debug, RactorMessage)]
+#[derive(RactorMessage)]
 pub enum BatcherMessage {
     AppendTransaction {
         transaction: Transaction,
         outputs: Option<Outputs>,
     },
-    GetNextBatch,
+    GetNextBatch {
+        tikv_client: TikvClient,
+    },
     BlobVerificationProof {
         request_id: String,
         proof: BlobVerificationProof,

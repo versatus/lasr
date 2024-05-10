@@ -274,6 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batcher_clone = batcher.clone();
     let executor_actor_clone = executor_actor.clone();
     let execution_engine_clone = execution_engine.clone();
+    let tikv_client_clone = tikv_client.clone();
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
@@ -296,7 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 account_cache_actor.clone(),
-                                tikv_client.clone(),
+                                tikv_client_clone.clone(),
                             )
                             .await
                             .typecast()
@@ -428,7 +429,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(graph_cleaner());
     tokio::spawn(eo_server_wrapper.run());
     tokio::spawn(server_handle.stopped());
-    tokio::spawn(lasr_actors::batch_requestor(stop_rx));
+    tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
 
     let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
