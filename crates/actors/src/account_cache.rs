@@ -1,4 +1,4 @@
-use crate::{Coerce, MAX_BATCH_SIZE};
+use crate::{helpers::Coerce, AccountValue, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tikv_client::RawClient as TikvClient;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Default)]
@@ -43,16 +44,29 @@ impl Default for AccountCacheError {
     }
 }
 
+pub struct AccountCache {
+    inner: AccountCacheInner,
+    tikv_client: TikvClient,
+}
+impl AccountCache {
+    pub fn new(tikv_client: TikvClient) -> Self {
+        Self {
+            inner: AccountCacheInner::new(),
+            tikv_client,
+        }
+    }
+}
+
 #[allow(unused)]
 #[derive(Debug, Default)]
-pub struct AccountCache {
+pub struct AccountCacheInner {
     cache: HashMap<Address, Account>,
     receivers: FuturesUnordered<OneshotReceiver<Address>>,
     batch_interval: Duration,
     last_batch: Option<Instant>,
 }
 
-impl AccountCache {
+impl AccountCacheInner {
     pub fn new() -> Self {
         let batch_interval_secs = std::env::var("BATCH_INTERVAL")
             .unwrap_or_else(|_| "180".to_string())
@@ -179,14 +193,14 @@ impl AccountCacheActor {
 impl Actor for AccountCacheActor {
     type Msg = AccountCacheMessage;
     type State = AccountCache;
-    type Arguments = ();
+    type Arguments = TikvClient;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: (),
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(AccountCache::new())
+        Ok(AccountCache::new(args))
     }
 
     async fn handle(
@@ -201,7 +215,7 @@ impl Actor for AccountCacheActor {
                     "Received account cache write request: 0x{:x}",
                     &account.owner_address()
                 );
-                let _ = state.handle_cache_write(account.clone());
+                let _ = state.inner.handle_cache_write(account.clone());
                 log::info!("Account: {:?}", &account);
             }
             AccountCacheMessage::Read { address, tx } => {
@@ -209,20 +223,46 @@ impl Actor for AccountCacheActor {
                     "Recieved account cache read request for account: {:?}",
                     &address
                 );
-                let account = state.get(&address);
+                let account = if let Some(account) = state.inner.get(&address) {
+                    Some(account.clone())
+                } else {
+                    // Pass to persistence store
+                    log::info!(
+                        "Account not found in AccountCache, connecting to persistence store."
+                    );
+                    let acc_key = address.to_string();
+
+                    // Pull `Account` data from persistence store
+                    state
+                    .tikv_client
+                    .get(acc_key.to_owned())
+                    .await
+                    .typecast()
+                    .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {address} in persistence store: {e:?}")))
+                    .flatten()
+                    .and_then(|returned_data| {
+                        bincode::deserialize(&returned_data)
+                            .typecast()
+                            .log_err(|e| e)
+                            .and_then(|AccountValue { account }| {
+                                state.inner.cache.insert(address, account.clone());
+                                Some(account)
+                            })
+                    })
+                };
                 log::info!("acquired account option: {:?}", &account);
-                let _ = tx.send(account.cloned());
+                let _ = tx.send(account);
             }
             AccountCacheMessage::Remove { address } => {
-                let _ = state.remove(&address);
+                let _ = state.inner.remove(&address);
             }
             AccountCacheMessage::Update { account } => {
-                if let Err(_e) = state.update(account.clone()) {
-                    let _ = state.handle_cache_write(account.clone());
+                if let Err(_e) = state.inner.update(account.clone()) {
+                    let _ = state.inner.handle_cache_write(account.clone());
                 }
             }
             AccountCacheMessage::TryGetAccount { address, reply } => {
-                if let Some(account) = state.get(&address) {
+                if let Some(account) = state.inner.get(&address) {
                     let _ = reply.send(RpcMessage::Response {
                         response: Ok(TransactionResponse::GetAccountResponse(account.clone())),
                         reply: None,
