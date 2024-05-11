@@ -1,4 +1,4 @@
-use crate::{AccountValue, Coerce, MAX_BATCH_SIZE};
+use crate::{helpers::Coerce, AccountValue, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
@@ -233,24 +233,22 @@ impl Actor for AccountCacheActor {
                     let acc_key = address.to_string();
 
                     // Pull `Account` data from persistence store
-                    if let Ok(Some(returned_data)) = state.tikv_client.get(acc_key.to_owned()).await
-                    {
-                        if let Ok(Some(AccountValue { account })) =
-                            bincode::deserialize(&returned_data)
-                        {
-                            state.inner.cache.insert(address, account.clone());
-                            Some(account)
-                        } else {
-                            log::error!("failed to deserialize Account data");
-                            None
-                        }
-                    } else {
-                        log::error!(
-                            "failed to find Account with address: {:?} in persistence store",
-                            address
-                        );
-                        None
-                    }
+                    state
+                    .tikv_client
+                    .get(acc_key.to_owned())
+                    .await
+                    .typecast()
+                    .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {address} in persistence store: {e:?}")))
+                    .flatten()
+                    .and_then(|returned_data| {
+                        bincode::deserialize(&returned_data)
+                            .typecast()
+                            .log_err(|e| e)
+                            .and_then(|AccountValue { account }| {
+                                state.inner.cache.insert(address, account.clone());
+                                Some(account)
+                            })
+                    })
                 };
                 log::info!("acquired account option: {:?}", &account);
                 let _ = tx.send(account);
