@@ -11,7 +11,7 @@ use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::ActorRef;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::sync::Mutex;
 
 /// A thread-safe, non-blocking & mutatable `FuturesUnordered`.
 pub type UnorderedFuturePool<F> = Arc<Mutex<FuturesUnordered<F>>>;
@@ -358,19 +358,7 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
         }
     };
 
-    match timeout(
-        Duration::from_secs(5),
-        attempt_get_account_from_da(da_actor, address, blob_index),
-    )
-    .await
-    {
-        Ok(Some(account)) => Some(account),
-        Ok(None) => None,
-        Err(e) => {
-            log::error!("Error attempting to get account from DA: {e}");
-            None
-        }
-    }
+    attempt_get_account_from_da(da_actor, address, blob_index).await
 }
 
 pub async fn get_account(address: Address) -> Option<Account> {
