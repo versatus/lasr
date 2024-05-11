@@ -2039,6 +2039,7 @@ pub async fn batch_requestor(
 mod batcher_tests {
     use crate::batcher::{ActorExt, Batcher, BatcherActor, BatcherMessage};
     use anyhow::Result;
+    use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
     use lasr_types::TransactionType;
     use std::sync::Arc;
@@ -2117,10 +2118,17 @@ mod batcher_tests {
         let batcher_actor = BatcherActor::new();
         let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
         let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
-        let tikv_client = TikvClient::new(vec!["127.0.0.1:2379"]).await.unwrap();
+        let bv_proof = BlobVerificationProof::default();
+        let request = "test".to_string();
 
         batcher_actor
-            .handle(BatcherMessage::GetNextBatch { tikv_client }, &mut batcher)
+            .handle(
+                BatcherMessage::BlobVerificationProof {
+                    request_id: request,
+                    proof: bv_proof,
+                },
+                &mut batcher,
+            )
             .await
             .unwrap();
         // TODO: Add other handle methods to test interactions
