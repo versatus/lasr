@@ -1,4 +1,6 @@
-use crate::{get_account, ActorExt, Coerce, StaticFuture, UnorderedFuturePool};
+use crate::{
+    get_account, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+};
 use async_trait::async_trait;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::FutureExt;
@@ -1018,7 +1020,7 @@ impl Actor for ExecutorSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())
