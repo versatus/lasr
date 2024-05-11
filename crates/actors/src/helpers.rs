@@ -347,19 +347,14 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
     let da_actor: ActorRef<DaClientMessage> =
         ractor::registry::where_is(ActorType::DaClient.to_string())?.into();
 
-    let blob_index = {
-        match timeout(
-            Duration::from_secs(5),
-            attempt_get_blob_index(eo_actor, address, Duration::from_secs(3)),
-        )
-        .await
-        {
-            Ok(Some(blob_index)) => blob_index,
-            Ok(None) => return None,
-            Err(e) => {
-                log::error!("Error in attempting to get blob_index: {e}");
-                return None;
-            }
+    let blob_index = match attempt_get_blob_index(eo_actor, address).await {
+        Some(blob_index) => blob_index,
+        None => {
+            log::error!(
+                "failed to acquire blob index from EO for address: {}",
+                address.to_full_string()
+            );
+            return None;
         }
     };
 
@@ -403,23 +398,13 @@ pub async fn get_blob_index(
 pub async fn attempt_get_blob_index(
     eo_actor: ActorRef<EoMessage>,
     address: Address,
-    max_duration: Duration,
 ) -> Option<(Address, H256, u128)> {
-    let start_time = std::time::Instant::now();
-    loop {
-        let (tx, rx) = oneshot();
-        let message = EoMessage::GetAccountBlobIndex {
-            address,
-            sender: tx,
-        };
-        if let Some(blob_index) = get_blob_index(eo_actor.clone(), message, rx).await {
-            return Some(blob_index);
-        }
-
-        if start_time.elapsed() >= max_duration {
-            return None;
-        }
-    }
+    let (tx, rx) = oneshot();
+    let message = EoMessage::GetAccountBlobIndex {
+        address,
+        sender: tx,
+    };
+    get_blob_index(eo_actor.clone(), message, rx).await
 }
 
 pub async fn get_account_from_da(
