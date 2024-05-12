@@ -329,6 +329,10 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
         ractor::registry::where_is(ActorType::AccountCache.to_string())?.into();
 
     let (tx, rx) = oneshot();
+
+    // Note: This message will return an `Account` from either the `AccountCache` or the persistence store.
+    // If the account was not found in `AccountCache`, but found in persistence store then it will
+    // write to `AccountCache` for faster reads in the future.
     let message = AccountCacheMessage::Read { address, tx };
 
     actor.cast(message).ok()?;
@@ -375,14 +379,10 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
 
 pub async fn get_account(address: Address) -> Option<Account> {
     log::info!(
-        "checking account cache for account: {} using `get_account` method in mod.rs",
+        "Attempting to get account information from AccountCache for address: {}",
         address.to_full_string()
     );
-    let mut account = check_account_cache(address).await;
-    if account.is_none() {
-        account = check_da_for_account(address).await;
-    }
-    account
+    check_account_cache(address).await
 }
 
 pub async fn get_blob_index(
