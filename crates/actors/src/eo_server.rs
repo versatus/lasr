@@ -58,6 +58,7 @@ impl EoServerWrapper {
             log::error!("unable to load processed blocks from file: {}", e);
         }
 
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
         loop {
             let logs = self.server.next().await;
             match &logs.log_result {
@@ -81,6 +82,7 @@ impl EoServerWrapper {
                 log::error!("EO Actor stopped");
                 break;
             }
+            interval.tick().await;
         }
 
         Ok(())
@@ -131,9 +133,15 @@ impl EoServerActor {
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         logs.sort_unstable_by(|a, b| {
-            let a_value = a.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+            let a_value = a
+                .params
+                .iter()
+                .find(|p| p.name == "bridgeEventId".to_string())
                 .and_then(|p| p.value.clone().into_uint()?.into());
-            let b_value = b.params.iter().find(|p| p.name == "bridgeEventId".to_string())
+            let b_value = b
+                .params
+                .iter()
+                .find(|p| p.name == "bridgeEventId".to_string())
                 .and_then(|p| p.value.clone().into_uint()?.into());
 
             a_value.cmp(&b_value)
