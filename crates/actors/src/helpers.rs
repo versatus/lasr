@@ -10,6 +10,7 @@ use futures::stream::{FuturesOrdered, FuturesUnordered};
 use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
+use ractor::pg::GroupChangeMessage;
 use ractor::ActorRef;
 use tokio::sync::Mutex;
 
@@ -150,6 +151,17 @@ impl<T, E: Debug> From<Result<T, E>> for ActorResult<T, E> {
 impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
+    }
+}
+
+pub fn process_group_changed(group_change_message: GroupChangeMessage) {
+    match group_change_message {
+        GroupChangeMessage::Join(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have joined group {group:?} with scope {scope:?}")
+        }
+        GroupChangeMessage::Leave(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have left group {group:?} with scope {scope:?}")
+        }
     }
 }
 

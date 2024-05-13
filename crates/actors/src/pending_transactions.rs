@@ -17,7 +17,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{get_actor_ref, helpers::Coerce, SchedulerError, ValidatorError};
+use crate::{
+    get_actor_ref, helpers::Coerce, process_group_changed, SchedulerError, ValidatorError,
+};
 
 pub const PENDING_TIMEOUT: u64 = 15000;
 
@@ -867,7 +869,7 @@ impl Actor for PendingTransactionSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

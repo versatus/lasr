@@ -1,4 +1,4 @@
-use crate::{helpers::Coerce, AccountValue, MAX_BATCH_SIZE};
+use crate::{helpers::Coerce, process_group_changed, AccountValue, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
@@ -345,7 +345,7 @@ impl Actor for AccountCacheSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

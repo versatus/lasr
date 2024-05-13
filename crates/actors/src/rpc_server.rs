@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
 
-use crate::{create_handler, handle_actor_response, Coerce};
+use crate::{create_handler, handle_actor_response, process_group_changed, Coerce};
 use ractor::{
     concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, RpcReplyPort,
     SupervisionEvent,
@@ -446,7 +446,7 @@ impl Actor for LasrRpcServerSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

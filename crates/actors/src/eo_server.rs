@@ -1,7 +1,9 @@
 #![allow(unused)]
 use std::{fmt::Display, sync::Arc};
 
-use crate::{create_handler, ActorExt, Coerce, StaticFuture, UnorderedFuturePool};
+use crate::{
+    create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+};
 use async_trait::async_trait;
 use eo_listener::{EoServer as InnerEoServer, EventType};
 use futures::{
@@ -419,7 +421,7 @@ impl Actor for EoServerSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{ActorExt, Batch, Coerce, StaticFuture, UnorderedFuturePool};
+use crate::{process_group_changed, ActorExt, Batch, Coerce, StaticFuture, UnorderedFuturePool};
 use async_trait::async_trait;
 use eigenda_client::{
     blob::EncodedBlob,
@@ -323,7 +323,7 @@ impl Actor for DaClientSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

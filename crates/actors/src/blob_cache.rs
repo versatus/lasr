@@ -17,7 +17,7 @@ use std::fmt::Display;
 use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 
-use crate::Coerce;
+use crate::{process_group_changed, Coerce};
 
 #[derive(Debug, Default)]
 pub struct PendingBlobCache {
@@ -179,7 +179,7 @@ impl Actor for BlobCacheSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())
