@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, handle_actor_response, ActorExt,
-    Coerce, StaticFuture, UnorderedFuturePool,
+    check_account_cache, check_da_for_account, create_handler, handle_actor_response,
+    process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -594,7 +594,7 @@ impl Actor for EngineSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

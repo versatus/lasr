@@ -1,5 +1,6 @@
 use crate::{
-    check_account_cache, check_da_for_account, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+    check_account_cache, check_da_for_account, process_group_changed, ActorExt, Coerce,
+    StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use futures::{
@@ -1330,7 +1331,7 @@ impl Actor for ValidatorSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

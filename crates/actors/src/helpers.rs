@@ -10,8 +10,9 @@ use futures::stream::{FuturesOrdered, FuturesUnordered};
 use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
+use ractor::pg::GroupChangeMessage;
 use ractor::ActorRef;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::sync::Mutex;
 
 /// A thread-safe, non-blocking & mutatable `FuturesUnordered`.
 pub type UnorderedFuturePool<F> = Arc<Mutex<FuturesUnordered<F>>>;
@@ -150,6 +151,17 @@ impl<T, E: Debug> From<Result<T, E>> for ActorResult<T, E> {
 impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
+    }
+}
+
+pub fn process_group_changed(group_change_message: GroupChangeMessage) {
+    match group_change_message {
+        GroupChangeMessage::Join(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have joined group {group:?} with scope {scope:?}")
+        }
+        GroupChangeMessage::Leave(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have left group {group:?} with scope {scope:?}")
+        }
     }
 }
 
@@ -362,19 +374,7 @@ pub async fn check_da_for_account(address: Address) -> Option<Account> {
         }
     };
 
-    match timeout(
-        Duration::from_secs(5),
-        attempt_get_account_from_da(da_actor, address, blob_index),
-    )
-    .await
-    {
-        Ok(Some(account)) => Some(account),
-        Ok(None) => None,
-        Err(e) => {
-            log::error!("Error attempting to get account from DA: {e}");
-            None
-        }
-    }
+    attempt_get_account_from_da(da_actor, address, blob_index).await
 }
 
 pub async fn get_account(address: Address) -> Option<Account> {

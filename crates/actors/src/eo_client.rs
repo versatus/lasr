@@ -22,7 +22,9 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use crate::{ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool};
+use crate::{
+    process_group_changed, ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool,
+};
 use lasr_messages::{ActorName, ActorType, EoMessage, HashOrError, SupervisorType};
 use lasr_types::{Address, U256};
 
@@ -658,7 +660,7 @@ impl Actor for EoClientSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

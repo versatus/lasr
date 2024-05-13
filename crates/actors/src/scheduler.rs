@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
     check_account_cache, check_da_for_account, create_handler, da_client, eo_server,
-    handle_actor_response, Coerce,
+    handle_actor_response, process_group_changed, Coerce,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
@@ -361,7 +361,7 @@ impl Actor for TaskSchedulerSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())
