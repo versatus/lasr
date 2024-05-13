@@ -60,6 +60,7 @@ impl EoServerWrapper {
             log::error!("unable to load processed blocks from file: {}", e);
         }
 
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
         loop {
             let logs = self.server.next().await;
             match &logs.log_result {
@@ -83,6 +84,7 @@ impl EoServerWrapper {
                 log::error!("EO Actor stopped");
                 break;
             }
+            interval.tick().await;
         }
 
         Ok(())

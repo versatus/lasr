@@ -2823,6 +2823,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tikv-client",
  "tokio",
  "uuid",
  "web3",
