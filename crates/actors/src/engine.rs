@@ -143,40 +143,6 @@ impl EngineActor {
         Ok(None)
     }
 
-    async fn request_blob_index(
-        &self,
-        account: &Address,
-    ) -> Result<
-        (
-            Address,              /*user*/
-            ethereum_types::H256, /* batchHeaderHash*/
-            u128,                 /*blobIndex*/
-        ),
-        EngineError,
-    > {
-        let (tx, rx) = oneshot();
-        let message = EoMessage::GetAccountBlobIndex {
-            address: *account,
-            sender: tx,
-        };
-        let actor: ActorRef<EoMessage> =
-            ractor::registry::where_is(ActorType::EoServer.to_string())
-                .ok_or(EngineError::Custom(
-                    "unable to acquire EO Server Actor".to_string(),
-                ))?
-                .into();
-
-        actor
-            .cast(message)
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-        let handler = create_handler!(retrieve_blob_index);
-        let blob_response = handle_actor_response(rx, handler)
-            .await
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-
-        Ok(blob_response)
-    }
-
     async fn set_pending_transaction(
         transaction: Transaction,
         outputs: Option<Outputs>,

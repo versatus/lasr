@@ -3,11 +3,10 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{AccountCacheError, EngineError};
-use ethereum_types::H256;
+use crate::AccountCacheError;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesOrdered, FuturesUnordered};
-use lasr_messages::{AccountCacheMessage, ActorType, EoMessage};
+use lasr_messages::{AccountCacheMessage, ActorType};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::pg::GroupChangeMessage;
@@ -361,26 +360,4 @@ pub async fn get_account(address: Address) -> Option<Account> {
         address.to_full_string()
     );
     check_account_cache(address).await
-}
-
-pub async fn get_blob_index(
-    eo_actor: ActorRef<EoMessage>,
-    message: EoMessage,
-    rx: OneshotReceiver<EoMessage>,
-) -> Option<(Address, H256, u128)> {
-    eo_actor.cast(message).ok()?;
-    let eo_handler = create_handler!(retrieve_blob_index);
-    handle_actor_response(rx, eo_handler).await.ok()
-}
-
-pub async fn attempt_get_blob_index(
-    eo_actor: ActorRef<EoMessage>,
-    address: Address,
-) -> Option<(Address, H256, u128)> {
-    let (tx, rx) = oneshot();
-    let message = EoMessage::GetAccountBlobIndex {
-        address,
-        sender: tx,
-    };
-    get_blob_index(eo_actor.clone(), message, rx).await
 }
