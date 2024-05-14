@@ -4,17 +4,23 @@
 
 ## Prerequisites
 
-1. Install [DockerEngine](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository).
+If you already have **Docker Desktop** installed:
+
+<mark>Be aware there could possibly be collisions between the engine and the desktop programs.</mark>
+
+Otherwise:
+
+1. Install [DockerEngine](https://docs.docker.com/engine/install/#supported-platforms).
 2. Pull latest `pingcap` images for both `pd` and `tikv`:
 
     - `docker pull pingcap/pd:latest`
 
     - `docker pull pingcap/tikv:latest`
 
-## Start TiKV Contrainer's
+## Start TiKV Contrainers
 
 TiKV requires at **minimum** 1 `pd` (Placement driver), and 1 `tikv` node, but are not limited.  
-The Placement driver is the cluster manager of TiKV, and the TiKV node handles the `Store`'s.
+The Placement driver is the cluster manager of TiKV, and the TiKV node handles the `Store`s.
 
 Inside the root of the LASR repository, run the following commands **in order**:
 
@@ -30,8 +36,9 @@ Inside the root of the LASR repository, run the following commands **in order**:
     - `./scripts/tikv-server.sh` 
     
 
-2. Ensure the container's were created by running `docker ps` in the terminal.
-    - Should look similar to this:
+2. Ensure the containers were created by running `docker ps` in the terminal.
+    
+    Should look similar to this:
 
 | CONTAINER ID | IMAGE                | COMMAND                   | CREATED          | STATUS         | PORTS | NAMES      |
 |--------------|----------------------|---------------------------|------------------|----------------|-------|------------|
