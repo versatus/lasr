@@ -1,6 +1,6 @@
 #![allow(unused)]
 use crate::{
-    check_account_cache, create_handler, da_client, eo_server, handle_actor_response,
+    create_handler, da_client, eo_server, get_account, handle_actor_response,
     process_group_changed, Coerce,
 };
 use async_trait::async_trait;
@@ -69,17 +69,14 @@ impl TaskScheduler {
             "Checking for account cache for account: {} from scheduler",
             address.to_full_string()
         );
-        if let Some(account) = check_account_cache(address).await {
+        if let Some(account) = get_account(address).await {
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Ok(TransactionResponse::GetAccountResponse(account)),
                     reply: None,
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
-
-            return Ok(());
-        }
-        if let None = check_account_cache(address).await {
+        } else {
             log::info!("unable to find account in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {

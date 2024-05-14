@@ -1,5 +1,5 @@
 use crate::{
-    check_account_cache, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+    get_account, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use futures::{
@@ -1023,7 +1023,7 @@ impl ValidatorActor {
         match transaction_type {
             TransactionType::Send(_) => {
                 log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
-                let account = if let Some(account) = check_account_cache(transaction.from()).await {
+                let account = if let Some(account) = get_account(transaction.from()).await {
                     log::info!("found account in cache");
                     Some(account)
                 } else {
@@ -1063,8 +1063,7 @@ impl ValidatorActor {
                 // install op
             }
             TransactionType::BridgeIn(_) => {
-                let _account = if let Some(account) = check_account_cache(transaction.from()).await
-                {
+                let _account = if let Some(account) = get_account(transaction.from()).await {
                     Some(account)
                 } else {
                     log::info!("unable to find account in cache or persistence store.");
@@ -1130,7 +1129,7 @@ impl ValidatorActor {
                             "Received call transaction checking account {} from validator",
                             &addr.to_full_string()
                         );
-                        if let Some(account) = check_account_cache(addr).await {
+                        if let Some(account) = get_account(addr).await {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
@@ -1143,7 +1142,7 @@ impl ValidatorActor {
                             "looking for account {:?} in cache from validator",
                             addr.to_full_string()
                         );
-                        if let Some(account) = check_account_cache(*addr).await {
+                        if let Some(account) = get_account(*addr).await {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {

@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    check_account_cache, create_handler, handle_actor_response, process_group_changed, ActorExt,
-    Coerce, StaticFuture, UnorderedFuturePool,
+    create_handler, handle_actor_response, process_group_changed, ActorExt, Coerce, StaticFuture,
+    UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -65,42 +65,6 @@ impl EngineActor {
         }
     }
 
-    async fn get_account(&self, address: &Address, account_type: AccountType) -> Account {
-        if let AccountType::Program(program_address) = account_type {
-            if let Ok(Some(account)) = self.check_cache(address).await {
-                return account;
-            }
-        } else {
-            if let Ok(Some(account)) = self.check_cache(address).await {
-                return account;
-            }
-        }
-
-        Account::new(account_type, None, *address, None)
-    }
-
-    async fn get_caller_account(&self, address: &Address) -> Result<Account, EngineError> {
-        if let Ok(Some(account)) = self.check_cache(address).await {
-            return Ok(account);
-        }
-
-        Err(EngineError::Custom(
-            "caller account does not exist".to_string(),
-        ))
-    }
-
-    async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
-        if let AccountType::Program(program_address) = account_type {
-            if let Ok(Some(account)) = self.check_cache(&program_address).await {
-                return Ok(account);
-            }
-        }
-
-        Err(EngineError::Custom(
-            "caller account does not exist".to_string(),
-        ))
-    }
-
     fn write_to_cache(account: Account) {
         let owner = account.owner_address();
         let message = AccountCacheMessage::Write { account };
@@ -111,36 +75,6 @@ impl EngineActor {
         } else {
             log::error!("unable to find AccountCacheActor in registry");
         }
-    }
-
-    async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
-        log::info!(
-            "checking account cache for account: {} from engine",
-            &address.to_full_string()
-        );
-        Ok(check_account_cache(*address).await)
-    }
-
-    async fn handle_cache_response(
-        &self,
-        rx: OneshotReceiver<Option<Account>>,
-    ) -> Result<Option<Account>, EngineError> {
-        tokio::select! {
-            reply = rx => {
-                match reply {
-                    Ok(Some(account)) => {
-                        return Ok(Some(account))
-                    },
-                    Ok(None) => {
-                        return Ok(None)
-                    }
-                    Err(e) => {
-                        log::error!("{e:?}");
-                    },
-                }
-            }
-        }
-        Ok(None)
     }
 
     async fn set_pending_transaction(
