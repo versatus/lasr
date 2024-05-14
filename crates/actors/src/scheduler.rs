@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, da_client, eo_server,
-    handle_actor_response, process_group_changed, Coerce,
+    check_account_cache, create_handler, da_client, eo_server, handle_actor_response,
+    process_group_changed, Coerce,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
@@ -78,19 +78,15 @@ impl TaskScheduler {
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
 
             return Ok(());
-        } else if let Some(account) = check_da_for_account(address).await {
-            rpc_reply
-                .send(RpcMessage::Response {
-                    response: Ok(TransactionResponse::GetAccountResponse(account)),
-                    reply: None,
-                })
-                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
-        } else {
-            log::info!("unable to find account in cache or da");
+        }
+        if let None = check_account_cache(address).await {
+            log::info!("unable to find account in cache or persistence layer");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
-                        description: "unable to find accountt in DA or Protocol Cache".to_string(),
+                        description:
+                            "unable to find accountt in persistence layer or Protocol Cache"
+                                .to_string(),
                     }),
                     reply: None,
                 })

@@ -7,7 +7,7 @@ use crate::{AccountCacheError, EngineError};
 use ethereum_types::H256;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesOrdered, FuturesUnordered};
-use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
+use lasr_messages::{AccountCacheMessage, ActorType, EoMessage};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::pg::GroupChangeMessage;
@@ -355,28 +355,6 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
     Some(account)
 }
 
-pub async fn check_da_for_account(address: Address) -> Option<Account> {
-    log::warn!("checking DA for account");
-    let eo_actor: ActorRef<EoMessage> =
-        ractor::registry::where_is(ActorType::EoClient.to_string())?.into();
-
-    let da_actor: ActorRef<DaClientMessage> =
-        ractor::registry::where_is(ActorType::DaClient.to_string())?.into();
-
-    let blob_index = match attempt_get_blob_index(eo_actor, address).await {
-        Some(blob_index) => blob_index,
-        None => {
-            log::error!(
-                "failed to acquire blob index from EO for address: {}",
-                address.to_full_string()
-            );
-            return None;
-        }
-    };
-
-    attempt_get_account_from_da(da_actor, address, blob_index).await
-}
-
 pub async fn get_account(address: Address) -> Option<Account> {
     log::info!(
         "Attempting to get account information from AccountCache for address: {}",
@@ -405,34 +383,4 @@ pub async fn attempt_get_blob_index(
         sender: tx,
     };
     get_blob_index(eo_actor.clone(), message, rx).await
-}
-
-pub async fn get_account_from_da(
-    da_actor: ActorRef<DaClientMessage>,
-    message: DaClientMessage,
-    rx: OneshotReceiver<Option<Account>>,
-) -> Option<Account> {
-    da_actor.cast(message).ok()?;
-    let da_handler = create_handler!(retrieve_blob);
-    handle_actor_response(rx, da_handler).await.ok()?
-}
-
-pub async fn attempt_get_account_from_da(
-    da_actor: ActorRef<DaClientMessage>,
-    address: Address,
-    blob_index: (Address, H256, u128),
-) -> Option<Account> {
-    let (tx, rx) = oneshot();
-    let message = DaClientMessage::RetrieveAccount {
-        address,
-        batch_header_hash: blob_index.1,
-        blob_index: blob_index.2,
-        tx,
-    };
-
-    if let Some(account) = get_account_from_da(da_actor.clone(), message, rx).await {
-        return Some(account);
-    }
-
-    None
 }

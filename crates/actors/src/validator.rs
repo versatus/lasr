@@ -1,6 +1,5 @@
 use crate::{
-    check_account_cache, check_da_for_account, process_group_changed, ActorExt, Coerce,
-    StaticFuture, UnorderedFuturePool,
+    check_account_cache, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use futures::{
@@ -1027,11 +1026,8 @@ impl ValidatorActor {
                 let account = if let Some(account) = check_account_cache(transaction.from()).await {
                     log::info!("found account in cache");
                     Some(account)
-                } else if let Some(account) = check_da_for_account(transaction.from()).await {
-                    log::info!("found account in da");
-                    Some(account)
                 } else {
-                    log::info!("unable to find account in cache or da");
+                    log::info!("unable to find account in cache or persistence layer.");
                     None
                 };
 
@@ -1070,10 +1066,8 @@ impl ValidatorActor {
                 let _account = if let Some(account) = check_account_cache(transaction.from()).await
                 {
                     Some(account)
-                } else if let Some(account) = check_da_for_account(transaction.from()).await {
-                    Some(account)
                 } else {
-                    log::info!("unable to find account in cache or da");
+                    log::info!("unable to find account in cache or persistence layer.");
                     None
                 };
                 let state = validator_core.lock().await;
@@ -1139,11 +1133,8 @@ impl ValidatorActor {
                         if let Some(account) = check_account_cache(addr).await {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
-                        } else if let Some(account) = check_da_for_account(addr).await {
-                            log::info!("found `this` account in da");
-                            validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or da");
+                            log::info!("unable to find account in cache or persistence layer.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
@@ -1155,11 +1146,8 @@ impl ValidatorActor {
                         if let Some(account) = check_account_cache(*addr).await {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
-                        } else if let Some(account) = check_da_for_account(*addr).await {
-                            log::info!("found account in da");
-                            validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or da");
+                            log::info!("unable to find account in cache or persistence layer.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }
