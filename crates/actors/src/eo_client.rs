@@ -479,9 +479,6 @@ impl Actor for EoClientActor {
     ) -> Result<(), ActorProcessingErr> {
         let eo_client_ptr = Arc::clone(state);
         match message {
-            EoMessage::GetAccountBlobIndex { address, sender } => {
-                todo!()
-            }
             EoMessage::GetContractBlobIndex {
                 program_id: _,
                 sender: _,
