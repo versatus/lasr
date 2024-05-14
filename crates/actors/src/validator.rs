@@ -1027,7 +1027,7 @@ impl ValidatorActor {
                     log::info!("found account in cache");
                     Some(account)
                 } else {
-                    log::info!("unable to find account in cache or persistence layer.");
+                    log::info!("unable to find account in cache or persistence store.");
                     None
                 };
 
@@ -1067,7 +1067,7 @@ impl ValidatorActor {
                 {
                     Some(account)
                 } else {
-                    log::info!("unable to find account in cache or persistence layer.");
+                    log::info!("unable to find account in cache or persistence store.");
                     None
                 };
                 let state = validator_core.lock().await;
@@ -1134,7 +1134,7 @@ impl ValidatorActor {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or persistence layer.");
+                            log::info!("unable to find account in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
@@ -1147,7 +1147,7 @@ impl ValidatorActor {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or persistence layer.");
+                            log::info!("unable to find account in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }

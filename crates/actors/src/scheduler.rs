@@ -80,12 +80,12 @@ impl TaskScheduler {
             return Ok(());
         }
         if let None = check_account_cache(address).await {
-            log::info!("unable to find account in cache or persistence layer");
+            log::info!("unable to find account in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
                         description:
-                            "unable to find accountt in persistence layer or Protocol Cache"
+                            "unable to find account in Persistence Store or Protocol Cache"
                                 .to_string(),
                     }),
                     reply: None,

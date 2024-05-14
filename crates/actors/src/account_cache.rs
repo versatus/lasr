@@ -270,7 +270,7 @@ impl Actor for AccountCacheActor {
                 } else {
                     let response = Err(RpcResponseError {
                         description:
-                            "Unable to acquire account from Persistence Layer or Protocol Cache"
+                            "Unable to acquire account from Persistence Store or Protocol Cache"
                                 .to_string(),
                     });
                     let _ = reply.send(RpcMessage::Response {
