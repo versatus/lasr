@@ -17,7 +17,7 @@ Otherwise:
 
     - `docker pull pingcap/tikv:latest`
 
-## Start TiKV Contrainers
+## Start TiKV Containers
 
 TiKV requires at **minimum** 1 `pd` (Placement driver), and 1 `tikv` node, but are not limited.  
 The Placement driver is the cluster manager of TiKV, and the TiKV node handles the `Store`s.
