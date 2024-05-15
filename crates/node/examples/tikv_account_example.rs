@@ -4,7 +4,7 @@ use lasr_types::{Account, AccountBuilder, AccountType, Address, ArbitraryData, M
 use serde::{Deserialize, Serialize};
 use tikv_client::RawClient;
 
-// Structure for persistence layer `Account` values
+// Structure for persistence store `Account` values
 #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountValue {
     account: Account,
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = RawClient::new(vec!["127.0.0.1:2379"])
         .await
-        .expect("failed to connect to persistence layer.");
+        .expect("failed to connect to persistence store.");
     println!("Connected to TiKV client.");
 
     let data = mock_account.clone();
