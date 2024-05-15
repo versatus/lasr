@@ -485,14 +485,6 @@ impl Actor for EoClientActor {
             } => {
                 log::info!("Received request for contract blob index");
             }
-            EoMessage::GetAccountBalance {
-                program_id,
-                address,
-                sender,
-                token_type,
-            } => {
-                todo!()
-            }
             EoMessage::Settle {
                 accounts,
                 batch_header_hash,
