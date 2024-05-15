@@ -88,6 +88,31 @@ impl EngineActor {
             "caller account does not exist".to_string(),
         ))
     }
+
+    async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
+        if let AccountType::Program(program_address) = account_type {
+            if let Ok(Some(account)) = self.check_cache(&program_address).await {
+                return Ok(account);
+            }
+        }
+
+        Err(EngineError::Custom(
+            "caller account does not exist".to_string(),
+        ))
+    }
+
+    fn write_to_cache(account: Account) {
+        let owner = account.owner_address();
+        let message = AccountCacheMessage::Write { account };
+        if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
+            if let Err(e) = cache_actor.send_message(message) {
+                log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
+            }
+        } else {
+            log::error!("unable to find AccountCacheActor in registry");
+        }
+    }
+
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
         log::info!(
             "checking account cache for account: {} from engine",
@@ -116,30 +141,6 @@ impl EngineActor {
             }
         }
         Ok(None)
-    }
-
-    async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
-        if let AccountType::Program(program_address) = account_type {
-            if let Ok(Some(account)) = self.check_cache(&program_address).await {
-                return Ok(account);
-            }
-        }
-
-        Err(EngineError::Custom(
-            "caller account does not exist".to_string(),
-        ))
-    }
-
-    fn write_to_cache(account: Account) {
-        let owner = account.owner_address();
-        let message = AccountCacheMessage::Write { account };
-        if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
-            if let Err(e) = cache_actor.send_message(message) {
-                log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
-            }
-        } else {
-            log::error!("unable to find AccountCacheActor in registry");
-        }
     }
 
     async fn set_pending_transaction(
