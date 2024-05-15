@@ -25,15 +25,23 @@ Some important directories to note before getting started:
 
 4. Clone the `eigenda` & `lasr` git repositories into the `/app` directory.
   ```sh
+  # /app
   git clone https://github.com/Layr-Labs/eigenda.git
   git clone https://github.com/versatus/lasr.git
   ```
 
-5. Execute the setup scripts, located in `/app/bin`, in this order:
-  > Note: These scripts **must** be executed from the `/app` directory in order to exit successfully.
-  If a script does not execute, you may need to make it executable: `chmod +x <script>`.
+5. Execute the overmind startup script, located in `/app/bin`, in this order:
+  > Note: This **must** be executed from the `/app` directory in order to process successfully.
+  If the script does not execute, you may need to make it executable: `chmod +x <script>`.
   ```sh
-  
+  # /app
+  ./bin/start-overmind.sh
+  ```
+
+6. Absent from any errors, the `lasr_node` logs can now be viewed via Overmind 🎉:
+  ```sh
+  # /app
+  overmind echo
   ```
 
 ## Dependencies
