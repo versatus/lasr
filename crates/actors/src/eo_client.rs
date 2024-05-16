@@ -22,7 +22,9 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use crate::{ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool};
+use crate::{
+    process_group_changed, ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool,
+};
 use lasr_messages::{ActorName, ActorType, EoMessage, HashOrError, SupervisorType};
 use lasr_types::{Address, U256};
 
@@ -477,32 +479,11 @@ impl Actor for EoClientActor {
     ) -> Result<(), ActorProcessingErr> {
         let eo_client_ptr = Arc::clone(state);
         match message {
-            EoMessage::GetAccountBlobIndex { address, sender } => {
-                let fut = EoClientActor::get_account_blob_index(eo_client_ptr, address, sender);
-                let guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
-            }
             EoMessage::GetContractBlobIndex {
                 program_id: _,
                 sender: _,
             } => {
                 log::info!("Received request for contract blob index");
-            }
-            EoMessage::GetAccountBalance {
-                program_id,
-                address,
-                sender,
-                token_type,
-            } => {
-                let fut = EoClientActor::get_account_balance(
-                    eo_client_ptr,
-                    program_id,
-                    address,
-                    sender,
-                    token_type,
-                );
-                let guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
             }
             EoMessage::Settle {
                 accounts,
@@ -658,7 +639,7 @@ impl Actor for EoClientSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

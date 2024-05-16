@@ -22,6 +22,7 @@ use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     errors::MessagingErr,
     factory::CustomHashFunction,
+    pg::GroupChangeMessage,
     Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde::{Deserialize, Serialize};
@@ -40,9 +41,9 @@ use tokio::{
 use web3::types::BlockNumber;
 
 use crate::{
-    account_cache, get_account, get_actor_ref, handle_actor_response, AccountCacheError, ActorExt,
-    Coerce, DaClientError, EoClientError, PendingTransactionError, SchedulerError, StaticFuture,
-    UnorderedFuturePool,
+    account_cache, get_account, get_actor_ref, handle_actor_response, process_group_changed,
+    AccountCacheError, ActorExt, Coerce, DaClientError, EoClientError, PendingTransactionError,
+    SchedulerError, StaticFuture, UnorderedFuturePool,
 };
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, BatcherMessage, BlobVerificationProofArgs,
@@ -123,13 +124,13 @@ pub struct Batch {
     accounts: HashMap<String, Account>,
 }
 
-// Structure for persistence layer `Account` values
+// Structure for persistence store `Account` values
 #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountValue {
     pub account: Account,
 }
 
-// // Structure for persistence layer `Transaction` values
+// // Structure for persistence store `Transaction` values
 // #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 // pub struct TransactionValue {
 //     transaction: Transaction,
@@ -2030,7 +2031,7 @@ impl Actor for BatcherSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

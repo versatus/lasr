@@ -1,7 +1,7 @@
 #![allow(unused)]
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, da_client, eo_server,
-    handle_actor_response, Coerce,
+    create_handler, da_client, eo_server, get_account, handle_actor_response,
+    process_group_changed, Coerce,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
@@ -69,16 +69,7 @@ impl TaskScheduler {
             "Checking for account cache for account: {} from scheduler",
             address.to_full_string()
         );
-        if let Some(account) = check_account_cache(address).await {
-            rpc_reply
-                .send(RpcMessage::Response {
-                    response: Ok(TransactionResponse::GetAccountResponse(account)),
-                    reply: None,
-                })
-                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
-
-            return Ok(());
-        } else if let Some(account) = check_da_for_account(address).await {
+        if let Some(account) = get_account(address).await {
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Ok(TransactionResponse::GetAccountResponse(account)),
@@ -86,11 +77,13 @@ impl TaskScheduler {
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            log::info!("unable to find account in cache or da");
+            log::info!("unable to find account in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
-                        description: "unable to find accountt in DA or Protocol Cache".to_string(),
+                        description:
+                            "unable to find account in Persistence Store or Protocol Cache"
+                                .to_string(),
                     }),
                     reply: None,
                 })
@@ -361,7 +354,7 @@ impl Actor for TaskSchedulerSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

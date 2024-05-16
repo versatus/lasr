@@ -3,15 +3,15 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{AccountCacheError, EngineError};
-use ethereum_types::H256;
+use crate::AccountCacheError;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesOrdered, FuturesUnordered};
-use lasr_messages::{AccountCacheMessage, ActorType, DaClientMessage, EoMessage};
+use lasr_messages::{AccountCacheMessage, ActorType};
 use lasr_types::{Account, Address};
 use ractor::concurrency::{oneshot, OneshotReceiver};
+use ractor::pg::GroupChangeMessage;
 use ractor::ActorRef;
-use tokio::{sync::Mutex, time::timeout};
+use tokio::sync::Mutex;
 
 /// A thread-safe, non-blocking & mutatable `FuturesUnordered`.
 pub type UnorderedFuturePool<F> = Arc<Mutex<FuturesUnordered<F>>>;
@@ -150,6 +150,17 @@ impl<T, E: Debug> From<Result<T, E>> for ActorResult<T, E> {
 impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
     fn from(value: ActorResult<T, E>) -> Result<T, E> {
         value.0
+    }
+}
+
+pub fn process_group_changed(group_change_message: GroupChangeMessage) {
+    match group_change_message {
+        GroupChangeMessage::Join(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have joined group {group:?} with scope {scope:?}")
+        }
+        GroupChangeMessage::Leave(scope, group, actors) => {
+            log::warn!("actor(s) {actors:?} have left group {group:?} with scope {scope:?}")
+        }
     }
 }
 
@@ -329,6 +340,10 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
         ractor::registry::where_is(ActorType::AccountCache.to_string())?.into();
 
     let (tx, rx) = oneshot();
+
+    // Note: This message will return an `Account` from either the `AccountCache` or the persistence store.
+    // If the account was not found in `AccountCache`, but found in persistence store then it will
+    // write to `AccountCache` for faster reads in the future.
     let message = AccountCacheMessage::Read { address, tx };
 
     actor.cast(message).ok()?;
@@ -339,100 +354,10 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
     Some(account)
 }
 
-pub async fn check_da_for_account(address: Address) -> Option<Account> {
-    log::warn!("checking DA for account");
-    let eo_actor: ActorRef<EoMessage> =
-        ractor::registry::where_is(ActorType::EoClient.to_string())?.into();
-
-    let da_actor: ActorRef<DaClientMessage> =
-        ractor::registry::where_is(ActorType::DaClient.to_string())?.into();
-
-    let blob_index = match attempt_get_blob_index(eo_actor, address).await {
-        Some(blob_index) => blob_index,
-        None => {
-            log::error!(
-                "failed to acquire blob index from EO for address: {}",
-                address.to_full_string()
-            );
-            return None;
-        }
-    };
-
-    match timeout(
-        Duration::from_secs(5),
-        attempt_get_account_from_da(da_actor, address, blob_index),
-    )
-    .await
-    {
-        Ok(Some(account)) => Some(account),
-        Ok(None) => None,
-        Err(e) => {
-            log::error!("Error attempting to get account from DA: {e}");
-            None
-        }
-    }
-}
-
 pub async fn get_account(address: Address) -> Option<Account> {
     log::info!(
-        "checking account cache for account: {} using `get_account` method in mod.rs",
+        "Attempting to get account information from AccountCache for address: {}",
         address.to_full_string()
     );
-    let mut account = check_account_cache(address).await;
-    if account.is_none() {
-        account = check_da_for_account(address).await;
-    }
-    account
-}
-
-pub async fn get_blob_index(
-    eo_actor: ActorRef<EoMessage>,
-    message: EoMessage,
-    rx: OneshotReceiver<EoMessage>,
-) -> Option<(Address, H256, u128)> {
-    eo_actor.cast(message).ok()?;
-    let eo_handler = create_handler!(retrieve_blob_index);
-    handle_actor_response(rx, eo_handler).await.ok()
-}
-
-pub async fn attempt_get_blob_index(
-    eo_actor: ActorRef<EoMessage>,
-    address: Address,
-) -> Option<(Address, H256, u128)> {
-    let (tx, rx) = oneshot();
-    let message = EoMessage::GetAccountBlobIndex {
-        address,
-        sender: tx,
-    };
-    get_blob_index(eo_actor.clone(), message, rx).await
-}
-
-pub async fn get_account_from_da(
-    da_actor: ActorRef<DaClientMessage>,
-    message: DaClientMessage,
-    rx: OneshotReceiver<Option<Account>>,
-) -> Option<Account> {
-    da_actor.cast(message).ok()?;
-    let da_handler = create_handler!(retrieve_blob);
-    handle_actor_response(rx, da_handler).await.ok()?
-}
-
-pub async fn attempt_get_account_from_da(
-    da_actor: ActorRef<DaClientMessage>,
-    address: Address,
-    blob_index: (Address, H256, u128),
-) -> Option<Account> {
-    let (tx, rx) = oneshot();
-    let message = DaClientMessage::RetrieveAccount {
-        address,
-        batch_header_hash: blob_index.1,
-        blob_index: blob_index.2,
-        tx,
-    };
-
-    if let Some(account) = get_account_from_da(da_actor.clone(), message, rx).await {
-        return Some(account);
-    }
-
-    None
+    check_account_cache(address).await
 }

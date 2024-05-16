@@ -1,4 +1,4 @@
-use crate::{helpers::Coerce, AccountValue, MAX_BATCH_SIZE};
+use crate::{helpers::Coerce, process_group_changed, AccountValue, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use lasr_messages::{
@@ -268,11 +268,10 @@ impl Actor for AccountCacheActor {
                         reply: None,
                     });
                 } else {
-                    // Pass along to EO
-                    // EO passes along to DA if Account Blob discovered
                     let response = Err(RpcResponseError {
-                        description: "Unable to acquire account from DA or Protocol Cache"
-                            .to_string(),
+                        description:
+                            "Unable to acquire account from Persistence Store or Protocol Cache"
+                                .to_string(),
                     });
                     let _ = reply.send(RpcMessage::Response {
                         response,
@@ -345,7 +344,7 @@ impl Actor for AccountCacheSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())
