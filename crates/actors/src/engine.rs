@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, handle_actor_response,
-    process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+    check_account_cache, create_handler, handle_actor_response, process_group_changed, ActorExt,
+    Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -70,16 +70,8 @@ impl EngineActor {
             if let Ok(Some(account)) = self.check_cache(address).await {
                 return account;
             }
-
-            if let Ok(mut account) = self.get_account_from_da(address).await {
-                return account;
-            }
         } else {
             if let Ok(Some(account)) = self.check_cache(address).await {
-                return account;
-            }
-
-            if let Ok(mut account) = self.get_account_from_da(address).await {
                 return account;
             }
         }
@@ -92,10 +84,6 @@ impl EngineActor {
             return Ok(account);
         }
 
-        if let Ok(mut account) = self.get_account_from_da(address).await {
-            return Ok(account);
-        }
-
         Err(EngineError::Custom(
             "caller account does not exist".to_string(),
         ))
@@ -104,10 +92,6 @@ impl EngineActor {
     async fn get_program_account(&self, account_type: AccountType) -> Result<Account, EngineError> {
         if let AccountType::Program(program_address) = account_type {
             if let Ok(Some(account)) = self.check_cache(&program_address).await {
-                return Ok(account);
-            }
-
-            if let Ok(mut account) = self.get_account_from_da(&program_address).await {
                 return Ok(account);
             }
         }
@@ -157,49 +141,6 @@ impl EngineActor {
             }
         }
         Ok(None)
-    }
-
-    async fn request_blob_index(
-        &self,
-        account: &Address,
-    ) -> Result<
-        (
-            Address,              /*user*/
-            ethereum_types::H256, /* batchHeaderHash*/
-            u128,                 /*blobIndex*/
-        ),
-        EngineError,
-    > {
-        let (tx, rx) = oneshot();
-        let message = EoMessage::GetAccountBlobIndex {
-            address: *account,
-            sender: tx,
-        };
-        let actor: ActorRef<EoMessage> =
-            ractor::registry::where_is(ActorType::EoServer.to_string())
-                .ok_or(EngineError::Custom(
-                    "unable to acquire EO Server Actor".to_string(),
-                ))?
-                .into();
-
-        actor
-            .cast(message)
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-        let handler = create_handler!(retrieve_blob_index);
-        let blob_response = handle_actor_response(rx, handler)
-            .await
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-
-        Ok(blob_response)
-    }
-
-    async fn get_account_from_da(&self, address: &Address) -> Result<Account, EngineError> {
-        check_da_for_account(*address)
-            .await
-            .ok_or(EngineError::Custom(format!(
-                "unable to find account 0x{:x}",
-                address
-            )))
     }
 
     async fn set_pending_transaction(

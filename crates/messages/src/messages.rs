@@ -276,16 +276,6 @@ pub enum EoMessage {
         batch_header_hash: H256,
         blob_index: u128,
     },
-    GetAccountBlobIndex {
-        address: Address,
-        sender: OneshotSender<EoMessage>,
-    },
-    GetAccountBalance {
-        program_id: Address,
-        address: Address,
-        sender: OneshotSender<EoMessage>,
-        token_type: u8,
-    },
     GetContractBlobIndex {
         program_id: Address,
         sender: OneshotSender<EoMessage>,

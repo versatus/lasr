@@ -122,13 +122,13 @@ pub struct Batch {
     accounts: HashMap<String, Account>,
 }
 
-// Structure for persistence layer `Account` values
+// Structure for persistence store `Account` values
 #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountValue {
     pub account: Account,
 }
 
-// // Structure for persistence layer `Transaction` values
+// // Structure for persistence store `Transaction` values
 // #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 // pub struct TransactionValue {
 //     transaction: Transaction,
