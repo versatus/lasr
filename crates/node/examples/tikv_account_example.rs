@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user_acc_key.clone()
     );
 
-    // Push `ProgramAccount` data to persistence store
+    // Push Program `Account` data to persistence store
     if let AccountType::Program(program_addr) = program_data.account_type() {
         let prgm_acc_key = program_addr.to_full_string();
         client
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!(" ");
 
-    // Pull `UserAccount` data from persistence store
+    // Pull User `Account` data from persistence store
     let returned_user_data = client
         .get(user_acc_key.to_owned())
         .await
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         returned_user_data, user_acc_key
     );
 
-    // Pull `ProgramAccount` data from persistence store
+    // Pull Program `Account` data from persistence store
     if let AccountType::Program(program_addr) = program_data.account_type() {
         let prgm_acc_key = program_addr.to_full_string();
         let returned_prgm_data = client
