@@ -258,7 +258,7 @@ where
 }
 
 #[derive(
-    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {

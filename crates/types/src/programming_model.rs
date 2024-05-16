@@ -4,6 +4,7 @@ use crate::{
     Account, Address, Certificate, Namespace, ProgramField, ProgramFieldValue, TokenField,
     TokenFieldValue, TokenWitness, Transaction, TransactionFields, U256,
 };
+use ractor::BytesConvertable;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -12,7 +13,6 @@ use std::{
     hash::{Hash, Hasher},
     io::ErrorKind,
 };
-use ractor::BytesConvertable;
 
 /// The inputs type for a contract call. This is built from a combination of
 /// transaction data and pre-requisite data the protocol acquires in accordance

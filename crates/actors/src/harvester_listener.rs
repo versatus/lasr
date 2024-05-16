@@ -285,5 +285,4 @@ mod tests {
 
         assert!(ractor::registry::where_is(ActorType::Scheduler.to_string()).is_some());
     }
-
 }
