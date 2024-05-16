@@ -26,3 +26,4 @@ log = "0.4.20"
 typetag = "0.2.14"
 uint = "0.9.5"
 schemars = "0.8.16"
+ractor = { version = "0.9.7", features = ["cluster"] }

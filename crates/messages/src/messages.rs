@@ -8,11 +8,12 @@ use ethereum_types::H256;
 use lasr_types::{Account, Certificate, Outputs, Transaction};
 use lasr_types::{Address, Token, U256};
 use ractor::concurrency::OneshotSender;
+use ractor::serialization::BytesConvertable;
 use ractor::RpcReplyPort;
-use ractor_cluster::RactorMessage;
+use ractor_cluster::{RactorClusterMessage, RactorMessage};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use tikv_client::RawClient as TikvClient;
 use web3::ethabi::{Address as EthereumAddress, FixedBytes};
 use web3::types::TransactionReceipt;
 
@@ -120,6 +121,15 @@ pub enum SchedulerMessage {
         transaction_hash: String,
         error_string: String,
     },
+}
+
+/// Message types that the `HarvesterListener` actor can `handle`
+#[derive(Debug, RactorClusterMessage)]
+pub enum HarvesterListenerMessage {
+    TransactionApplied(String, Token),
+    CallTransactionApplied(String, Account),
+    CallTransactionFailure(String, String, String),
+    RegistrationSuccess(Transaction, Address),
 }
 
 /// A message type that the `Validator` actor can handle
@@ -448,19 +458,28 @@ pub enum PendingTransactionMessage {
     CleanGraph,
 }
 
-#[derive(RactorMessage)]
+#[derive(RactorClusterMessage)]
 pub enum BatcherMessage {
-    AppendTransaction {
-        transaction: Transaction,
-        outputs: Option<Outputs>,
-    },
-    GetNextBatch {
-        tikv_client: TikvClient,
-    },
-    BlobVerificationProof {
-        request_id: String,
-        proof: BlobVerificationProof,
-    },
+    AppendTransaction(Transaction),
+    AppendTransactionWithOutputs(Transaction, Outputs),
+    GetNextBatch,
+    BlobVerificationProof(BlobVerificationProofArgs),
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BlobVerificationProofArgs {
+    pub request_id: String,
+    pub proof: BlobVerificationProof,
+}
+
+impl BytesConvertable for BlobVerificationProofArgs {
+    fn into_bytes(self) -> Vec<u8> {
+        serde_json::to_vec(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        serde_json::from_slice(&bytes).unwrap()
+    }
 }
 
 #[derive(Debug, RactorMessage)]

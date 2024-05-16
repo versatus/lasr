@@ -258,7 +258,7 @@ where
 }
 
 #[derive(
-    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash
 )]
 #[serde(rename_all = "camelCase")]
 pub struct Transaction {
@@ -314,6 +314,16 @@ impl Default for Transaction {
             r: [0u8; 32],
             s: [0u8; 32],
         }
+    }
+}
+
+impl ractor::serialization::BytesConvertable for Transaction {
+    fn into_bytes(self) -> Vec<u8> {
+        self.as_bytes()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        serde_json::from_slice(&bytes).unwrap()
     }
 }
 

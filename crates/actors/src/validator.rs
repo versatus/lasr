@@ -53,10 +53,7 @@ impl ValidatorCore {
                         "unable to acquire pending transaction actor".to_string(),
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
-            let message = BatcherMessage::AppendTransaction {
-                transaction: tx.clone(),
-                outputs: None,
-            };
+            let message = BatcherMessage::AppendTransaction(tx.clone());
             batcher
                 .cast(message)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
@@ -103,10 +100,7 @@ impl ValidatorCore {
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
 
-            let message = BatcherMessage::AppendTransaction {
-                transaction: tx.clone(),
-                outputs: None,
-            };
+            let message = BatcherMessage::AppendTransaction(tx.clone());
             batcher
                 .cast(message)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
@@ -940,10 +934,7 @@ impl ValidatorCore {
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
             log::info!("transaction {} is valid, responding", tx.hash_string());
-            let message = BatcherMessage::AppendTransaction {
-                transaction: tx,
-                outputs: Some(outputs),
-            };
+            let message = BatcherMessage::AppendTransactionWithOutputs(tx, outputs);
             batcher
                 .cast(message)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;

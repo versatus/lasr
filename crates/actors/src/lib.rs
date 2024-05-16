@@ -6,6 +6,7 @@ pub mod engine;
 pub mod eo_client;
 pub mod eo_server;
 pub mod executor;
+pub mod harvester_listener;
 pub mod helpers;
 pub mod manager;
 pub mod pending_transactions;

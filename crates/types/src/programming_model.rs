@@ -12,6 +12,7 @@ use std::{
     hash::{Hash, Hasher},
     io::ErrorKind,
 };
+use ractor::BytesConvertable;
 
 /// The inputs type for a contract call. This is built from a combination of
 /// transaction data and pre-requisite data the protocol acquires in accordance
@@ -82,6 +83,16 @@ pub struct Outputs {
     )]
     inputs: Inputs,
     instructions: Vec<Instruction>,
+}
+
+impl BytesConvertable for Outputs {
+    fn into_bytes(self) -> Vec<u8> {
+        serde_json::to_vec(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        serde_json::from_slice(&bytes).unwrap()
+    }
 }
 
 /// This struct is a builder for the [`Outputs`] struct.

@@ -45,8 +45,9 @@ use crate::{
     UnorderedFuturePool,
 };
 use lasr_messages::{
-    AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
-    PendingTransactionMessage, SchedulerMessage, SupervisorType,
+    AccountCacheMessage, ActorName, ActorType, BatcherMessage, BlobVerificationProofArgs,
+    DaClientMessage, EoMessage, HarvesterListenerMessage, PendingTransactionMessage,
+    SchedulerMessage, SupervisorType,
 };
 
 use lasr_contract::create_program_id;
@@ -58,6 +59,7 @@ use lasr_types::{
     TokenUpdate, Transaction, TransactionType, TransferInstruction, UpdateInstruction, U256,
 };
 
+use crate::harvester_listener::HarvesterListenerError;
 use derive_builder::Builder;
 
 pub const VERSE_ADDR: Address = Address::verse_addr();
@@ -320,6 +322,7 @@ pub struct Batcher {
     parent: Batch,
     children: VecDeque<Batch>,
     cache: HashMap<String /* request_id*/, Batch>,
+    tikv_client: TikvClient,
     receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>,
 }
 
@@ -342,10 +345,12 @@ impl Batcher {
                     if let Some(Ok((request_id, proof))) = next_proof {
                         log::info!("batcher received blob verification proof");
                         if let Some(batcher) = get_actor_ref::<BatcherMessage, BatcherError>(ActorType::Batcher) {
-                            let message = BatcherMessage::BlobVerificationProof {
-                                request_id,
-                                proof
-                            };
+                            let message = BatcherMessage::BlobVerificationProof(
+                                BlobVerificationProofArgs {
+                                    request_id,
+                                    proof
+                                }
+                            );
 
                             batcher.cast(message).typecast().log_err(|err|  {
                                 BatcherError::Custom(format!("failed to cast blob verification proof: {err:?}"))
@@ -359,11 +364,13 @@ impl Batcher {
 
     pub fn new(
         receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>,
+        tikv_client: TikvClient,
     ) -> Self {
         Self {
             parent: Batch::new(),
             children: VecDeque::new(),
             cache: HashMap::new(),
+            tikv_client,
             receiver_thread_tx,
         }
     }
@@ -692,15 +699,17 @@ impl Batcher {
         log::info!("adding transaction to batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-        if let Some(scheduler) =
-            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        if let Some(harvester_listener) = get_actor_ref::<
+            HarvesterListenerMessage,
+            HarvesterListenerError,
+        >(ActorType::HarvesterListener)
         {
-            let message = SchedulerMessage::TransactionApplied {
-                transaction_hash: transaction.clone().hash_string(),
-                token: token.clone(),
-            };
+            let message = HarvesterListenerMessage::TransactionApplied(
+                transaction.clone().hash_string(),
+                token.clone(),
+            );
 
-            scheduler
+            harvester_listener
                 .cast(message)
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
@@ -1307,8 +1316,10 @@ impl Batcher {
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
-        if let Some(scheduler_actor) =
-            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        if let Some(harvester_listener_actor) = get_actor_ref::<
+            HarvesterListenerMessage,
+            HarvesterListenerError,
+        >(ActorType::HarvesterListener)
         {
             let mut account = match get_account(transaction.from()).await {
                 None => {
@@ -1318,12 +1329,12 @@ impl Batcher {
                     };
                     let error_string = e.to_string();
 
-                    let message = SchedulerMessage::CallTransactionFailure {
-                        transaction_hash: transaction.hash_string(),
-                        outputs: "".to_string(),
-                        error: error_string,
-                    };
-                    scheduler_actor.cast(message);
+                    let message = HarvesterListenerMessage::CallTransactionFailure(
+                        transaction.hash_string(),
+                        "".to_string(),
+                        error_string,
+                    );
+                    harvester_listener_actor.cast(message);
                     return Err(e);
                 }
                 Some(account) => account,
@@ -1394,11 +1405,9 @@ impl Batcher {
                     txn: Box::new(transaction.clone()),
                 })?;
 
-            let message = SchedulerMessage::RegistrationSuccess {
-                program_id,
-                transaction: transaction.clone(),
-            };
-            scheduler_actor
+            let message =
+                HarvesterListenerMessage::RegistrationSuccess(transaction.clone(), program_id);
+            harvester_listener_actor
                 .cast(message)
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
@@ -1578,8 +1587,10 @@ impl Batcher {
         log::warn!("Adding transaction to a batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-        if let Some(scheduler_actor) =
-            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        if let Some(harvester_listener_actor) = get_actor_ref::<
+            HarvesterListenerMessage,
+            HarvesterListenerError,
+        >(ActorType::HarvesterListener)
         {
             if let Some(pending_transactions) = get_actor_ref::<
                 PendingTransactionMessage,
@@ -1613,13 +1624,13 @@ impl Batcher {
                 )?;
                 let owner = account.owner_address();
 
-                let message = SchedulerMessage::CallTransactionApplied {
-                    transaction_hash: transaction.hash_string(),
+                let message = HarvesterListenerMessage::CallTransactionApplied(
+                    transaction.hash_string(),
                     account,
-                };
+                );
 
                 log::warn!("Informing scheduler that the call transaction was applied");
-                if let Err(err) = scheduler_actor.cast(message) {
+                if let Err(err) = harvester_listener_actor.cast(message) {
                     log::error!(
                         "failed to cast call transaction applied message to scheduler actor for account address {owner}: {err:?}"
                     );
@@ -1856,15 +1867,16 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         let batcher_ptr = Arc::clone(state);
         match message {
-            BatcherMessage::GetNextBatch { tikv_client } => {
-                Batcher::handle_next_batch_request(batcher_ptr, tikv_client).await?;
+            BatcherMessage::GetNextBatch => {
+                Batcher::handle_next_batch_request(
+                    batcher_ptr,
+                    state.lock().await.tikv_client.clone(),
+                )
+                .await?;
                 // let mut guard = self.future_pool.lock().await;
                 // guard.push(fut.boxed());
             }
-            BatcherMessage::AppendTransaction {
-                transaction,
-                outputs,
-            } => {
+            BatcherMessage::AppendTransaction(transaction) => {
                 log::warn!("appending transaction to batch");
                 match transaction.transaction_type() {
                     TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
@@ -1875,17 +1887,7 @@ impl Actor for BatcherActor {
                         guard.push(fut.boxed());
                     }
                     TransactionType::Call(_) => {
-                        if let Some(o) = outputs {
-                            let fut = Batcher::apply_instructions_to_accounts(
-                                batcher_ptr,
-                                transaction,
-                                o,
-                            );
-                            let mut guard = self.future_pool.lock().await;
-                            guard.push(fut.boxed());
-                        } else {
-                            log::error!("Call transaction result did not contain outputs")
-                        }
+                        log::error!("Call transaction result did not contain outputs")
                     }
                     TransactionType::RegisterProgram(_) => {
                         let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
@@ -1895,9 +1897,40 @@ impl Actor for BatcherActor {
                     TransactionType::BridgeOut(_) => {}
                 }
             }
-            BatcherMessage::BlobVerificationProof { request_id, proof } => {
+            BatcherMessage::AppendTransactionWithOutputs(transaction, outputs) => {
+                log::warn!("appending transaction to batch");
+                match transaction.transaction_type() {
+                    TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                        log::warn!("send transaction");
+                        let fut =
+                            Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
+                    }
+                    TransactionType::Call(_) => {
+                        let fut = Batcher::apply_instructions_to_accounts(
+                            batcher_ptr,
+                            transaction,
+                            outputs,
+                        );
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
+                    }
+                    TransactionType::RegisterProgram(_) => {
+                        let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
+                    }
+                    TransactionType::BridgeOut(_) => {}
+                }
+            }
+            BatcherMessage::BlobVerificationProof(args) => {
                 log::info!("received blob verification proof");
-                let fut = Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
+                let fut = Batcher::handle_blob_verification_proof(
+                    batcher_ptr,
+                    args.request_id,
+                    args.proof,
+                );
                 let mut guard = self.future_pool.lock().await;
                 guard.push(fut.boxed());
             }
@@ -2017,9 +2050,7 @@ pub async fn batch_requestor(
         loop {
             log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
             tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
-            let message = BatcherMessage::GetNextBatch {
-                tikv_client: tikv_client.clone(),
-            };
+            let message = BatcherMessage::GetNextBatch;
             log::warn!("requesting next batch");
             if let Err(err) = batcher.cast(message) {
                 log::error!("Batcher Error: failed to cast GetNextBatch message to the BatcherActor during batch_requestor routine: {err:?}");
@@ -2041,6 +2072,7 @@ mod batcher_tests {
     use anyhow::Result;
     use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
+    use lasr_messages::BlobVerificationProofArgs;
     use lasr_types::TransactionType;
     use std::sync::Arc;
     use tikv_client::RawClient as TikvClient;
@@ -2060,15 +2092,15 @@ mod batcher_tests {
         async fn handle(&self, message: Self::Msg, state: &mut Self::State) -> Result<()> {
             let batcher_ptr = Arc::clone(state);
             match message {
-                BatcherMessage::GetNextBatch { tikv_client } => {
-                    let fut = Batcher::handle_next_batch_request(batcher_ptr, tikv_client);
+                BatcherMessage::GetNextBatch => {
+                    let fut = Batcher::handle_next_batch_request(
+                        batcher_ptr,
+                        state.lock().await.tikv_client.clone(),
+                    );
                     let mut guard = self.future_pool.lock().await;
                     guard.push(fut.boxed());
                 }
-                BatcherMessage::AppendTransaction {
-                    transaction,
-                    outputs,
-                } => {
+                BatcherMessage::AppendTransaction(transaction) => {
                     log::warn!("appending transaction to batch");
                     match transaction.transaction_type() {
                         TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
@@ -2081,17 +2113,7 @@ mod batcher_tests {
                             guard.push(fut.boxed());
                         }
                         TransactionType::Call(_) => {
-                            if let Some(o) = outputs {
-                                let fut = Batcher::apply_instructions_to_accounts(
-                                    batcher_ptr,
-                                    transaction,
-                                    o,
-                                );
-                                let mut guard = self.future_pool.lock().await;
-                                guard.push(fut.boxed());
-                            } else {
-                                log::error!("Call transaction result did not contain outputs")
-                            }
+                            log::error!("Call transaction result did not contain outputs")
                         }
                         TransactionType::RegisterProgram(_) => {
                             let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
@@ -2101,10 +2123,42 @@ mod batcher_tests {
                         TransactionType::BridgeOut(_) => {}
                     }
                 }
-                BatcherMessage::BlobVerificationProof { request_id, proof } => {
+                BatcherMessage::AppendTransactionWithOutputs(transaction, outputs) => {
+                    log::warn!("appending transaction to batch");
+                    match transaction.transaction_type() {
+                        TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                            log::warn!("send transaction");
+                            let fut = Batcher::add_transaction_to_account(
+                                batcher_ptr,
+                                transaction.clone(),
+                            );
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::Call(_) => {
+                            let fut = Batcher::apply_instructions_to_accounts(
+                                batcher_ptr,
+                                transaction,
+                                outputs,
+                            );
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::RegisterProgram(_) => {
+                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::BridgeOut(_) => {}
+                    }
+                }
+                BatcherMessage::BlobVerificationProof(args) => {
                     log::info!("received blob verification proof");
-                    let fut =
-                        Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
+                    let fut = Batcher::handle_blob_verification_proof(
+                        batcher_ptr,
+                        args.request_id,
+                        args.proof,
+                    );
                     let mut guard = self.future_pool.lock().await;
                     guard.push(fut.boxed());
                 }
@@ -2115,18 +2169,22 @@ mod batcher_tests {
 
     #[tokio::test]
     async fn test_batcher_future_handler() {
+        const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
+        let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT])
+            .await
+            .unwrap();
         let batcher_actor = BatcherActor::new();
         let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
-        let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
+        let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx, tikv_client)));
         let bv_proof = BlobVerificationProof::default();
         let request = "test".to_string();
 
         batcher_actor
             .handle(
-                BatcherMessage::BlobVerificationProof {
+                BatcherMessage::BlobVerificationProof(BlobVerificationProofArgs {
                     request_id: request,
                     proof: bv_proof,
-                },
+                }),
                 &mut batcher,
             )
             .await

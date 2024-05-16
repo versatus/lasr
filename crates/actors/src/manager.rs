@@ -1,8 +1,8 @@
 use jsonrpsee::ws_client::WsClient;
 use lasr_messages::{
     AccountCacheMessage, ActorName, BatcherMessage, BlobCacheMessage, DaClientMessage,
-    EngineMessage, EoMessage, ExecutorMessage, PendingTransactionMessage, RpcMessage,
-    SchedulerMessage, SupervisorType, ValidatorMessage,
+    EngineMessage, EoMessage, ExecutorMessage, HarvesterListenerMessage, PendingTransactionMessage,
+    RpcMessage, SchedulerMessage, SupervisorType, ValidatorMessage,
 };
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use thiserror::Error;
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::Mutex;
 
+use crate::harvester_listener::{HarvesterListenerActor, HarvesterListenerSupervisorError};
 use crate::{
     get_actor_ref, AccountCacheActor, AccountCacheSupervisorError, Batcher, BatcherActor,
     BatcherSupervisorError, BlobCacheActor, BlobCacheSupervisorError, DaClient, DaClientActor,
@@ -40,6 +41,7 @@ pub struct ActorManager {
     pending_tx: ActorSpawn<PendingTransactionMessage>,
     lasr_rpc_server: ActorSpawn<RpcMessage>,
     scheduler: ActorSpawn<SchedulerMessage>,
+    harvester_listener: ActorSpawn<HarvesterListenerMessage>,
     eo_server: ActorSpawn<EoMessage>,
     engine: ActorSpawn<EngineMessage>,
     validator: ActorSpawn<ValidatorMessage>,
@@ -184,6 +186,34 @@ impl ActorManager {
             {
                 let mut guard = actor_manager.lock().await;
                 guard.scheduler = actor_spawn;
+            }
+            Ok(())
+        } else {
+            Err(ActorManagerError::RespawnFailed(actor_name))
+        }
+    }
+
+    /// Respawn a panicked [`lasr_actors::HarvesterListener`].
+    ///
+    /// Returns an error if the supervisor can't be acquired from the registry.
+    pub async fn respawn_harvester_listener(
+        actor_manager: Arc<Mutex<ActorManager>>,
+        actor_name: ractor::ActorName,
+        handler: HarvesterListenerActor,
+    ) -> Result<(), ActorManagerError> {
+        if let Some(supervisor) = get_actor_ref::<
+            HarvesterListenerMessage,
+            HarvesterListenerSupervisorError,
+        >(SupervisorType::HarvesterListener)
+        {
+            let actor =
+                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
+                    .await
+                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor_spawn = ActorSpawn::new(actor);
+            {
+                let mut guard = actor_manager.lock().await;
+                guard.harvester_listener = actor_spawn;
             }
             Ok(())
         } else {
@@ -407,6 +437,7 @@ pub struct ActorManagerBuilder {
     pending_tx: Option<ActorSpawn<PendingTransactionMessage>>,
     lasr_rpc_server: Option<ActorSpawn<RpcMessage>>,
     scheduler: Option<ActorSpawn<SchedulerMessage>>,
+    harvester_listener: Option<ActorSpawn<HarvesterListenerMessage>>,
     eo_server: Option<ActorSpawn<EoMessage>>,
     engine: Option<ActorSpawn<EngineMessage>>,
     validator: Option<ActorSpawn<ValidatorMessage>>,
@@ -505,6 +536,25 @@ impl ActorManagerBuilder {
                 scheduler_actor,
                 (),
                 scheduler_supervisor.get_cell(),
+            )
+            .await
+            .map_err(Box::new)?,
+        ));
+        Ok(new)
+    }
+
+    pub async fn harvester_listener(
+        self,
+        harvester_listener_actor: HarvesterListenerActor,
+        harvester_listener_supervisor: ActorRef<HarvesterListenerMessage>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut new = self;
+        new.harvester_listener = Some(ActorSpawn::new(
+            Actor::spawn_linked(
+                Some(harvester_listener_actor.name()),
+                harvester_listener_actor,
+                (),
+                harvester_listener_supervisor.get_cell(),
             )
             .await
             .map_err(Box::new)?,
@@ -665,6 +715,9 @@ impl ActorManagerBuilder {
             scheduler: self
                 .scheduler
                 .expect("task scheduler actor failed to start"),
+            harvester_listener: self
+                .harvester_listener
+                .expect("harvester listener actor failed to start"),
             eo_server: self.eo_server.expect("eo server actor failed to start"),
             engine: self.engine.expect("engine actor failed to start"),
             validator: self.validator.expect("validator actor failed to start"),
