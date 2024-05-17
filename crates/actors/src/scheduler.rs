@@ -65,11 +65,8 @@ impl TaskScheduler {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), SchedulerError> {
-        log::info!(
-            "Checking for account cache for account: {} from scheduler",
-            address.to_full_string()
-        );
-        if let Some(account) = get_account(address).await {
+        log::info!("Checking for account cache for account: {address:?} from scheduler");
+        if let Some(account) = get_account(address, ActorType::Scheduler).await {
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Ok(TransactionResponse::GetAccountResponse(account)),
@@ -77,12 +74,12 @@ impl TaskScheduler {
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            log::info!("unable to find account in cache or persistence store");
+            log::warn!("unable to find account for {address:?} in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
                         description:
-                            "unable to find account in Persistence Store or Protocol Cache"
+                            "unable to find account for address {address:?} in Persistence Store or Protocol Cache"
                                 .to_string(),
                     }),
                     reply: None,
