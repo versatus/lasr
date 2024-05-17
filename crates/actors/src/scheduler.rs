@@ -65,10 +65,7 @@ impl TaskScheduler {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), SchedulerError> {
-        log::info!(
-            "Checking for account cache for account: {:?} from scheduler",
-            address
-        );
+        log::info!("Checking for account cache for account: {address:?} from scheduler");
         if let Some(account) = get_account(address, ActorType::Scheduler).await {
             rpc_reply
                 .send(RpcMessage::Response {
