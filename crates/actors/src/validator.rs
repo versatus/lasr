@@ -1020,16 +1020,24 @@ impl ValidatorActor {
         );
         // spin up thread
         let transaction_type = transaction.transaction_type();
+        let from_address = transaction.from();
         match transaction_type {
             TransactionType::Send(_) => {
-                log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
-                let account = if let Some(account) = get_account(transaction.from()).await {
-                    log::info!("found account in cache");
-                    Some(account)
-                } else {
-                    log::info!("unable to find account in cache or persistence store.");
-                    None
-                };
+                log::info!("Received send transaction, checking account_cache for account {:?} from validator", &from_address);
+                let account =
+                    if let Some(account) = get_account(from_address, ActorType::Validator).await {
+                        log::info!(
+                            "validator found account in cache for address: {:?}",
+                            from_address
+                        );
+                        Some(account)
+                    } else {
+                        log::warn!(
+                        "unable to find account for address {:?} in cache or persistence store.",
+                        from_address
+                        );
+                        None
+                    };
 
                 if account.is_none() {
                     let actor: ActorRef<PendingTransactionMessage> =
@@ -1063,10 +1071,15 @@ impl ValidatorActor {
                 // install op
             }
             TransactionType::BridgeIn(_) => {
-                let _account = if let Some(account) = get_account(transaction.from()).await {
+                log::warn!("attempting to bridge in");
+                let _account = if let Some(account) =
+                    get_account(transaction.from(), ActorType::Validator).await
+                {
                     Some(account)
                 } else {
-                    log::info!("unable to find account in cache or persistence store.");
+                    log::warn!(
+                        "unable to find account for address {from_address:?} in cache or persistence store."
+                    );
                     None
                 };
                 let state = validator_core.lock().await;
@@ -1129,11 +1142,11 @@ impl ValidatorActor {
                             "Received call transaction checking account {} from validator",
                             &addr.to_full_string()
                         );
-                        if let Some(account) = get_account(addr).await {
+                        if let Some(account) = get_account(addr, ActorType::Validator).await {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or persistence store.");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
@@ -1142,11 +1155,11 @@ impl ValidatorActor {
                             "looking for account {:?} in cache from validator",
                             addr.to_full_string()
                         );
-                        if let Some(account) = get_account(*addr).await {
+                        if let Some(account) = get_account(*addr, ActorType::Validator).await {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or persistence store.");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }

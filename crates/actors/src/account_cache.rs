@@ -210,27 +210,37 @@ impl Actor for AccountCacheActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            AccountCacheMessage::Write { account } => {
-                log::info!(
-                    "Received account cache write request: 0x{:x}",
-                    &account.owner_address()
+            AccountCacheMessage::Write {
+                account,
+                who,
+                location,
+            } => {
+                let owner = &account.owner_address().to_full_string();
+                log::warn!(
+                    "Received account cache write request from {} for address {}: WHERE: {}",
+                    who.to_string(),
+                    owner,
+                    location
                 );
                 let _ = state.inner.handle_cache_write(account.clone());
-                log::info!("Account: {:?}", &account);
+                log::info!("Account written to for address {owner}: {:?}", &account);
             }
-            AccountCacheMessage::Read { address, tx } => {
-                log::info!(
-                    "Recieved account cache read request for account: {:?}",
-                    &address
+            AccountCacheMessage::Read { address, tx, who } => {
+                let hex_address = &address.to_full_string();
+                log::warn!(
+                    "Recieved account cache read request from {} for address: {}",
+                    who.to_string(),
+                    hex_address
                 );
                 let account = if let Some(account) = state.inner.get(&address) {
+                    log::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
                     Some(account.clone())
                 } else {
                     // Pass to persistence store
-                    log::info!(
-                        "Account not found in AccountCache, connecting to persistence store."
+                    log::warn!(
+                        "Account not found in AccountCache for address {hex_address}, connecting to persistence store."
                     );
-                    let acc_key = address.to_string();
+                    let acc_key = address.to_full_string();
 
                     // Pull `Account` data from persistence store
                     state
@@ -238,19 +248,18 @@ impl Actor for AccountCacheActor {
                     .get(acc_key.to_owned())
                     .await
                     .typecast()
-                    .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {address} in persistence store: {e:?}")))
+                    .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {hex_address} in persistence store: {e:?}")))
                     .flatten()
                     .and_then(|returned_data| {
                         bincode::deserialize(&returned_data)
                             .typecast()
                             .log_err(|e| e)
                             .and_then(|AccountValue { account }| {
-                                state.inner.cache.insert(address, account.clone());
+                                log::warn!("retrieved account from persistence store for address {hex_address}: {account:?}");
                                 Some(account)
                             })
                     })
                 };
-                log::info!("acquired account option: {:?}", &account);
                 let _ = tx.send(account);
             }
             AccountCacheMessage::Remove { address } => {
