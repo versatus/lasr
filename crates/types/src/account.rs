@@ -341,40 +341,40 @@ impl Account {
         }
     }
 
-    pub fn create_test_account(hex_address: String) -> Self {
-        let owner_address =
-            Address::from_hex(&hex_address).expect("failed to produce address from hex str");
-        let namespace = Namespace::from("TEST".to_string());
-        let program_namespace = AddressOrNamespace::Namespace(namespace);
-        let mut fake_program_set = BTreeSet::new();
-        fake_program_set.insert(program_namespace.clone());
-        let program_address = Address::new([4; 20]);
-        let token = TokenBuilder::default()
-            .program_id(program_address.clone())
-            .owner_id(owner_address.clone())
-            .balance(crate::U256::from(666))
-            .metadata(Metadata::new())
-            .token_ids(vec![crate::U256::from(69)])
-            .allowance(BTreeMap::new())
-            .approvals(BTreeMap::new())
-            .data(ArbitraryData::new())
-            .status(Status::Free)
-            .build()
-            .expect("failed to build test token");
-        let mut programs = BTreeMap::new();
-        programs.insert(program_address, token);
-        AccountBuilder::default()
-            .account_type(AccountType::User)
-            .program_namespace(Some(program_namespace))
-            .owner_address(owner_address)
-            .programs(programs)
-            .nonce(crate::U256::from(0))
-            .program_account_data(ArbitraryData::new())
-            .program_account_metadata(Metadata::new())
-            .program_account_linked_programs(fake_program_set)
-            .build()
-            .expect("failed to build test account")
-    }
+    // pub fn create_test_account(hex_address: String) -> Self {
+    //     let owner_address =
+    //         Address::from_hex(&hex_address).expect("failed to produce address from hex str");
+    //     let namespace = Namespace::from("TEST".to_string());
+    //     let program_namespace = AddressOrNamespace::Namespace(namespace);
+    //     let mut fake_program_set = BTreeSet::new();
+    //     fake_program_set.insert(program_namespace.clone());
+    //     let program_address = Address::new([4; 20]);
+    //     let token = TokenBuilder::default()
+    //         .program_id(program_address.clone())
+    //         .owner_id(owner_address.clone())
+    //         .balance(crate::U256::from(666))
+    //         .metadata(Metadata::new())
+    //         .token_ids(vec![crate::U256::from(69)])
+    //         .allowance(BTreeMap::new())
+    //         .approvals(BTreeMap::new())
+    //         .data(ArbitraryData::new())
+    //         .status(Status::Free)
+    //         .build()
+    //         .expect("failed to build test token");
+    //     let mut programs = BTreeMap::new();
+    //     programs.insert(program_address, token);
+    //     AccountBuilder::default()
+    //         .account_type(AccountType::User)
+    //         .program_namespace(Some(program_namespace))
+    //         .owner_address(owner_address)
+    //         .programs(programs)
+    //         .nonce(crate::U256::from(0))
+    //         .program_account_data(ArbitraryData::new())
+    //         .program_account_metadata(Metadata::new())
+    //         .program_account_linked_programs(fake_program_set)
+    //         .build()
+    //         .expect("failed to build test account")
+    // }
 
     pub fn account_type(&self) -> AccountType {
         self.account_type.clone()

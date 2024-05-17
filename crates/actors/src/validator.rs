@@ -1032,7 +1032,7 @@ impl ValidatorActor {
                         );
                         Some(account)
                     } else {
-                        log::info!(
+                        log::warn!(
                         "unable to find account for address {:?} in cache or persistence store.",
                         from_address
                     );
@@ -1077,7 +1077,7 @@ impl ValidatorActor {
                 {
                     Some(account)
                 } else {
-                    log::info!(
+                    log::warn!(
                         "unable to find account for address {from_address:?} in cache or persistence store."
                     );
                     None
@@ -1146,7 +1146,7 @@ impl ValidatorActor {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account for address {addr:?} in cache or persistence store.");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
@@ -1159,7 +1159,7 @@ impl ValidatorActor {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account for address {addr:?} in cache or persistence store.");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }

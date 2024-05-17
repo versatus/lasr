@@ -77,7 +77,7 @@ impl TaskScheduler {
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            log::info!("unable to find account for {address:?} in cache or persistence store");
+            log::warn!("unable to find account for {address:?} in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
