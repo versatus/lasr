@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mock_user_account = AccountBuilder::default()
         .account_type(AccountType::User)
         .program_namespace(None)
-        .owner_address(Address::new([0; 20].into()))
+        .owner_address(Address::new([0; 20]))
         .programs(BTreeMap::new())
         .nonce(U256::from(0))
         .program_account_data(ArbitraryData::new())
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mock_program_account = AccountBuilder::default()
         .account_type(AccountType::Program([1; 20].into()))
         .program_namespace(None)
-        .owner_address(Address::new([0; 20].into()))
+        .owner_address(Address::new([0; 20]))
         .programs(BTreeMap::new())
         .nonce(U256::from(0))
         .program_account_data(ArbitraryData::new())
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         program_data
     );
 
-    let user_acc_key = user_data.owner_address().to_string();
+    let user_acc_key = user_data.owner_address().to_full_string();
     let user_acc_val = AccountValue { account: user_data };
 
     let prgm_acc_val = AccountValue {
