@@ -1035,7 +1035,7 @@ impl ValidatorActor {
                         log::warn!(
                         "unable to find account for address {:?} in cache or persistence store.",
                         from_address
-                    );
+                        );
                         None
                     };
 
