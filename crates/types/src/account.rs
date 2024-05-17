@@ -87,9 +87,15 @@ impl<'de> Deserialize<'de> for Address {
 /// This structure is used to store Ethereum Compatible addresses, which are
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-#[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Address([u8; 20]);
+
+impl std::fmt::Debug for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_full_string())
+    }
+}
 
 impl Address {
     /// Creates a new address from a 20 byte array
@@ -333,6 +339,41 @@ impl Account {
             program_account_metadata: Metadata::new(),
             program_account_linked_programs: BTreeSet::new(),
         }
+    }
+
+    pub fn create_test_account(hex_address: String) -> Self {
+        let owner_address =
+            Address::from_hex(&hex_address).expect("failed to produce address from hex str");
+        let namespace = Namespace::from("TEST".to_string());
+        let program_namespace = AddressOrNamespace::Namespace(namespace);
+        let mut fake_program_set = BTreeSet::new();
+        fake_program_set.insert(program_namespace.clone());
+        let program_address = Address::new([4; 20]);
+        let token = TokenBuilder::default()
+            .program_id(program_address.clone())
+            .owner_id(owner_address.clone())
+            .balance(crate::U256::from(666))
+            .metadata(Metadata::new())
+            .token_ids(vec![crate::U256::from(69)])
+            .allowance(BTreeMap::new())
+            .approvals(BTreeMap::new())
+            .data(ArbitraryData::new())
+            .status(Status::Free)
+            .build()
+            .expect("failed to build test token");
+        let mut programs = BTreeMap::new();
+        programs.insert(program_address, token);
+        AccountBuilder::default()
+            .account_type(AccountType::User)
+            .program_namespace(Some(program_namespace))
+            .owner_address(owner_address)
+            .programs(programs)
+            .nonce(crate::U256::from(0))
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .program_account_linked_programs(fake_program_set)
+            .build()
+            .expect("failed to build test account")
     }
 
     pub fn account_type(&self) -> AccountType {
