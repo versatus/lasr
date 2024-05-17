@@ -358,7 +358,15 @@ impl OciManager {
             if let Some(parent) = temp_file_path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
-            let _ = tokio::fs::File::create(&temp_file_path).await?;
+
+            // Check if the file exists
+            if tokio::fs::metadata(&temp_file_path).await.is_ok() {
+                // If it exists, make sure it is empty
+                tokio::fs::write(&temp_file_path, b"").await?;
+            } else {
+                // If it doesn't exist, create it
+                let _ = tokio::fs::File::create(&temp_file_path).await?;
+            }
 
             // Create a standard file for stdout redirection
             let container_stdout_file = std::fs::File::create(&temp_file_path)?;
