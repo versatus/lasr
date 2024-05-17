@@ -216,7 +216,7 @@ impl Actor for AccountCacheActor {
                 location,
             } => {
                 let owner = &account.owner_address().to_full_string();
-                log::error!(
+                log::warn!(
                     "Received account cache write request from {} for address {}: WHERE: {}",
                     who.to_string(),
                     owner,
@@ -227,7 +227,7 @@ impl Actor for AccountCacheActor {
             }
             AccountCacheMessage::Read { address, tx, who } => {
                 let hex_address = &address.to_full_string();
-                log::error!(
+                log::warn!(
                     "Recieved account cache read request from {} for address: {}",
                     who.to_string(),
                     hex_address
