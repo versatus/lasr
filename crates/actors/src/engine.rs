@@ -101,9 +101,13 @@ impl EngineActor {
         ))
     }
 
-    fn write_to_cache(account: Account) {
+    fn write_to_cache(account: Account, location: String) {
         let owner = account.owner_address();
-        let message = AccountCacheMessage::Write { account };
+        let message = AccountCacheMessage::Write {
+            account,
+            who: ActorType::Engine,
+            location,
+        };
         if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
             if let Err(e) = cache_actor.send_message(message) {
                 log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
@@ -118,7 +122,7 @@ impl EngineActor {
             "checking account cache for account: {} from engine",
             &address.to_full_string()
         );
-        Ok(check_account_cache(*address).await)
+        Ok(check_account_cache(*address, ActorType::Engine).await)
     }
 
     async fn handle_cache_response(
@@ -409,7 +413,9 @@ impl Actor for EngineActor {
                 let guard = self.future_pool.lock().await;
                 guard.push(fut.boxed());
             }
-            EngineMessage::Cache { account, .. } => EngineActor::write_to_cache(account),
+            EngineMessage::Cache { account, .. } => {
+                EngineActor::write_to_cache(account, "EngineMessage::Cache".to_string())
+            }
             EngineMessage::Call { transaction } => {
                 let fut = EngineActor::handle_call(transaction);
                 let guard = self.future_pool.lock().await;
