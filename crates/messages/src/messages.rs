@@ -1,4 +1,4 @@
-use crate::RpcRequestMethod;
+use crate::{ActorType, RpcRequestMethod};
 use derive_builder::Builder;
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
@@ -383,10 +383,13 @@ pub enum DaClientMessage {
 pub enum AccountCacheMessage {
     Write {
         account: Account,
+        who: ActorType,
+        location: String,
     },
     Read {
         address: Address,
         tx: OneshotSender<Option<Account>>,
+        who: ActorType,
     },
     Remove {
         address: Address,

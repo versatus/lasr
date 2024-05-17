@@ -196,7 +196,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         op: String,
         inputs: String,
     ) -> std::io::Result<Inputs> {
-        if let Some(program_account) = get_account(transaction.to()).await {
+        if let Some(program_account) = get_account(transaction.to(), ActorType::Executor).await {
             Ok(Inputs {
                 version: 1,
                 account_info: program_account.clone(),
@@ -485,7 +485,7 @@ impl ExecutorActor {
         let inputs = transaction.inputs();
         let transaction_hash = transaction.hash_string();
 
-        match get_account(program_id).await {
+        match get_account(program_id, ActorType::Executor).await {
             Some(_) => {
                 let state = engine.lock().await;
                 match state
@@ -542,7 +542,7 @@ impl ExecutorActor {
         let inputs = transaction.inputs();
         let transaction_hash = transaction.hash_string();
 
-        match get_account(program_id).await {
+        match get_account(program_id, ActorType::Executor).await {
             Some(account) => {
                 let content_id = account
                     .program_account_metadata()
@@ -818,7 +818,7 @@ impl Actor for ExecutorActor {
                     op: transaction.op(),
                     inputs: transaction.inputs(),
                 };
-                if let Some(account) = get_account(transaction.to()).await {
+                if let Some(account) = get_account(transaction.to(), ActorType::Executor).await {
                     let metadata = account.program_account_metadata();
                     if let Some(cid) = metadata.inner().get("content_id") {
                         log::info!("found cid, converting inputs to json");

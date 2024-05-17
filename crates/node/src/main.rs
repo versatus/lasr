@@ -30,7 +30,7 @@ use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Error)
+    simple_logger::init_with_level(log::Level::Warn)
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());

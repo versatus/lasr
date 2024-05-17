@@ -335,7 +335,7 @@ where
     }
 }
 
-pub async fn check_account_cache(address: Address) -> Option<Account> {
+pub async fn check_account_cache(address: Address, who: ActorType) -> Option<Account> {
     let actor: ActorRef<AccountCacheMessage> =
         ractor::registry::where_is(ActorType::AccountCache.to_string())?.into();
 
@@ -344,7 +344,7 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
     // Note: This message will return an `Account` from either the `AccountCache` or the persistence store.
     // If the account was not found in `AccountCache`, but found in persistence store then it will
     // write to `AccountCache` for faster reads in the future.
-    let message = AccountCacheMessage::Read { address, tx };
+    let message = AccountCacheMessage::Read { address, tx, who };
 
     actor.cast(message).ok()?;
 
@@ -354,10 +354,10 @@ pub async fn check_account_cache(address: Address) -> Option<Account> {
     Some(account)
 }
 
-pub async fn get_account(address: Address) -> Option<Account> {
+pub async fn get_account(address: Address, who: ActorType) -> Option<Account> {
     log::info!(
         "Attempting to get account information from AccountCache for address: {}",
         address.to_full_string()
     );
-    check_account_cache(address).await
+    check_account_cache(address, who).await
 }
