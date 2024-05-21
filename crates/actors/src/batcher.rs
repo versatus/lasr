@@ -128,11 +128,11 @@ pub struct AccountValue {
     pub account: Account,
 }
 
-// // Structure for persistence store `Transaction` values
-// #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
-// pub struct TransactionValue {
-//     transaction: Transaction,
-// }
+// Structure for persistence store `Transaction` values
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransactionValue {
+    transaction: Transaction,
+}
 
 impl Batch {
     pub fn new() -> Self {
@@ -1712,18 +1712,19 @@ impl Batcher {
                 if let Some(batch) = guard.parent.to_owned().into() {
                     let account_map = &guard.parent.accounts;
                     log::info!("{account_map:?}");
-                    // let transaction_map = &guard.parent.transactions;
+                    let transaction_map = &guard.parent.transactions;
+                    log::info!("{transaction_map:?}");
 
                     for (addr, account) in account_map.iter() {
-                        let data = account.clone();
+                        let acct_data = account.clone();
                         //note: this can be serialized as well need be.
                         //TiKV will accept any key if of type String, OR Vec<u8>
-                        let acc_val = AccountValue { account: data };
+                        let acc_val = AccountValue { account: acct_data };
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
                             if tikv_client.put(addr.clone(), val).await.is_ok() {
                                 log::warn!(
-                                    "Inserted Account with address of {addr:?} to persistence layer",
+                                    "Inserted Account with address of {addr:?} to persistence store",
                                 )
                             } else {
                                 log::error!("failed to push Account data to persistence store")
@@ -1733,30 +1734,24 @@ impl Batcher {
                         }
                     }
 
-                    // while let Some(transaction) = transaction_map.iter().next() {
-                    //     let data = transaction.1.clone();
-                    //     if let Some(txn_sig) = data.sig().ok() {
-                    //         log::info!("Recoverable signature obtained.");
+                    for (id, txn) in transaction_map.iter() {
+                        let txn_data = txn.clone();
 
-                    //         // note: this can be serialized as well need be
-                    //         let txn_key = txn_sig.to_vec();
+                        let txn_val = TransactionValue {
+                            transaction: txn_data,
+                        };
 
-                    //         let txn_val = TransactionValue { transaction: data };
+                        if let Some(val) = bincode::serialize(&txn_val).ok() {
+                            if tikv_client.put(id.clone(), val).await.is_ok() {
+                                log::warn!("Inserted txn with id of {id:?} to persistence store"),
+                            } else {
+                                log::error!("failed to push Transaction data to persistence store")
+                            }
+                        } else {
+                            log::error!("failed to serialize transaction data")
+                        }
+                    }
 
-                    //         // Serialize `Transaction` data to be stored.
-                    //         if let Some(val) = bincode::serialize(&txn_val).ok() {
-                    //             if let Ok(txn_key) = client.put(txn_key, val).await {
-                    //                 log::info!("Inserted Txn with signature: {:?}", txn_key)
-                    //             } else {
-                    //                 log::error!("failed to push Txn data to persistence store.")
-                    //             }
-                    //         } else {
-                    //             log::error!("failed to serialize txn data")
-                    //         }
-                    //     } else {
-                    //         log::error!("failed to obtain recoverable signature")
-                    //     }
-                    // }
                 }
 
                 if let Some(da_client) =
