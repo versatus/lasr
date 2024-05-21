@@ -2,7 +2,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     error::Error as StdError,
-    fmt::{Debug, Display},
+    fmt::{format, Debug, Display},
     sync::Arc,
 };
 
@@ -1736,22 +1736,22 @@ impl Batcher {
 
                     for (id, txn) in transaction_map.iter() {
                         let txn_data = txn.clone();
-
                         let txn_val = TransactionValue {
                             transaction: txn_data,
                         };
-
-                        if let Some(val) = bincode::serialize(&txn_val).ok() {
-                            if tikv_client.put(id.clone(), val).await.is_ok() {
-                                log::warn!("Inserted txn with id of {id:?} to persistence store"),
-                            } else {
-                                log::error!("failed to push Transaction data to persistence store")
-                            }
-                        } else {
-                            log::error!("failed to serialize transaction data")
+                        // Serialize `Transaction` data to be stored.
+                        if let Some(val) = bincode::serialize(&txn_val).typecast().log_err(|e| {
+                            BatcherError::Custom(format!("failed to serialize txn: {id}: {e:?}"))
+                        }) {
+                            // Push serialized txn data into Persistence Store.
+                            tikv_client
+                            .put(id.clone(), val)
+                            .await
+                            .typecast()
+                            .log_err(|e| BatcherError::Custom(format!("failed to insert txn with id: {id} in persistence store: {e:?}")));
+                            log::warn!("Inserted Transaction with id of {id} to persistence store")
                         }
                     }
-
                 }
 
                 if let Some(da_client) =
