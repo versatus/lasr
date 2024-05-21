@@ -1744,12 +1744,12 @@ impl Batcher {
                             BatcherError::Custom(format!("failed to serialize txn: {id}: {e:?}"))
                         }) {
                             // Push serialized txn data into Persistence Store.
-                            tikv_client
+                            if tikv_client
                             .put(id.clone(), val)
                             .await
                             .typecast()
-                            .log_err(|e| BatcherError::Custom(format!("failed to insert txn with id: {id} in persistence store: {e:?}")));
-                            log::warn!("Inserted Transaction with id of {id} to persistence store")
+                            .log_err(|e| BatcherError::Custom(format!("failed to insert txn with id: {id} in persistence store: {e:?}")))
+                            .is_some() { log::warn!("Inserted Transaction with id of {id} to persistence store") }
                         }
                     }
                 }
