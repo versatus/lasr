@@ -95,7 +95,7 @@ pub struct Address([u8; 20]);
 impl std::fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_full_string())
-	}
+    }
 }
 
 impl BytesConvertable for Address {
