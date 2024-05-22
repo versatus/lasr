@@ -47,7 +47,7 @@ use crate::{
 };
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, BatcherMessage, BlobVerificationProofArgs,
-    DaClientMessage, EoMessage, HarvesterListenerMessage, PendingTransactionMessage,
+    DaClientMessage, EoMessage, HarvesterListenerMessage, PendingTransactionMessage, PgGroupType,
     SchedulerMessage, SupervisorType,
 };
 
@@ -427,7 +427,7 @@ impl Batcher {
         account: Account,
         location: String,
     ) -> Result<(), BatcherError> {
-        Batcher::cache_account(&account, location).await;
+        Self::cache_account(&account, location).await;
         let mut guard = batcher.lock().await;
         let mut new_batch = false;
         let mut res = guard.parent.insert_account(account.clone());
@@ -705,61 +705,35 @@ impl Batcher {
 
         for (_, account) in batch_buffer {
             log::info!("adding account to batch");
-            Batcher::add_account_to_batch(
-                &batcher,
-                account,
-                "add_transaction_to_account".to_string(),
-            )
-            .await
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-        }
-
-        log::info!("adding transaction to batch");
-        Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
-
-        if let Some(harvester_listener) = get_actor_ref::<
-            HarvesterListenerMessage,
-            HarvesterListenerError,
-        >(ActorType::HarvesterListener)
-        {
-            let message = HarvesterListenerMessage::TransactionApplied(
-                transaction.clone().hash_string(),
-                token.clone(),
-            );
-
-            harvester_listener
-                .cast(message)
+            Self::add_account_to_batch(&batcher, account, "add_transaction_to_account".to_string())
+                .await
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
                 })?;
-        } else {
-            return Err(BatcherError::FailedTransaction {
-                msg: "failed to acquire SchedulerActor".to_string(),
-                txn: Box::new(transaction.clone()),
-            });
         }
 
-        if let Some(pending_tx) = get_actor_ref::<PendingTransactionMessage, PendingTransactionError>(
-            ActorType::PendingTransactions,
-        ) {
-            let message = PendingTransactionMessage::Valid {
-                transaction: transaction.clone(),
-                cert: None,
-            };
+        log::info!("adding transaction to batch");
+        Self::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-            pending_tx
-                .cast(message)
-                .map_err(|e| BatcherError::FailedTransaction {
-                    msg: e.to_string(),
-                    txn: Box::new(transaction),
+        let harvester_listeners =
+            ractor::pg::get_members(&PgGroupType::HarvesterListener.to_string());
+
+        if !harvester_listeners.is_empty() {
+            let message =
+                HarvesterListenerMessage::TransactionApplied(transaction.clone(), token.clone());
+
+            for actor in harvester_listeners {
+                actor.send_message(message.clone()).map_err(|e| {
+                    BatcherError::FailedTransaction {
+                        msg: e.to_string(),
+                        txn: Box::new(transaction.clone()),
+                    }
                 })?;
+            }
         } else {
             return Err(BatcherError::FailedTransaction {
-                msg: "failed to acquire PendingTransactionActor".to_string(),
+                msg: "failed to acquire HarvesterListeners from pg group".to_string(),
                 txn: Box::new(transaction.clone()),
             });
         }
@@ -845,8 +819,7 @@ impl Batcher {
     ) -> Result<Account, BatcherError> {
         let from = transfer.from().clone();
         log::warn!("instruction indicates a transfer from {:?}", &from);
-        let mut account =
-            Batcher::get_transfer_from_account(transaction, &from, batch_buffer).await?;
+        let mut account = Self::get_transfer_from_account(transaction, &from, batch_buffer).await?;
         account
             .apply_transfer_from_instruction(transfer.token(), transfer.amount(), transfer.ids())
             .map_err(|e| BatcherError::Custom(e.to_string()))?;
@@ -861,7 +834,7 @@ impl Batcher {
         let to = transfer.to().clone();
         log::warn!("instruction indicates a transfer from {:?}", &to);
         if let Some(mut account) =
-            Batcher::get_transfer_to_account(transaction, &to, batch_buffer).await
+            Self::get_transfer_to_account(transaction, &to, batch_buffer).await
         {
             if let Some(program_account) = get_account(*transfer.token(), ActorType::Batcher).await
             {
@@ -940,7 +913,7 @@ impl Batcher {
     }
 
     async fn apply_transfer_instruction(
-        batcher: &Arc<Mutex<Batcher>>,
+        batcher: &Arc<Mutex<Self>>,
         transaction: &Transaction,
         transfer: &TransferInstruction,
         batch_buffer: &mut HashMap<Address, Account>,
@@ -954,9 +927,8 @@ impl Batcher {
             &from,
             &to
         );
-        let from_account =
-            Batcher::apply_transfer_from(transaction, transfer, batch_buffer).await?;
-        let to_account = Batcher::apply_transfer_to(transaction, transfer, batch_buffer).await?;
+        let from_account = Self::apply_transfer_from(transaction, transfer, batch_buffer).await?;
+        let to_account = Self::apply_transfer_to(transaction, transfer, batch_buffer).await?;
         Ok((from_account, to_account))
     }
 
@@ -967,7 +939,7 @@ impl Batcher {
     ) -> Result<Account, BatcherError> {
         let burn_address = burn.from();
         let mut account =
-            Batcher::get_transfer_from_account(transaction, burn_address, batch_buffer).await?;
+            Self::get_transfer_from_account(transaction, burn_address, batch_buffer).await?;
         account
             .apply_burn_instruction(burn.token(), burn.amount(), burn.token_ids())
             .map_err(|e| BatcherError::Custom(e.to_string()))?;
@@ -992,7 +964,7 @@ impl Batcher {
             AddressOrNamespace::This => {
                 log::warn!("Distribution going to {:?}", transaction.to());
                 let addr = transaction.to();
-                if let Some(mut acct) = Batcher::get_transfer_to_account(
+                if let Some(mut acct) = Self::get_transfer_to_account(
                     transaction,
                     distribution.to(),
                     batch_buffer
@@ -1049,7 +1021,7 @@ impl Batcher {
             }
             AddressOrNamespace::Address(to_addr) => {
                 log::warn!("distribution going to {}", to_addr.to_full_string());
-                if let Some(mut account) = Batcher::get_transfer_to_account(
+                if let Some(mut account) = Self::get_transfer_to_account(
                     transaction,
                     &AddressOrNamespace::Address(*to_addr),
                     batch_buffer
@@ -1332,11 +1304,11 @@ impl Batcher {
         match update {
             TokenOrProgramUpdate::TokenUpdate(token_update) => {
                 log::warn!("received token update: {:?}", token_update);
-                Batcher::apply_token_update(transaction, token_update, batch_buffer).await
+                Self::apply_token_update(transaction, token_update, batch_buffer).await
             }
             TokenOrProgramUpdate::ProgramUpdate(program_update) => {
                 log::warn!("received program update: {:?}", &program_update);
-                Batcher::apply_program_update(transaction, program_update, batch_buffer).await
+                Self::apply_program_update(transaction, program_update, batch_buffer).await
             }
         }
     }
@@ -1418,7 +1390,7 @@ impl Batcher {
                     txn: Box::new(transaction.clone()),
                 })?;
 
-            Batcher::add_account_to_batch(
+            Self::add_account_to_batch(
                 &batcher,
                 program_account,
                 "apply_program_registration: for program account".to_string(),
@@ -1431,7 +1403,7 @@ impl Batcher {
 
             account.increment_nonce();
 
-            Batcher::add_account_to_batch(
+            Self::add_account_to_batch(
                 &batcher,
                 account,
                 "apply_program_registration: for user account".to_string(),
@@ -1521,7 +1493,7 @@ impl Batcher {
 
         caller.increment_nonce();
 
-        Batcher::add_account_to_batch(
+        Self::add_account_to_batch(
             &batcher,
             caller,
             "apply_instructions_to_accounts: for caller account".to_string(),
@@ -1536,7 +1508,7 @@ impl Batcher {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
                     log::warn!("Applying transfer instruction: {:?}", transfer);
-                    let (from_account, to_account) = Batcher::apply_transfer_instruction(
+                    let (from_account, to_account) = Self::apply_transfer_instruction(
                         &batcher,
                         &transaction,
                         &transfer,
@@ -1547,19 +1519,19 @@ impl Batcher {
                         msg: e.to_string(),
                         txn: Box::new(transaction.clone()),
                     })?;
-                    Batcher::add_account_to_batch_buffer(&mut batch_buffer, from_account);
-                    Batcher::add_account_to_batch_buffer(&mut batch_buffer, to_account);
+                    Self::add_account_to_batch_buffer(&mut batch_buffer, from_account);
+                    Self::add_account_to_batch_buffer(&mut batch_buffer, to_account);
                 }
                 Instruction::Burn(burn) => {
                     log::info!("Applying burn instruction: {:?}", burn);
                     let account =
-                        Batcher::apply_burn_instruction(&transaction, &burn, &mut batch_buffer)
+                        Self::apply_burn_instruction(&transaction, &burn, &mut batch_buffer)
                             .await
                             .map_err(|e| BatcherError::FailedTransaction {
                                 msg: e.to_string(),
                                 txn: Box::new(transaction.clone()),
                             })?;
-                    Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
+                    Self::add_account_to_batch_buffer(&mut batch_buffer, account);
                 }
                 Instruction::Create(create) => {
                     log::info!("Applying create instruction: {:?}", create);
@@ -1570,30 +1542,30 @@ impl Batcher {
                     for dist in create.distribution() {
                         log::warn!("Applying distribution: {:?}", create);
                         let account =
-                            Batcher::apply_distribution(&transaction, dist, &mut batch_buffer)
+                            Self::apply_distribution(&transaction, dist, &mut batch_buffer)
                                 .await
                                 .map_err(|e| BatcherError::FailedTransaction {
                                     msg: e.to_string(),
                                     txn: Box::new(transaction.clone()),
                                 })?;
-                        Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
+                        Self::add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
 
                     let program_account =
-                        Batcher::try_create_program_account(&transaction, create, &batch_buffer)
+                        Self::try_create_program_account(&transaction, create, &batch_buffer)
                             .await
                             .map_err(|e| BatcherError::FailedTransaction {
                                 msg: e.to_string(),
                                 txn: Box::new(transaction.clone()),
                             })?;
-                    Batcher::add_account_to_batch_buffer(&mut batch_buffer, program_account);
+                    Self::add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
                     log::info!("Applying update instruction: {:?}", update);
                     log::info!("Update instruction has {} updates", &update.updates().len());
                     for token_or_program_update in update.updates() {
                         log::info!("Applying update: {:?}", &token_or_program_update);
-                        let account = Batcher::apply_update(
+                        let account = Self::apply_update(
                             &transaction,
                             token_or_program_update,
                             &mut batch_buffer,
@@ -1603,7 +1575,7 @@ impl Batcher {
                             msg: e.to_string(),
                             txn: Box::new(transaction.clone()),
                         })?;
-                        Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
+                        Self::add_account_to_batch_buffer(&mut batch_buffer, account);
                     }
                 }
                 Instruction::Log(log) => match &log.0 {
@@ -1616,7 +1588,7 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            Batcher::add_account_to_batch(
+            Self::add_account_to_batch(
                 &batcher,
                 account,
                 "apply_instructions_to_accounts: for batch buffer".to_string(),
@@ -1629,33 +1601,13 @@ impl Batcher {
         }
 
         log::warn!("Adding transaction to a batch");
-        Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
+        Self::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-        if let Some(harvester_listener_actor) = get_actor_ref::<
-            HarvesterListenerMessage,
-            HarvesterListenerError,
-        >(ActorType::HarvesterListener)
-        {
-            if let Some(pending_transactions) = get_actor_ref::<
-                PendingTransactionMessage,
-                PendingTransactionError,
-            >(ActorType::PendingTransactions)
-            {
-                let message = PendingTransactionMessage::ValidCall {
-                    outputs: outputs.clone(),
-                    transaction: transaction.clone(),
-                    cert: None,
-                };
+        let harvester_listeners =
+            ractor::pg::get_members(&PgGroupType::HarvesterListener.to_string());
 
-                log::info!(
-                    "Informing pending transactions that the transaction has been applied successfully"
-                );
-                if let Err(err) = pending_transactions.cast(message) {
-                    log::error!(
-                        "failed to cast valid call message to pending transactions actor: {err:?}"
-                    );
-                }
-
+        if !harvester_listeners.is_empty() {
+            for harvester_listener_actor in harvester_listeners {
                 log::warn!(
                     "Batcher: attempting to get account: {:?}",
                     transaction.from()
@@ -1669,46 +1621,44 @@ impl Batcher {
                 let owner = account.owner_address();
 
                 let message = HarvesterListenerMessage::CallTransactionApplied(
-                    transaction.hash_string(),
+                    transaction.clone(),
                     account,
+                    outputs.clone(),
                 );
 
-                log::warn!("Informing scheduler that the call transaction was applied");
-                if let Err(err) = harvester_listener_actor.cast(message) {
+                log::warn!("Informing HarvesterListener that the call transaction was applied");
+                if let Err(err) = harvester_listener_actor.send_message(message) {
                     log::error!(
-                        "failed to cast call transaction applied message to scheduler actor for account address {owner}: {err:?}"
+                        "failed to cast call transaction applied message to HarvesterListener actor for account address {owner}: {err:?}"
                     );
                 }
-                Ok(())
-            } else {
-                Err(BatcherError::FailedTransaction {
-                    msg: "unable to acquire PendingTransactionActor".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })
             }
+            Ok(())
         } else {
             Err(BatcherError::FailedTransaction {
-                msg: "unable to acquire SchedulerActor".to_string(),
+                msg: "unable to acquire HarvesterListner from pg group".to_string(),
                 txn: Box::new(transaction.clone()),
             })
         }
     }
 
     pub fn handle_transaction_error(err: String, transaction: Transaction) {
-        get_actor_ref::<PendingTransactionMessage, PendingTransactionError>(
-            ActorType::PendingTransactions,
-        )
-        .and_then(|pending_transactions| {
-            let message = PendingTransactionMessage::Invalid {
-                transaction,
-                e: Box::new(BatcherError::Custom(err)) as Box<dyn std::error::Error + Send>,
-            };
-            pending_transactions.cast(message).typecast().log_err(|e| {
-                PendingTransactionError::Custom(format!(
-                    "failed to cast invalid transaction message to PendingTransactionActor: {e:?}"
-                ))
-            })
-        });
+        let harvester_listeners =
+            ractor::pg::get_members(&PgGroupType::HarvesterListener.to_string());
+
+        if !harvester_listeners.is_empty() {
+            let message = HarvesterListenerMessage::Invalid(transaction, err);
+
+            for harvester_listeners in harvester_listeners {
+                harvester_listeners.send_message(message.clone()).map_err(|e| {
+                    PendingTransactionError::Custom(format!(
+                        "failed to cast invalid transaction message to HarvesterListenerError: {e:?}"
+                    ))
+                });
+            }
+        } else {
+            log::error!("No HarvesterListener actors found in the group");
+        }
     }
 
     async fn handle_next_batch_request(
@@ -1817,7 +1767,7 @@ impl Batcher {
                 None
             }
         } {
-            Batcher::request_blob_validation(batcher, blob_response.request_id()).await;
+            Self::request_blob_validation(batcher, blob_response.request_id()).await;
             return Ok(());
         }
 
@@ -2139,7 +2089,7 @@ mod batcher_tests {
             let batcher_ptr = Arc::clone(state);
             match message {
                 BatcherMessage::GetNextBatch => {
-                    let fut = Batcher::handle_next_batch_request(
+                    let fut = Self::handle_next_batch_request(
                         batcher_ptr,
                         state.lock().await.tikv_client.clone(),
                     );
@@ -2151,10 +2101,8 @@ mod batcher_tests {
                     match transaction.transaction_type() {
                         TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
                             log::warn!("send transaction");
-                            let fut = Batcher::add_transaction_to_account(
-                                batcher_ptr,
-                                transaction.clone(),
-                            );
+                            let fut =
+                                Self::add_transaction_to_account(batcher_ptr, transaction.clone());
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2162,7 +2110,7 @@ mod batcher_tests {
                             log::error!("Call transaction result did not contain outputs")
                         }
                         TransactionType::RegisterProgram(_) => {
-                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
+                            let fut = Self::apply_program_registration(batcher_ptr, transaction);
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2174,15 +2122,13 @@ mod batcher_tests {
                     match transaction.transaction_type() {
                         TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
                             log::warn!("send transaction");
-                            let fut = Batcher::add_transaction_to_account(
-                                batcher_ptr,
-                                transaction.clone(),
-                            );
+                            let fut =
+                                Self::add_transaction_to_account(batcher_ptr, transaction.clone());
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
                         TransactionType::Call(_) => {
-                            let fut = Batcher::apply_instructions_to_accounts(
+                            let fut = Self::apply_instructions_to_accounts(
                                 batcher_ptr,
                                 transaction,
                                 outputs,
@@ -2191,7 +2137,7 @@ mod batcher_tests {
                             guard.push(fut.boxed());
                         }
                         TransactionType::RegisterProgram(_) => {
-                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
+                            let fut = Self::apply_program_registration(batcher_ptr, transaction);
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2200,7 +2146,7 @@ mod batcher_tests {
                 }
                 BatcherMessage::BlobVerificationProof(args) => {
                     log::info!("received blob verification proof");
-                    let fut = Batcher::handle_blob_verification_proof(
+                    let fut = Self::handle_blob_verification_proof(
                         batcher_ptr,
                         args.request_id,
                         args.proof,

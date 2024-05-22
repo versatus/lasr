@@ -119,3 +119,15 @@ pub enum RpcRequestMethod {
     RegisterProgram { transaction: Transaction },
     GetAccount { address: Address },
 }
+
+pub enum PgGroupType {
+    HarvesterListener,
+}
+
+impl ToString for PgGroupType {
+    fn to_string(&self) -> String {
+        match self {
+            PgGroupType::HarvesterListener => "harvester_listener".to_string(),
+        }
+    }
+}

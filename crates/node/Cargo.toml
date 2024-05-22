@@ -15,6 +15,14 @@ name = "lasr_node"
 path = "src/main.rs"
 
 [[example]]
+name = "farmer_node"
+path = "examples/farmer.rs"
+
+[[example]]
+name = "harvester_node"
+path = "examples/harvester.rs"
+
+[[example]]
 name = "tikv_example"
 path = "examples/tikv_account_example.rs"
 
@@ -57,6 +65,9 @@ lasr_compute = { path = "../compute", features = ["local"] }
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
 lasr_rpc = { path = "../rpc" }
+async-trait = "0.1.80"
+ractor_cluster = "0.9.3"
+
 
 [dev-dependencies]
 simple_logger = "4.3.0"

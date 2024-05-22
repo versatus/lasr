@@ -1,15 +1,16 @@
 #![allow(unused)]
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, da_client, eo_server, get_actor_ref,
-    handle_actor_response, Coerce, SchedulerError,
+    check_account_cache, create_handler, da_client, eo_server, get_actor_ref,
+    handle_actor_response, BatcherError, Coerce, PendingTransactionActor, PendingTransactionError,
+    SchedulerError,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, DaClientMessage, EngineMessage, EoMessage,
-    HarvesterListenerMessage, RpcMessage, RpcResponseError, SchedulerMessage, SupervisorType,
-    TransactionResponse, ValidatorMessage,
+    HarvesterListenerMessage, PendingTransactionMessage, PgGroupType, RpcMessage, RpcResponseError,
+    SchedulerMessage, SupervisorType, TransactionResponse, ValidatorMessage,
 };
 use lasr_types::{Account, Address, RecoverableSignature, Transaction};
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
@@ -72,6 +73,27 @@ impl HarvesterListenerActor {
     async fn get_scheduler() -> Option<ActorRef<SchedulerMessage>> {
         get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
     }
+
+    async fn send_message_to_pending_transaction_actor(
+        &self,
+        message: PendingTransactionMessage,
+    ) -> Result<(), HarvesterListenerError> {
+        if let Some(pending_transaction_actor) = Self::get_pending_transactions_actor().await {
+            pending_transaction_actor
+                .cast(message)
+                .map_err(|e| HarvesterListenerError::Custom(e.to_string()))?;
+        } else {
+            return Err(HarvesterListenerError::RactorRegistryError);
+        }
+
+        Ok(())
+    }
+
+    async fn get_pending_transactions_actor() -> Option<ActorRef<PendingTransactionMessage>> {
+        get_actor_ref::<PendingTransactionMessage, PendingTransactionError>(
+            ActorType::PendingTransactions,
+        )
+    }
 }
 
 #[async_trait]
@@ -82,9 +104,14 @@ impl Actor for HarvesterListenerActor {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
+        ractor::pg::join(
+            PgGroupType::HarvesterListener.to_string(),
+            vec![myself.get_cell()],
+        );
+
         Ok(())
     }
 
@@ -95,12 +122,34 @@ impl Actor for HarvesterListenerActor {
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            HarvesterListenerMessage::TransactionApplied(transaction_hash, token) => {
-                self.send_message_to_scheduler(SchedulerMessage::TransactionApplied {
-                    transaction_hash,
-                    token,
-                })
-                .await?;
+            HarvesterListenerMessage::TransactionApplied(transaction, token) => {
+                log::info!("Informing Scheduler that the transaction was applied");
+                if let Err(err) = self
+                    .send_message_to_scheduler(SchedulerMessage::TransactionApplied {
+                        transaction_hash: transaction.hash_string(),
+                        token,
+                    })
+                    .await
+                {
+                    log::error!(
+                        "failed to cast transaction applied message to Scheduler actor: {err:?}"
+                    );
+                };
+
+                log::info!(
+                    "Informing pending transactions that the transaction has been applied successfully"
+                );
+                if let Err(err) = self
+                    .send_message_to_pending_transaction_actor(PendingTransactionMessage::Valid {
+                        transaction,
+                        cert: None,
+                    })
+                    .await
+                {
+                    log::error!(
+                        "failed to cast valid call message to pending transactions actor: {err:?}"
+                    );
+                }
             }
             HarvesterListenerMessage::RegistrationSuccess(transaction, program_id) => {
                 self.send_message_to_scheduler(SchedulerMessage::RegistrationSuccess {
@@ -109,12 +158,38 @@ impl Actor for HarvesterListenerActor {
                 })
                 .await?;
             }
-            HarvesterListenerMessage::CallTransactionApplied(transaction_hash, account) => {
-                self.send_message_to_scheduler(SchedulerMessage::CallTransactionApplied {
-                    transaction_hash,
-                    account,
-                })
-                .await?;
+            HarvesterListenerMessage::CallTransactionApplied(transaction, account, outputs) => {
+                log::info!("Informing Scheduler that the call transaction was applied");
+                if let Err(err) = self
+                    .send_message_to_scheduler(SchedulerMessage::CallTransactionApplied {
+                        transaction_hash: transaction.hash_string(),
+                        account,
+                    })
+                    .await
+                {
+                    log::error!(
+                        "failed to cast call transaction applied message to Scheduler actor: {err:?}"
+                    );
+                };
+
+                log::info!(
+                    "Informing pending transactions that the transaction has been applied successfully"
+                );
+
+                if let Err(err) = self
+                    .send_message_to_pending_transaction_actor(
+                        PendingTransactionMessage::ValidCall {
+                            outputs,
+                            transaction,
+                            cert: None,
+                        },
+                    )
+                    .await
+                {
+                    log::error!(
+                        "failed to cast valid call message to pending transactions actor: {err:?}"
+                    );
+                }
             }
             HarvesterListenerMessage::CallTransactionFailure(transaction_hash, outputs, error) => {
                 self.send_message_to_scheduler(SchedulerMessage::CallTransactionFailure {
@@ -124,6 +199,22 @@ impl Actor for HarvesterListenerActor {
                 })
                 .await?;
             }
+            HarvesterListenerMessage::Invalid(transaction, error) => {
+                log::info!("Informing pending transactions that the transaction is invalid");
+                if let Err(err) = self
+                    .send_message_to_pending_transaction_actor(PendingTransactionMessage::Invalid {
+                        transaction,
+                        e: Box::new(BatcherError::Custom(error))
+                            as Box<dyn std::error::Error + Send>,
+                    })
+                    .await
+                {
+                    log::error!(
+                        "failed to cast invalid message to pending transactions actor: {err:?}"
+                    );
+                }
+            }
+
             _ => {}
         }
 
