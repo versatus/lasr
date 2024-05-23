@@ -2083,11 +2083,16 @@ pub async fn batch_requestor(
 
 #[cfg(test)]
 mod batcher_tests {
-    use crate::batcher::{ActorExt, Batcher, BatcherActor, BatcherMessage};
+    use crate::{
+        batcher::{ActorExt, Batcher, BatcherActor, BatcherMessage},
+        get_account,
+    };
     use anyhow::Result;
     use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
-    use lasr_types::{AccountBuilder, AccountTree, TransactionBuilder, TransactionType};
+    use lasr_types::{
+        AccountBuilder, AccountTree, ProgramAccount, TransactionBuilder, TransactionType,
+    };
     use std::sync::Arc;
     use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
@@ -2206,7 +2211,11 @@ mod batcher_tests {
     }
 
     use crate::BatcherError;
-    use jmt::{mock::*, JellyfishMerkleTree};
+    use jmt::{mock::*, JellyfishMerkleTree, KeyHash, RootHash, SimpleHasher};
+    use jmt::{
+        proof::UpdateMerkleProof,
+        storage::{NodeBatch, TreeWriter},
+    };
     use lasr_types::{Account, AccountType, ArbitraryData, Metadata, Transaction, U256};
     use sha3::{Digest, Keccak256};
     use std::collections::{BTreeMap, BTreeSet};
@@ -2231,8 +2240,10 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-
-        dbg!(&transaction1);
+        println!("transaction1: {:?}", transaction1);
+        let res = transaction1.get_accounts_involved();
+        dbg!(&res);
+        println!("");
 
         let transaction2 = TransactionBuilder::default()
             .program_id([2; 20])
@@ -2249,7 +2260,10 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-        dbg!(&transaction2);
+        println!("transaction2: {:?}", transaction2);
+        let res = transaction2.get_accounts_involved();
+        dbg!(&res);
+        println!("");
 
         let transaction3 = TransactionBuilder::default()
             .program_id([1; 20])
@@ -2266,9 +2280,41 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-        dbg!(&transaction3);
+        println!("transaction3: {:?}", transaction3);
+        let res = transaction3.get_accounts_involved();
+        dbg!(&res);
+        println!("");
 
-        let mut test_account = AccountBuilder::default()
+        let transactions = vec![
+            transaction1.clone(),
+            transaction2.clone(),
+            transaction3.clone(),
+        ];
+        let batched_txns = bincode::serialize(&transactions).ok().unwrap();
+
+        // Establish root node & insert kv pair of transactions to create leaf node
+        let key = b"txn_test";
+        let value = batched_txns;
+
+        // batch version
+        let (_new_root_hash, batch) = tree
+            .batch_put_value_sets(
+                vec![vec![(KeyHash::with::<Keccak256>(key), value.clone())]],
+                None,
+                0, /* version */
+            )
+            .unwrap();
+        assert!(batch.stale_node_index_batch.is_empty());
+
+        db.write_tree_update_batch(batch).unwrap();
+        assert_eq!(
+            tree.get(KeyHash::with::<Keccak256>(key), 0)
+                .unwrap()
+                .unwrap(),
+            value
+        );
+
+        let mut test_user_account = AccountBuilder::default()
             .account_type(AccountType::User)
             .program_namespace(None)
             .owner_address(transaction1.from())
@@ -2277,13 +2323,32 @@ mod batcher_tests {
             .program_account_data(ArbitraryData::new())
             .program_account_metadata(Metadata::new())
             .program_account_linked_programs(BTreeSet::new())
-            .tree(AccountTree::default())
-            .build()
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction1.clone()),
+            .tree(AccountTree {
+                transactions: vec![transaction1],
+                version: 0,
+                root_hash: tree.get_root_hash(0).unwrap().0,
             })
+            .build()
             .unwrap();
-        dbg!(&test_account);
+        println!("User Account: {:?}", test_user_account);
+        println!("");
+
+        let mut test_program_account = AccountBuilder::default()
+            .account_type(AccountType::Program(transaction2.program_id()))
+            .program_namespace(None)
+            .owner_address(transaction3.from())
+            .programs(BTreeMap::new())
+            .nonce(U256::from(0))
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .program_account_linked_programs(BTreeSet::new())
+            .tree(AccountTree {
+                transactions: vec![transaction2, transaction3],
+                version: 0,
+                root_hash: tree.get_root_hash(0).unwrap().0,
+            })
+            .build()
+            .unwrap();
+        println!("Program Account: {:?}", test_program_account);
     }
 }

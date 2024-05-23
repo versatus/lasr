@@ -317,7 +317,7 @@ pub struct Account {
     program_account_data: ArbitraryData,
     program_account_metadata: Metadata,
     program_account_linked_programs: BTreeSet<AddressOrNamespace>,
-    tree: AccountTree,
+    pub tree: AccountTree,
 }
 
 // Info needed to restore a tree
@@ -326,12 +326,12 @@ pub struct Account {
 )]
 pub struct AccountTree {
     // The transactions from the latest batch for this account
-    transactions: Vec<Transaction>,
+    pub transactions: Vec<Transaction>,
     // The version of the tree, this gets incremented by 1 each time you update the tree
-    version: jmt::Version,
+    pub version: jmt::Version,
     // The root hash of the tree to restore from
     // This represents the current state of the tree before adding in the new transactions
-    root_hash: String,
+    pub root_hash: [u8; 32],
 }
 
 impl Account {
