@@ -2087,7 +2087,7 @@ mod batcher_tests {
     use anyhow::Result;
     use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
-    use lasr_types::TransactionType;
+    use lasr_types::{AccountBuilder, AccountTree, TransactionBuilder, TransactionType};
     use std::sync::Arc;
     use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
@@ -2203,5 +2203,87 @@ mod batcher_tests {
             }
             interval.tick().await;
         }
+    }
+
+    use crate::BatcherError;
+    use jmt::{mock::*, JellyfishMerkleTree};
+    use lasr_types::{Account, AccountType, ArbitraryData, Metadata, Transaction, U256};
+    use sha3::{Digest, Keccak256};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn test_jmt_restore() {
+        let db = MockTreeStore::default();
+        let tree = JellyfishMerkleTree::<_, Keccak256>::new(&db);
+
+        let transaction1 = TransactionBuilder::default()
+            .program_id([4; 20])
+            .from([4; 20])
+            .to([4; 20])
+            .transaction_type(TransactionType::Call(U256::from(69)))
+            .value(U256::from(69))
+            .inputs(String::new())
+            .op(String::new())
+            .nonce(U256::from(69))
+            .v(0)
+            .r([0; 32])
+            .s([0; 32])
+            .build()
+            .map_err(|e| BatcherError::Custom(e.to_string()))
+            .unwrap();
+
+        dbg!(&transaction1);
+
+        let transaction2 = TransactionBuilder::default()
+            .program_id([2; 20])
+            .from([2; 20])
+            .to([2; 20])
+            .transaction_type(TransactionType::Call(U256::from(777)))
+            .value(U256::from(777))
+            .inputs(String::new())
+            .op(String::new())
+            .nonce(U256::from(777))
+            .v(0)
+            .r([0; 32])
+            .s([0; 32])
+            .build()
+            .map_err(|e| BatcherError::Custom(e.to_string()))
+            .unwrap();
+        dbg!(&transaction2);
+
+        let transaction3 = TransactionBuilder::default()
+            .program_id([1; 20])
+            .from([1; 20])
+            .to([1; 20])
+            .transaction_type(TransactionType::Call(U256::from(333)))
+            .value(U256::from(333))
+            .inputs(String::new())
+            .op(String::new())
+            .nonce(U256::from(333))
+            .v(0)
+            .r([0; 32])
+            .s([0; 32])
+            .build()
+            .map_err(|e| BatcherError::Custom(e.to_string()))
+            .unwrap();
+        dbg!(&transaction3);
+
+        let mut test_account = AccountBuilder::default()
+            .account_type(AccountType::User)
+            .program_namespace(None)
+            .owner_address(transaction1.from())
+            .programs(BTreeMap::new())
+            .nonce(U256::from(0))
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .program_account_linked_programs(BTreeSet::new())
+            .tree(AccountTree::default())
+            .build()
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction1.clone()),
+            })
+            .unwrap();
+        dbg!(&test_account);
     }
 }
