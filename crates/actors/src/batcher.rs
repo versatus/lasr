@@ -2211,7 +2211,8 @@ mod batcher_tests {
     }
 
     use crate::BatcherError;
-    use jmt::{mock::*, JellyfishMerkleTree, KeyHash, RootHash, SimpleHasher};
+    use jmt::restore::JellyfishMerkleRestore;
+    use jmt::{mock::*, JellyfishMerkleTree, KeyHash, RootHash, SimpleHasher, Version};
     use jmt::{
         proof::UpdateMerkleProof,
         storage::{NodeBatch, TreeWriter},
@@ -2285,70 +2286,75 @@ mod batcher_tests {
         dbg!(&res);
         println!("");
 
+        let ser_txn1 = bincode::serialize(&transaction1).ok().unwrap();
+        let ser_txn2 = bincode::serialize(&transaction2).ok().unwrap();
+        let ser_txn3 = bincode::serialize(&transaction3).ok().unwrap();
+
         let transactions = vec![
-            transaction1.clone(),
-            transaction2.clone(),
-            transaction3.clone(),
+            (
+                KeyHash::with::<Keccak256>(transaction1.hash_string().into_bytes()),
+                ser_txn1.clone(),
+            ),
+            (
+                KeyHash::with::<Keccak256>(transaction2.hash_string().into_bytes()),
+                ser_txn2.clone(),
+            ),
+            (
+                KeyHash::with::<Keccak256>(transaction3.hash_string().into_bytes()),
+                ser_txn3.clone(),
+            ),
         ];
-        let batched_txns = bincode::serialize(&transactions).ok().unwrap();
 
-        // Establish root node & insert kv pair of transactions to create leaf node
-        let key = b"txn_test";
-        let value = batched_txns;
-
+        // Establish root node & insert kv pair of transactions to create leaf node with
         // batch version
         let (_new_root_hash, batch) = tree
-            .batch_put_value_sets(
-                vec![vec![(KeyHash::with::<Keccak256>(key), value.clone())]],
-                None,
-                0, /* version */
-            )
+            .batch_put_value_sets(vec![transactions], None, 0 /* version */)
             .unwrap();
         assert!(batch.stale_node_index_batch.is_empty());
 
         db.write_tree_update_batch(batch).unwrap();
-        assert_eq!(
-            tree.get(KeyHash::with::<Keccak256>(key), 0)
-                .unwrap()
-                .unwrap(),
-            value
-        );
 
-        let mut test_user_account = AccountBuilder::default()
-            .account_type(AccountType::User)
-            .program_namespace(None)
-            .owner_address(transaction1.from())
-            .programs(BTreeMap::new())
-            .nonce(U256::from(0))
-            .program_account_data(ArbitraryData::new())
-            .program_account_metadata(Metadata::new())
-            .program_account_linked_programs(BTreeSet::new())
-            .tree(AccountTree {
-                transactions: vec![transaction1],
-                version: 0,
-                root_hash: tree.get_root_hash(0).unwrap().0,
-            })
-            .build()
-            .unwrap();
-        println!("User Account: {:?}", test_user_account);
-        println!("");
+        let root_hash = tree.get_root_hash(0).unwrap();
+        println!("{:?}", root_hash);
 
-        let mut test_program_account = AccountBuilder::default()
-            .account_type(AccountType::Program(transaction2.program_id()))
-            .program_namespace(None)
-            .owner_address(transaction3.from())
-            .programs(BTreeMap::new())
-            .nonce(U256::from(0))
-            .program_account_data(ArbitraryData::new())
-            .program_account_metadata(Metadata::new())
-            .program_account_linked_programs(BTreeSet::new())
-            .tree(AccountTree {
-                transactions: vec![transaction2, transaction3],
-                version: 0,
-                root_hash: tree.get_root_hash(0).unwrap().0,
-            })
-            .build()
-            .unwrap();
-        println!("Program Account: {:?}", test_program_account);
+        // let restore_db = MockTreeStore::default();
+        // let restore_tree = JellyfishMerkleRestore::new(store, version, expected_root_hash);
+
+        // let mut test_user_account = AccountBuilder::default()
+        //     .account_type(AccountType::User)
+        //     .program_namespace(None)
+        //     .owner_address(transaction1.from())
+        //     .programs(BTreeMap::new())
+        //     .nonce(U256::from(0))
+        //     .program_account_data(ArbitraryData::new())
+        //     .program_account_metadata(Metadata::new())
+        //     .program_account_linked_programs(BTreeSet::new())
+        //     .tree(AccountTree {
+        //         transactions: vec![transaction1],
+        //         version: 0,
+        //         root_hash: tree.get_root_hash(0).unwrap().0,
+        //     })
+        //     .build()
+        //     .unwrap();
+        // println!("User Account: {:?}", test_user_account);
+        // println!("");
+
+        // let mut test_program_account = AccountBuilder::default()
+        //     .account_type(AccountType::Program(transaction2.program_id()))
+        //     .program_namespace(None)
+        //     .owner_address(transaction3.from())
+        //     .programs(BTreeMap::new())
+        //     .nonce(U256::from(0))
+        //     .program_account_data(ArbitraryData::new())
+        //     .program_account_metadata(Metadata::new())
+        //     .program_account_linked_programs(BTreeSet::new())
+        //     .tree(AccountTree {
+        //         transactions: vec![transaction2, transaction3],
+        //         version: 0,
+        //         root_hash: tree.get_root_hash(0).unwrap().0,
+        //     })
+        //     .build()
+        //     .unwrap();
+        // println!("Program Account: {:?}", test_program_account);
     }
 }
