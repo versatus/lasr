@@ -2093,6 +2093,8 @@ mod batcher_tests {
     use lasr_types::{
         AccountBuilder, AccountTree, ProgramAccount, TransactionBuilder, TransactionType,
     };
+    use rayon::iter::Rev;
+    use secp256k1::hashes::hex::DisplayHex;
     use std::{io::Read, sync::Arc};
     use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
@@ -2211,14 +2213,17 @@ mod batcher_tests {
     }
 
     use crate::BatcherError;
-    use jmt::restore::JellyfishMerkleRestore;
     use jmt::{mock::*, JellyfishMerkleTree, KeyHash, RootHash, SimpleHasher, Version};
     use jmt::{
         proof::UpdateMerkleProof,
         storage::{NodeBatch, TreeWriter},
     };
+    use jmt::{
+        restore::{JellyfishMerkleRestore, StateSnapshotReceiver},
+        storage::TreeReader,
+    };
     use lasr_types::{Account, AccountType, ArbitraryData, Metadata, Transaction, U256};
-    use sha3::{Digest, Keccak256};
+    use sha3::{digest::core_api::CoreWrapper, Digest, Keccak256};
     use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
@@ -2300,8 +2305,8 @@ mod batcher_tests {
         );
 
         // Establish root node & insert kv pair of first transaction to create leaf node with batch version
-        let (_new_root_hash, batch) = tree
-            .batch_put_value_sets(vec![txn_pair1], None, 0 /* version */)
+        let (_new_root0_hash, batch) = tree
+            .batch_put_value_sets(vec![txn_pair1.clone()], None, 0 /* version */)
             .unwrap();
         assert!(batch.stale_node_index_batch.is_empty());
 
@@ -2320,7 +2325,7 @@ mod batcher_tests {
         assert_eq!(v0, ser_txn1);
 
         // Write update to db for second txn
-        let (_root0_hash, batch) = tree.put_value_set(vec![txn_pair2], 1).unwrap();
+        let (_root1_hash, batch) = tree.put_value_set(vec![txn_pair2], 1).unwrap();
         db.write_tree_update_batch(batch).unwrap();
 
         // Ensure second serialized txn was stored
@@ -2335,7 +2340,7 @@ mod batcher_tests {
         assert_eq!(v1, ser_txn2);
 
         // Write update to db for third txn
-        let (_root1_hash, batch) = tree.put_value_set(vec![txn_pair3], 2).unwrap();
+        let (root2_hash, batch) = tree.put_value_set(vec![txn_pair3], 2).unwrap();
         db.write_tree_update_batch(batch).unwrap();
 
         // Ensure third serialized txn was stored
@@ -2363,7 +2368,7 @@ mod batcher_tests {
             .unwrap();
 
         test_user_account.tree = AccountTree {
-            transactions: vec![transaction1],
+            transactions: vec![transaction1.clone()],
             version: 0,
             root_hash: tree.get_root_hash(0).unwrap().0,
         };
@@ -2387,7 +2392,7 @@ mod batcher_tests {
             .unwrap();
 
         test_program_account.tree = AccountTree {
-            transactions: vec![transaction2, transaction3],
+            transactions: vec![transaction2, transaction3.clone()],
             version: 2,
             root_hash: tree.get_root_hash(2).unwrap().0,
         };
@@ -2396,7 +2401,24 @@ mod batcher_tests {
             test_program_account.tree
         );
 
-        // let restore_db = MockTreeStore::default();
-        // let restore_tree = JellyfishMerkleRestore::new(store, version, expected_root_hash);
+        let root_hash = tree.get_root_hash(2).unwrap();
+        let leaf_count = tree.get_leaf_count(2).unwrap();
+        let recovery_proof = tree
+            .get_range_proof(
+                KeyHash::with::<Keccak256>(transaction3.hash_string().into_bytes()),
+                2,
+            )
+            .unwrap();
+
+        let restore_db = MockTreeStore::default();
+        let restore_tree_wrapper = JellyfishMerkleRestore::<Keccak256>::new(
+            restore_db.into(),
+            test_program_account.tree.version,
+            RootHash(test_program_account.tree.root_hash),
+        )
+        .unwrap()
+        .add_chunk(txn_pair1, recovery_proof);
+
+        dbg!(&restore_tree_wrapper);
     }
 }
