@@ -2093,7 +2093,7 @@ mod batcher_tests {
     use lasr_types::{
         AccountBuilder, AccountTree, ProgramAccount, TransactionBuilder, TransactionType,
     };
-    use std::sync::Arc;
+    use std::{io::Read, sync::Arc};
     use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
 
@@ -2241,10 +2241,8 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-        println!("transaction1: {:?}", transaction1);
-        let res = transaction1.get_accounts_involved();
-        dbg!(&res);
-        println!("");
+        // println!("transaction1: {:?}", transaction1);
+        // println!("");
 
         let transaction2 = TransactionBuilder::default()
             .program_id([2; 20])
@@ -2261,10 +2259,8 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-        println!("transaction2: {:?}", transaction2);
-        let res = transaction2.get_accounts_involved();
-        dbg!(&res);
-        println!("");
+        // println!("transaction2: {:?}", transaction2);
+        // println!("");
 
         let transaction3 = TransactionBuilder::default()
             .program_id([1; 20])
@@ -2281,80 +2277,126 @@ mod batcher_tests {
             .build()
             .map_err(|e| BatcherError::Custom(e.to_string()))
             .unwrap();
-        println!("transaction3: {:?}", transaction3);
-        let res = transaction3.get_accounts_involved();
-        dbg!(&res);
-        println!("");
+        // println!("transaction3: {:?}", transaction3);
+        // println!("");
 
+        // Serialize txn's to store in kv pair
         let ser_txn1 = bincode::serialize(&transaction1).ok().unwrap();
         let ser_txn2 = bincode::serialize(&transaction2).ok().unwrap();
         let ser_txn3 = bincode::serialize(&transaction3).ok().unwrap();
 
-        let transactions = vec![
-            (
-                KeyHash::with::<Keccak256>(transaction1.hash_string().into_bytes()),
-                ser_txn1.clone(),
-            ),
-            (
-                KeyHash::with::<Keccak256>(transaction2.hash_string().into_bytes()),
-                ser_txn2.clone(),
-            ),
-            (
-                KeyHash::with::<Keccak256>(transaction3.hash_string().into_bytes()),
-                ser_txn3.clone(),
-            ),
-        ];
+        // Establish kv pair's, with KeyHash being the hash_string of the txn
+        let txn_pair1 = vec![(
+            KeyHash::with::<Keccak256>(transaction1.hash_string().into_bytes()),
+            ser_txn1.clone(),
+        )];
+        let txn_pair2 = (
+            KeyHash::with::<Keccak256>(transaction2.hash_string().into_bytes()),
+            Some(ser_txn2.clone()),
+        );
+        let txn_pair3 = (
+            KeyHash::with::<Keccak256>(transaction3.hash_string().into_bytes()),
+            Some(ser_txn3.clone()),
+        );
 
-        // Establish root node & insert kv pair of transactions to create leaf node with
-        // batch version
+        // Establish root node & insert kv pair of first transaction to create leaf node with batch version
         let (_new_root_hash, batch) = tree
-            .batch_put_value_sets(vec![transactions], None, 0 /* version */)
+            .batch_put_value_sets(vec![txn_pair1], None, 0 /* version */)
             .unwrap();
         assert!(batch.stale_node_index_batch.is_empty());
 
+        // Write update to db for first txn
         db.write_tree_update_batch(batch).unwrap();
 
-        let root_hash = tree.get_root_hash(0).unwrap();
-        println!("{:?}", root_hash);
+        // Ensure first serialized txn was stored
+        let v0 = tree
+            .get(
+                KeyHash::with::<Keccak256>(transaction1.hash_string().into_bytes()),
+                0,
+            )
+            .ok()
+            .flatten()
+            .unwrap();
+        assert_eq!(v0, ser_txn1);
+
+        // Write update to db for second txn
+        let (_root0_hash, batch) = tree.put_value_set(vec![txn_pair2], 1).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+
+        // Ensure second serialized txn was stored
+        let v1 = tree
+            .get(
+                KeyHash::with::<Keccak256>(transaction2.hash_string().into_bytes()),
+                1,
+            )
+            .ok()
+            .flatten()
+            .unwrap();
+        assert_eq!(v1, ser_txn2);
+
+        // Write update to db for third txn
+        let (_root1_hash, batch) = tree.put_value_set(vec![txn_pair3], 2).unwrap();
+        db.write_tree_update_batch(batch).unwrap();
+
+        // Ensure third serialized txn was stored
+        let v2 = tree
+            .get(
+                KeyHash::with::<Keccak256>(transaction3.hash_string().into_bytes()),
+                2,
+            )
+            .ok()
+            .flatten()
+            .unwrap();
+        assert_eq!(v2, ser_txn3);
+
+        let mut test_user_account = AccountBuilder::default()
+            .account_type(AccountType::User)
+            .program_namespace(None)
+            .owner_address(transaction1.from())
+            .programs(BTreeMap::new())
+            .nonce(U256::from(0))
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .program_account_linked_programs(BTreeSet::new())
+            .tree(AccountTree::default())
+            .build()
+            .unwrap();
+
+        test_user_account.tree = AccountTree {
+            transactions: vec![transaction1],
+            version: 0,
+            root_hash: tree.get_root_hash(0).unwrap().0,
+        };
+        println!(
+            "User AccountTree after insert: {:?}",
+            test_user_account.tree
+        );
+        println!("");
+
+        let mut test_program_account = AccountBuilder::default()
+            .account_type(AccountType::Program(transaction2.program_id()))
+            .program_namespace(None)
+            .owner_address(transaction3.from())
+            .programs(BTreeMap::new())
+            .nonce(U256::from(0))
+            .program_account_data(ArbitraryData::new())
+            .program_account_metadata(Metadata::new())
+            .program_account_linked_programs(BTreeSet::new())
+            .tree(AccountTree::default())
+            .build()
+            .unwrap();
+
+        test_program_account.tree = AccountTree {
+            transactions: vec![transaction2, transaction3],
+            version: 2,
+            root_hash: tree.get_root_hash(2).unwrap().0,
+        };
+        println!(
+            "Program AccountTree after insert: {:?}",
+            test_program_account.tree
+        );
 
         // let restore_db = MockTreeStore::default();
         // let restore_tree = JellyfishMerkleRestore::new(store, version, expected_root_hash);
-
-        // let mut test_user_account = AccountBuilder::default()
-        //     .account_type(AccountType::User)
-        //     .program_namespace(None)
-        //     .owner_address(transaction1.from())
-        //     .programs(BTreeMap::new())
-        //     .nonce(U256::from(0))
-        //     .program_account_data(ArbitraryData::new())
-        //     .program_account_metadata(Metadata::new())
-        //     .program_account_linked_programs(BTreeSet::new())
-        //     .tree(AccountTree {
-        //         transactions: vec![transaction1],
-        //         version: 0,
-        //         root_hash: tree.get_root_hash(0).unwrap().0,
-        //     })
-        //     .build()
-        //     .unwrap();
-        // println!("User Account: {:?}", test_user_account);
-        // println!("");
-
-        // let mut test_program_account = AccountBuilder::default()
-        //     .account_type(AccountType::Program(transaction2.program_id()))
-        //     .program_namespace(None)
-        //     .owner_address(transaction3.from())
-        //     .programs(BTreeMap::new())
-        //     .nonce(U256::from(0))
-        //     .program_account_data(ArbitraryData::new())
-        //     .program_account_metadata(Metadata::new())
-        //     .program_account_linked_programs(BTreeSet::new())
-        //     .tree(AccountTree {
-        //         transactions: vec![transaction2, transaction3],
-        //         version: 0,
-        //         root_hash: tree.get_root_hash(0).unwrap().0,
-        //     })
-        //     .build()
-        //     .unwrap();
-        // println!("Program Account: {:?}", test_program_account);
     }
 }
