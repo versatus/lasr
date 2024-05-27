@@ -418,6 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
+        .max_connections(1000)
         .build(format!("0.0.0.0:{}", port))
         .await
         .map_err(Box::new)?;
