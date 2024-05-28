@@ -2395,10 +2395,10 @@ dependencies = [
 [[package]]
 name = "internal_rpc"
 version = "0.9.0"
-source = "git+https://github.com/versatus/versatus.git#ef8475acbc905d4a48679330f4bb346c12fe07e5"
+source = "git+https://github.com/versatus/versatus.git?branch=andrewvious/797#23c6eef5e806804bbd87ea533d0b03a7862953d0"
 dependencies = [
  "anyhow",
- "jsonrpsee 0.16.3",
+ "jsonrpsee 0.22.5",
  "log",
  "platform",
  "serde",
@@ -2406,7 +2406,7 @@ dependencies = [
  "service_config",
  "tokio",
  "uuid",
- "web3_pkg",
+ "web3_pkg 0.9.0 (git+https://github.com/versatus/versatus.git?branch=andrewvious/797)",
 ]
 
 [[package]]
@@ -2972,7 +2972,7 @@ dependencies = [
  "tokio",
  "uint",
  "walkdir",
- "web3_pkg",
+ "web3_pkg 0.9.0 (git+https://github.com/versatus/versatus.git)",
 ]
 
 [[package]]
@@ -2997,7 +2997,7 @@ dependencies = [
  "tokio",
  "toml 0.8.12",
  "walkdir",
- "web3_pkg",
+ "web3_pkg 0.9.0 (git+https://github.com/versatus/versatus.git)",
 ]
 
 [[package]]
@@ -3058,7 +3058,7 @@ dependencies = [
  "tokio-rayon",
  "tokio-stream",
  "web3",
- "web3_pkg",
+ "web3_pkg 0.9.0 (git+https://github.com/versatus/versatus.git)",
 ]
 
 [[package]]
@@ -3676,7 +3676,7 @@ checksum = "d231b230927b5e4ad203db57bbcbee2802f6bce620b1e4a9024a07d94e2907ec"
 [[package]]
 name = "platform"
 version = "0.9.0"
-source = "git+https://github.com/versatus/versatus.git#ef8475acbc905d4a48679330f4bb346c12fe07e5"
+source = "git+https://github.com/versatus/versatus.git?branch=andrewvious/797#23c6eef5e806804bbd87ea533d0b03a7862953d0"
 dependencies = [
  "anyhow",
  "bitmask-enum",
@@ -4784,7 +4784,7 @@ dependencies = [
 [[package]]
 name = "service_config"
 version = "0.9.0"
-source = "git+https://github.com/versatus/versatus.git#ef8475acbc905d4a48679330f4bb346c12fe07e5"
+source = "git+https://github.com/versatus/versatus.git?branch=andrewvious/797#23c6eef5e806804bbd87ea533d0b03a7862953d0"
 dependencies = [
  "anyhow",
  "serde",
@@ -5856,6 +5856,25 @@ dependencies = [
  "hex",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "web3_pkg"
+version = "0.9.0"
+source = "git+https://github.com/versatus/versatus.git?branch=andrewvious/797#23c6eef5e806804bbd87ea533d0b03a7862953d0"
+dependencies = [
+ "anyhow",
+ "clap 3.2.25",
+ "derive_builder 0.12.0",
+ "futures",
+ "http 0.2.12",
+ "ipfs-api",
+ "ipfs-api-backend-hyper",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tokio",
+ "trust-dns-resolver",
 ]
 
 [[package]]

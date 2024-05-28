@@ -5,7 +5,6 @@ use eigenda_client::proof::BlobVerificationProof;
 use eigenda_client::response::BlobResponse;
 use eo_listener::EventType;
 use ethereum_types::H256;
-use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use lasr_types::{Account, Certificate, Outputs, Transaction};
 use lasr_types::{Address, Token, U256};
 use ractor::concurrency::OneshotSender;

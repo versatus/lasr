@@ -422,7 +422,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build(format!("0.0.0.0:{}", port))
         .await
         .map_err(Box::new)?;
-    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(Box::new)?;
+    let server_handle = server.start(lasr_rpc.into_rpc());
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
 
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);

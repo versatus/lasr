@@ -3,18 +3,20 @@ use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
 
 use crate::{create_handler, handle_actor_response, process_group_changed, Coerce};
-use ractor::{
-    concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, MessagingErr,
-    RpcReplyPort, SupervisionEvent,
+use jsonrpsee::types::{
+    error::{INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE},
+    ErrorObjectOwned as RpcError,
 };
-
-use jsonrpsee::types::ErrorObjectOwned as RpcError;
 use lasr_messages::{
     ActorName, ActorType, RpcMessage, RpcRequestMethod, RpcResponseError, SchedulerMessage,
     SupervisorType, TransactionResponse,
 };
 use lasr_rpc::LasrRpcServer;
 use lasr_types::{Address, Transaction};
+use ractor::{
+    concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, RpcReplyPort,
+    SupervisionEvent,
+};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -42,7 +44,7 @@ impl LasrRpcServerActor {
     ) -> Result<(), RpcError> {
         reply
             .send(data)
-            .map_err(|e| RpcError::Custom(format!("{:?}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("{:?}", e), None::<()>))
     }
 
     fn handle_call_request(
@@ -104,8 +106,10 @@ impl LasrRpcServerActor {
     ) -> Result<(), ActorProcessingErr> {
         let scheduler = LasrRpcServerActor::get_scheduler()
             .map_err(Box::new)?
-            .ok_or(RpcError::Custom(
+            .ok_or(RpcError::owned(
+                INTERNAL_ERROR_CODE,
                 "Unable to acquire scheduler actor".to_string(),
+                None::<()>,
             ))
             .map_err(Box::new)?;
         match method {
@@ -129,7 +133,11 @@ impl LasrRpcServerActor {
             return Ok(Some(actor.into()));
         }
 
-        Err(RpcError::Custom("unable to acquire scheduler".to_string()))
+        Err(RpcError::owned(
+            INTERNAL_ERROR_CODE,
+            "unable to acquire scheduler".to_string(),
+            None::<()>,
+        ))
     }
 }
 
@@ -143,31 +151,45 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
         self.send_rpc_call_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, call);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::AsyncCallResponse(transaction_hash) => Ok(transaction_hash),
                 TransactionResponse::CallResponse(account) => {
-                    let account_str = serde_json::to_string(&account)
-                        .map_err(|e| RpcError::Custom(e.to_string()))?;
+                    let account_str = serde_json::to_string(&account).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    })?;
                     return Ok(account_str);
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
-                    return Err(RpcError::Custom(rpc_response_error.description))
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
+                    ))
                 }
                 _ => {
-                    return Err(RpcError::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `call` method".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(RpcError::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
@@ -177,30 +199,44 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_send_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, send);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::SendResponse(token) => {
-                    return serde_json::to_string(&token)
-                        .map_err(|e| RpcError::Custom(e.to_string()))
+                    return serde_json::to_string(&token).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    })
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     log::error!("Returning error to client: {}", &rpc_response_error);
-                    return Err(RpcError::Custom(rpc_response_error.description));
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
+                    ));
                 }
                 _ => {
-                    return Err(RpcError::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `send` method".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(RpcError::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
@@ -210,34 +246,49 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_register_program_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, registerProgram);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::RegisterProgramResponse(opt) => match opt {
                     Some(program_id) => return Ok(program_id),
                     None => {
-                        return Err(RpcError::Custom(
+                        return Err(RpcError::owned(
+                            INTERNAL_ERROR_CODE,
                             "program registeration failed to return program_id".to_string(),
+                            None::<()>,
                         ))
                     }
                 },
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     log::error!("Returning error to client: {}", &rpc_response_error);
-                    return Err(RpcError::Custom(rpc_response_error.description));
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
+                    ));
                 }
                 _ => {
-                    return Err(RpcError::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "received invalid response for `registerProgram` method".to_string(),
+                        None::<()>,
                     ));
                 }
             },
-            Err(e) => return Err(RpcError::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
@@ -248,27 +299,37 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_get_account_method_to_self(address, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, getAccount);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::GetAccountResponse(account) => {
                     log::info!("received account response");
-                    return serde_json::to_string(&account)
-                        .map_err(|e| RpcError::Custom(e.to_string()));
+                    return serde_json::to_string(&account).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    });
                 }
                 _ => {
-                    return Err(RpcError::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `getAccount` methond".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(RpcError::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 }
@@ -373,8 +434,10 @@ impl Actor for LasrRpcServerActor {
                 LasrRpcServerActor::handle_request_method(*method, reply)?
             }
             RpcMessage::Response { response, reply } => {
-                let reply = reply.ok_or(Box::new(RpcError::Custom(
+                let reply = reply.ok_or(Box::new(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
                     "Unable to acquire rpc reply sender in RpcMessage::Response".to_string(),
+                    None::<()>,
                 )))?;
                 let message = RpcMessage::Response {
                     response,
