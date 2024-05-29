@@ -4,7 +4,5 @@ version = "0.9.0"
 edition = "2021"
 
 [dependencies]
-jsonrpsee = { version = "0.22.5", features = [
-  "full"
-] }
+jsonrpsee = { version = "0.22.5", features = ["full"] }
 lasr_types = { path = "../types" }
