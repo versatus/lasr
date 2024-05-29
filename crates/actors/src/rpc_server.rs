@@ -3,18 +3,20 @@ use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
 
 use crate::{create_handler, handle_actor_response, process_group_changed, Coerce};
+use jsonrpsee::types::{
+    error::{INTERNAL_ERROR_CODE, INVALID_PARAMS_CODE},
+    ErrorObjectOwned as RpcError,
+};
+use lasr_messages::{
+    ActorName, ActorType, RpcMessage, RpcRequestMethod, RpcResponseError, SchedulerMessage,
+    SupervisorType, TransactionResponse,
+};
+use lasr_rpc::LasrRpcServer;
+use lasr_types::{Address, Transaction};
 use ractor::{
     concurrency::oneshot, Actor, ActorCell, ActorProcessingErr, ActorRef, RpcReplyPort,
     SupervisionEvent,
 };
-
-use jsonrpsee::core::Error as RpcError;
-use lasr_messages::{
-    ActorName, ActorType, RpcMessage, RpcRequestMethod, SchedulerMessage, SupervisorType,
-    TransactionResponse,
-};
-use lasr_rpc::LasrRpcServer;
-use lasr_types::{Address, Transaction};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -42,7 +44,7 @@ impl LasrRpcServerActor {
     ) -> Result<(), RpcError> {
         reply
             .send(data)
-            .map_err(|e| RpcError::Custom(format!("{:?}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("{:?}", e), None::<()>))
     }
 
     fn handle_call_request(
@@ -104,8 +106,10 @@ impl LasrRpcServerActor {
     ) -> Result<(), ActorProcessingErr> {
         let scheduler = LasrRpcServerActor::get_scheduler()
             .map_err(Box::new)?
-            .ok_or(RpcError::Custom(
+            .ok_or(RpcError::owned(
+                INTERNAL_ERROR_CODE,
                 "Unable to acquire scheduler actor".to_string(),
+                None::<()>,
             ))
             .map_err(Box::new)?;
         match method {
@@ -129,7 +133,11 @@ impl LasrRpcServerActor {
             return Ok(Some(actor.into()));
         }
 
-        Err(RpcError::Custom("unable to acquire scheduler".to_string()))
+        Err(RpcError::owned(
+            INTERNAL_ERROR_CODE,
+            "unable to acquire scheduler".to_string(),
+            None::<()>,
+        ))
     }
 }
 
@@ -143,139 +151,185 @@ impl LasrRpcServer for LasrRpcServerImpl {
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
         self.send_rpc_call_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, call);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::AsyncCallResponse(transaction_hash) => Ok(transaction_hash),
                 TransactionResponse::CallResponse(account) => {
-                    let account_str = serde_json::to_string(&account)
-                        .map_err(|e| RpcError::Custom(e.to_string()))?;
+                    let account_str = serde_json::to_string(&account).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    })?;
                     return Ok(account_str);
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
-                    return Err(RpcError::Custom(rpc_response_error.description))
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
+                    ))
                 }
                 _ => {
-                    return Err(jsonrpsee::core::Error::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `call` method".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
-    async fn send(&self, transaction: Transaction) -> Result<String, jsonrpsee::core::Error> {
+    async fn send(&self, transaction: Transaction) -> Result<String, RpcError> {
         log::info!("Received RPC send method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_send_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, send);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::SendResponse(token) => {
-                    return serde_json::to_string(&token)
-                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()))
+                    return serde_json::to_string(&token).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    })
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     log::error!("Returning error to client: {}", &rpc_response_error);
-                    return Err(jsonrpsee::core::Error::Custom(
-                        rpc_response_error.description,
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
                     ));
                 }
                 _ => {
-                    return Err(jsonrpsee::core::Error::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `send` method".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
-    async fn register_program(
-        &self,
-        transaction: Transaction,
-    ) -> Result<String, jsonrpsee::core::Error> {
+    async fn register_program(&self, transaction: Transaction) -> Result<String, RpcError> {
         log::info!("Received RPC registerProgram method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_register_program_method_to_self(transaction, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, registerProgram);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::RegisterProgramResponse(opt) => match opt {
                     Some(program_id) => return Ok(program_id),
                     None => {
-                        return Err(RpcError::Custom(
+                        return Err(RpcError::owned(
+                            INTERNAL_ERROR_CODE,
                             "program registeration failed to return program_id".to_string(),
+                            None::<()>,
                         ))
                     }
                 },
                 TransactionResponse::TransactionError(rpc_response_error) => {
                     log::error!("Returning error to client: {}", &rpc_response_error);
-                    return Err(jsonrpsee::core::Error::Custom(
-                        rpc_response_error.description,
+                    return Err(RpcError::owned(
+                        INTERNAL_ERROR_CODE,
+                        format!("Error: {0}", rpc_response_error.description),
+                        None::<()>,
                     ));
                 }
                 _ => {
-                    return Err(RpcError::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "received invalid response for `registerProgram` method".to_string(),
+                        None::<()>,
                     ));
                 }
             },
-            Err(e) => return Err(RpcError::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 
-    async fn get_account(&self, address: String) -> Result<String, jsonrpsee::core::Error> {
+    async fn get_account(&self, address: String) -> Result<String, RpcError> {
         log::info!("Received RPC getAccount method");
 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
 
         self.send_rpc_get_account_method_to_self(address, reply)
-            .await?;
+            .await
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>))?;
 
         let handler = create_handler!(rpc_response, getAccount);
 
         match handle_actor_response(rx, handler)
             .await
-            .map_err(|e| RpcError::Custom(format!("Error: {}", e)))
+            .map_err(|e| RpcError::owned(INTERNAL_ERROR_CODE, format!("Error: {e}"), None::<()>))
         {
             Ok(resp) => match resp {
                 TransactionResponse::GetAccountResponse(account) => {
                     log::info!("received account response");
-                    return serde_json::to_string(&account)
-                        .map_err(|e| jsonrpsee::core::Error::Custom(e.to_string()));
+                    return serde_json::to_string(&account).map_err(|e| {
+                        RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
+                    });
                 }
                 _ => {
-                    return Err(jsonrpsee::core::Error::Custom(
+                    return Err(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "invalid response to `getAccount` methond".to_string(),
+                        None::<()>,
                     ))
                 }
             },
-            Err(e) => return Err(jsonrpsee::core::Error::Custom(e.to_string())),
+            Err(e) => {
+                return Err(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
+                    e.to_string(),
+                    None::<()>,
+                ))
+            }
         }
     }
 }
@@ -289,55 +343,64 @@ impl LasrRpcServerImpl {
         &self,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcResponseError> {
         log::info!("Sending RPC call method to proxy actor");
         self.proxy
             .cast(RpcMessage::Request {
                 method: Box::new(RpcRequestMethod::Call { transaction }),
                 reply,
             })
-            .map_err(|e| RpcError::Custom(e.to_string()))
+            .map_err(|e| RpcResponseError {
+                description: e.to_string(),
+            })
     }
 
     async fn send_rpc_send_method_to_self(
         &self,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcResponseError> {
         self.get_myself()
             .cast(RpcMessage::Request {
                 method: Box::new(RpcRequestMethod::Send { transaction }),
                 reply,
             })
-            .map_err(|e| RpcError::Custom(e.to_string()))
+            .map_err(|e| RpcResponseError {
+                description: e.to_string(),
+            })
     }
 
     async fn send_rpc_register_program_method_to_self(
         &self,
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcResponseError> {
         self.get_myself()
             .cast(RpcMessage::Request {
                 method: Box::new(RpcRequestMethod::RegisterProgram { transaction }),
                 reply,
             })
-            .map_err(|e| RpcError::Custom(e.to_string()))
+            .map_err(|e| RpcResponseError {
+                description: e.to_string(),
+            })
     }
 
     async fn send_rpc_get_account_method_to_self(
         &self,
         address: String,
         reply: RpcReplyPort<RpcMessage>,
-    ) -> Result<(), RpcError> {
-        let address: Address =
-            Address::from_str(&address).map_err(|e| RpcError::Custom(e.to_string()))?;
+    ) -> Result<(), RpcResponseError> {
+        let address: Address = Address::from_str(&address).map_err(|e| RpcResponseError {
+            description: (e.to_string()),
+        })?;
         self.get_myself()
             .cast(RpcMessage::Request {
                 method: Box::new(RpcRequestMethod::GetAccount { address }),
                 reply,
             })
-            .map_err(|e| RpcError::Custom(e.to_string()))
+            .map_err(|e| RpcResponseError {
+                description: e.to_string(),
+            })
     }
 
     fn get_myself(&self) -> ActorRef<RpcMessage> {
@@ -371,8 +434,10 @@ impl Actor for LasrRpcServerActor {
                 LasrRpcServerActor::handle_request_method(*method, reply)?
             }
             RpcMessage::Response { response, reply } => {
-                let reply = reply.ok_or(Box::new(RpcError::Custom(
+                let reply = reply.ok_or(Box::new(RpcError::owned(
+                    INTERNAL_ERROR_CODE,
                     "Unable to acquire rpc reply sender in RpcMessage::Response".to_string(),
+                    None::<()>,
                 )))?;
                 let message = RpcMessage::Response {
                     response,

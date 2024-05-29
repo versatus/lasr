@@ -5,7 +5,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use jsonrpsee::core::Error as RpcError;
+use jsonrpsee::types::ErrorObjectOwned as RpcError;
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, DaClientMessage, EngineMessage, EoMessage,
     RpcMessage, RpcResponseError, SchedulerMessage, SupervisorType, TransactionResponse,

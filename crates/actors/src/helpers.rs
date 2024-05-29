@@ -171,14 +171,18 @@ macro_rules! create_handler {
             RpcMessage::Response { response, .. } => match response {
                 Ok(resp) => return Ok(resp),
                 _ => {
-                    return Err(Box::new(RpcError::Custom(
-                        "Received an invalid type in response to RPC `call` method".to_string(),
+                    return Err(Box::new(RpcError::owned(
+                        INVALID_PARAMS_CODE,
+                        "received an invalid type in response to RPC `call` method".to_string(),
+                        None::<()>,
                     )) as Box<dyn std::error::Error>);
                 }
             },
             _ => {
-                return Err(Box::new(RpcError::Custom(
-                    "Received an invalid type in response to RPC `call` method".to_string(),
+                return Err(Box::new(RpcError::owned(
+                    INVALID_PARAMS_CODE,
+                    "received an invalid type in response to RPC `call` method".to_string(),
+                    None::<()>,
                 )) as Box<dyn std::error::Error>);
             }
         }
@@ -191,14 +195,18 @@ macro_rules! create_handler {
                     return Ok(resp);
                 }
                 _ => {
-                    return Err(Box::new(RpcError::Custom(
-                        "Received an invalid type in response to RPC `send` method".to_string(),
+                    return Err(Box::new(RpcError::owned(
+                        INVALID_PARAMS_CODE,
+                        "received an invalid type in response to RPC `send` method".to_string(),
+                        None::<()>,
                     )) as Box<dyn std::error::Error>);
                 }
             },
             _ => {
-                return Err(Box::new(RpcError::Custom(
-                    "Received an invalid type in response to RPC `send` method".to_string(),
+                return Err(Box::new(RpcError::owned(
+                    INVALID_PARAMS_CODE,
+                    "received an invalid type in response to RPC `send` method".to_string(),
+                    None::<()>,
                 )) as Box<dyn std::error::Error>);
             }
         }
@@ -210,16 +218,20 @@ macro_rules! create_handler {
                 Ok(resp) => return Ok(resp),
 
                 _ => {
-                    return Err(Box::new(RpcError::Custom(
-                        "Received an invalid type in response to RPC `registerProgram` method"
+                    return Err(Box::new(RpcError::owned(
+                        INVALID_PARAMS_CODE,
+                        "received an invalid type in response to RPC `registerProgram` method"
                             .to_string(),
+                        None::<()>,
                     )) as Box<dyn std::error::Error>);
                 }
             },
             _ => {
-                return Err(Box::new(RpcError::Custom(
-                    "Received an invalid type in response to RPC `registerProgram` method"
+                return Err(Box::new(RpcError::owned(
+                    INVALID_PARAMS_CODE,
+                    "received an invalid type in response to RPC `registerProgram` method"
                         .to_string(),
+                    None::<()>,
                 )) as Box<dyn std::error::Error>);
             }
         }
@@ -232,15 +244,19 @@ macro_rules! create_handler {
                     return Ok(TransactionResponse::GetAccountResponse(account))
                 }
                 _ => {
-                    return Err(Box::new(RpcError::Custom(
+                    return Err(Box::new(RpcError::owned(
+                        INVALID_PARAMS_CODE,
                         "received an invalid type in response to RPC `getAccount` method"
                             .to_string(),
+                        None::<()>,
                     )) as Box<dyn std::error::Error>);
                 }
             },
             _ => {
-                return Err(Box::new(RpcError::Custom(
-                    "Received an invalid type in response to RPC `getAccount` method".to_string(),
+                return Err(Box::new(RpcError::owned(
+                    INVALID_PARAMS_CODE,
+                    "received an invalid type in response to RPC `getAccount` method".to_string(),
+                    None::<()>,
                 )) as Box<dyn std::error::Error>)
             }
         }

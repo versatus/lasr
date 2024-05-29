@@ -10,7 +10,7 @@ use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
-use jsonrpsee::core::Error as RpcError;
+use jsonrpsee::types::ErrorObjectOwned as RpcError;
 use lasr_types::{Account, Address, Token};
 use ractor::{
     concurrency::{oneshot, OneshotSender},
