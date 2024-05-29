@@ -4,12 +4,5 @@ version = "0.9.0"
 edition = "2021"
 
 [dependencies]
-jsonrpsee = { version = "0.16.2", features = [
-  "macros",
-  "client-core",
-  "server-core",
-  "server",
-  "http-client",
-  "ws-client",
-] }
+jsonrpsee = { version = "0.22.5", features = ["full"] }
 lasr_types = { path = "../types" }
