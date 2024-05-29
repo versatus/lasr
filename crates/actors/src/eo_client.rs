@@ -9,9 +9,11 @@ use futures::stream::{FuturesUnordered, Stream, StreamExt};
 use futures::{Future, FutureExt};
 use hex;
 use ractor::concurrency::OneshotSender;
-use ractor::{Actor, ActorProcessingErr, ActorRef};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use secp256k1::SecretKey;
 use sha3::{Digest, Keccak256};
+use thiserror::Error;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc::Receiver, Mutex};
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token as EthAbiToken;
@@ -20,13 +22,34 @@ use web3::transports::Http;
 use web3::types::{Address as EthereumAddress, TransactionId, TransactionReceipt, H256};
 use web3::Web3;
 
-use lasr_actors::{ActorExt, EoServerError, StaticFuture, UnorderedFuturePool};
-use lasr_messages::{ActorType, EoMessage, HashOrError};
+use crate::{
+    process_group_changed, ActorExt, Coerce, EoServerError, StaticFuture, UnorderedFuturePool,
+};
+use lasr_messages::{ActorName, ActorType, EoMessage, HashOrError, SupervisorType};
 use lasr_types::{Address, U256};
 
 #[derive(Clone, Debug)]
 pub struct EoClientActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+impl ActorName for EoClientActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::EoClient.to_string()
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum EoClientError {
+    #[error("failed to acquire EoClientActor from registry")]
+    RactorRegistryError,
+
+    #[error("{0}")]
+    Custom(String),
+}
+impl Default for EoClientError {
+    fn default() -> Self {
+        EoClientError::RactorRegistryError
+    }
 }
 
 impl EoClientActor {
@@ -456,32 +479,11 @@ impl Actor for EoClientActor {
     ) -> Result<(), ActorProcessingErr> {
         let eo_client_ptr = Arc::clone(state);
         match message {
-            EoMessage::GetAccountBlobIndex { address, sender } => {
-                let fut = EoClientActor::get_account_blob_index(eo_client_ptr, address, sender);
-                let guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
-            }
             EoMessage::GetContractBlobIndex {
                 program_id: _,
                 sender: _,
             } => {
                 log::info!("Received request for contract blob index");
-            }
-            EoMessage::GetAccountBalance {
-                program_id,
-                address,
-                sender,
-                token_type,
-            } => {
-                let fut = EoClientActor::get_account_balance(
-                    eo_client_ptr,
-                    program_id,
-                    address,
-                    sender,
-                    token_type,
-                );
-                let guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
             }
             EoMessage::Settle {
                 accounts,
@@ -574,5 +576,72 @@ impl ActorExt for EoClientActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct EoClientSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl EoClientSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for EoClientSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::EoClient.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum EoClientSupervisorError {
+    #[default]
+    #[error("failed to acquire EoClientSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for EoClientSupervisor {
+    type Msg = EoMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
+        Ok(())
     }
 }

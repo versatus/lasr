@@ -1,39 +1,39 @@
 #![allow(unused)]
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, da_client, eo_server,
-    handle_actor_response,
+    create_handler, da_client, eo_server, get_account, handle_actor_response,
+    process_group_changed, Coerce,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use jsonrpsee::core::Error as RpcError;
+use jsonrpsee::types::ErrorObjectOwned as RpcError;
 use lasr_messages::{
-    AccountCacheMessage, ActorType, DaClientMessage, EngineMessage, EoMessage, RpcMessage,
-    RpcResponseError, SchedulerMessage, TransactionResponse, ValidatorMessage,
+    AccountCacheMessage, ActorName, ActorType, DaClientMessage, EngineMessage, EoMessage,
+    RpcMessage, RpcResponseError, SchedulerMessage, SupervisorType, TransactionResponse,
+    ValidatorMessage,
 };
 use lasr_types::{Address, RecoverableSignature, Transaction};
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{ActorCell, SupervisionEvent};
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Display};
 use thiserror::*;
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
 /// A generic error type to propagate errors from this actor
 /// and other actors that interact with it
 #[derive(Debug, Clone, Error)]
 pub enum SchedulerError {
-    Custom(String),
-}
+    #[error("failed to acquire SchedulerActor from registry")]
+    RactorRegistryError,
 
-/// Display implementation for Scheduler error
-impl Display for SchedulerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for SchedulerError {
     fn default() -> Self {
-        SchedulerError::Custom("Scheduler unable to acquire actor".to_string())
+        SchedulerError::RactorRegistryError
     }
 }
 
@@ -48,6 +48,11 @@ pub struct SchedulerState {
 /// The actor struct for the scheduler actor
 #[derive(Debug, Clone, Default)]
 pub struct TaskScheduler;
+impl ActorName for TaskScheduler {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Scheduler.to_string()
+    }
+}
 
 impl TaskScheduler {
     /// Creates a new TaskScheduler with a reference to the Registry actor
@@ -60,20 +65,8 @@ impl TaskScheduler {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), SchedulerError> {
-        log::info!(
-            "Checking for account cache for account: {} from scheduler",
-            address.to_full_string()
-        );
-        if let Some(account) = check_account_cache(address).await {
-            rpc_reply
-                .send(RpcMessage::Response {
-                    response: Ok(TransactionResponse::GetAccountResponse(account)),
-                    reply: None,
-                })
-                .map_err(|e| SchedulerError::Custom(e.to_string()))?;
-
-            return Ok(());
-        } else if let Some(account) = check_da_for_account(address).await {
+        log::info!("Checking for account cache for account: {address:?} from scheduler");
+        if let Some(account) = get_account(address, ActorType::Scheduler).await {
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Ok(TransactionResponse::GetAccountResponse(account)),
@@ -81,11 +74,13 @@ impl TaskScheduler {
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            log::info!("unable to find account in cache or da");
+            log::warn!("unable to find account for {address:?} in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
-                        description: "unable to find accountt in DA or Protocol Cache".to_string(),
+                        description:
+                            "unable to find account for address {address:?} in Persistence Store or Protocol Cache"
+                                .to_string(),
                     }),
                     reply: None,
                 })
@@ -292,6 +287,73 @@ impl Actor for TaskScheduler {
             _ => {}
         }
 
+        Ok(())
+    }
+}
+
+pub struct TaskSchedulerSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl TaskSchedulerSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for TaskSchedulerSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Scheduler.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum TaskSchedulerSupervisorError {
+    #[default]
+    #[error("failed to acquire TaskSchedulerSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for TaskSchedulerSupervisor {
+    type Msg = SchedulerMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
         Ok(())
     }
 }

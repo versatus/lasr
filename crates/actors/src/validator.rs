@@ -1,16 +1,19 @@
 use crate::{
-    check_account_cache, check_da_for_account, ActorExt, StaticFuture, UnorderedFuturePool,
+    get_account, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
-use lasr_messages::{ActorType, BatcherMessage, PendingTransactionMessage, ValidatorMessage};
-use ractor::{Actor, ActorProcessingErr, ActorRef, MessagingErr};
+use lasr_messages::{
+    ActorName, ActorType, BatcherMessage, PendingTransactionMessage, SupervisorType,
+    ValidatorMessage,
+};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, MessagingErr, SupervisionEvent};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc::Sender, Mutex};
 
 use lasr_types::{
     Account, AccountType, AddressOrNamespace, Instruction, Outputs, TokenFieldValue,
@@ -977,10 +980,18 @@ impl ValidatorCore {
 pub struct ValidatorActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), ValidatorError>>>,
 }
+impl ActorName for ValidatorActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Validator.to_string()
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ValidatorError {
-    #[error("{0:?}")]
+    #[error("failed to acquire ValidatorActor from registry")]
+    RactorRegistryError,
+
+    #[error("{0}")]
     Custom(String),
 
     #[error(transparent)]
@@ -989,7 +1000,7 @@ pub enum ValidatorError {
 
 impl Default for ValidatorError {
     fn default() -> Self {
-        ValidatorError::Custom("Validator unable to acquire actor".to_string())
+        ValidatorError::RactorRegistryError
     }
 }
 
@@ -1009,19 +1020,24 @@ impl ValidatorActor {
         );
         // spin up thread
         let transaction_type = transaction.transaction_type();
+        let from_address = transaction.from();
         match transaction_type {
             TransactionType::Send(_) => {
-                log::info!("Received send transaction, checking account_cache for account {} from validator", &transaction.from().to_full_string());
-                let account = if let Some(account) = check_account_cache(transaction.from()).await {
-                    log::info!("found account in cache");
-                    Some(account)
-                } else if let Some(account) = check_da_for_account(transaction.from()).await {
-                    log::info!("found account in da");
-                    Some(account)
-                } else {
-                    log::info!("unable to find account in cache or da");
-                    None
-                };
+                log::info!("Received send transaction, checking account_cache for account {:?} from validator", &from_address);
+                let account =
+                    if let Some(account) = get_account(from_address, ActorType::Validator).await {
+                        log::info!(
+                            "validator found account in cache for address: {:?}",
+                            from_address
+                        );
+                        Some(account)
+                    } else {
+                        log::warn!(
+                        "unable to find account for address {:?} in cache or persistence store.",
+                        from_address
+                        );
+                        None
+                    };
 
                 if account.is_none() {
                     let actor: ActorRef<PendingTransactionMessage> =
@@ -1055,13 +1071,15 @@ impl ValidatorActor {
                 // install op
             }
             TransactionType::BridgeIn(_) => {
-                let _account = if let Some(account) = check_account_cache(transaction.from()).await
+                log::warn!("attempting to bridge in");
+                let _account = if let Some(account) =
+                    get_account(transaction.from(), ActorType::Validator).await
                 {
                     Some(account)
-                } else if let Some(account) = check_da_for_account(transaction.from()).await {
-                    Some(account)
                 } else {
-                    log::info!("unable to find account in cache or da");
+                    log::warn!(
+                        "unable to find account for address {from_address:?} in cache or persistence store."
+                    );
                     None
                 };
                 let state = validator_core.lock().await;
@@ -1124,14 +1142,11 @@ impl ValidatorActor {
                             "Received call transaction checking account {} from validator",
                             &addr.to_full_string()
                         );
-                        if let Some(account) = check_account_cache(addr).await {
+                        if let Some(account) = get_account(addr, ActorType::Validator).await {
                             log::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
-                        } else if let Some(account) = check_da_for_account(addr).await {
-                            log::info!("found `this` account in da");
-                            validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or da");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
@@ -1140,14 +1155,11 @@ impl ValidatorActor {
                             "looking for account {:?} in cache from validator",
                             addr.to_full_string()
                         );
-                        if let Some(account) = check_account_cache(*addr).await {
+                        if let Some(account) = get_account(*addr, ActorType::Validator).await {
                             log::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
-                        } else if let Some(account) = check_da_for_account(*addr).await {
-                            log::info!("found account in da");
-                            validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::info!("unable to find account in cache or da");
+                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }
@@ -1256,6 +1268,73 @@ impl ActorExt for ValidatorActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct ValidatorSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl ValidatorSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for ValidatorSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Validator.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum ValidatorSupervisorError {
+    #[default]
+    #[error("failed to acquire ValidatorSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for ValidatorSupervisor {
+    type Msg = ValidatorMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
+        Ok(())
     }
 }
 

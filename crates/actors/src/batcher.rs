@@ -1,7 +1,8 @@
 #![allow(unused)]
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-    fmt::Display,
+    error::Error as StdError,
+    fmt::{Debug, Display},
     sync::Arc,
 };
 
@@ -21,13 +22,15 @@ use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     errors::MessagingErr,
     factory::CustomHashFunction,
-    Actor, ActorCell, ActorProcessingErr, ActorRef,
+    pg::GroupChangeMessage,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use std::io::Write;
 use thiserror::Error;
+use tikv_client::RawClient as TikvClient;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender, UnboundedSender},
@@ -37,10 +40,14 @@ use tokio::{
 };
 use web3::types::BlockNumber;
 
-use crate::{get_account, handle_actor_response, ActorExt, StaticFuture, UnorderedFuturePool};
+use crate::{
+    account_cache, get_account, get_actor_ref, handle_actor_response, process_group_changed,
+    AccountCacheError, ActorExt, Coerce, DaClientError, EoClientError, PendingTransactionError,
+    SchedulerError, StaticFuture, UnorderedFuturePool,
+};
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BatcherMessage, DaClientMessage, EoMessage,
-    PendingTransactionMessage, SchedulerMessage,
+    AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
+    PendingTransactionMessage, SchedulerMessage, SupervisorType,
 };
 
 use lasr_contract::create_program_id;
@@ -79,8 +86,17 @@ pub enum BatcherError {
     #[error("{msg}")]
     FailedTransaction { msg: String, txn: Box<Transaction> },
 
+    #[error("failed to acquire BatcherActor from registry")]
+    RactorRegistryError,
+
     #[error("{0}")]
     Custom(String),
+}
+
+impl Default for BatcherError {
+    fn default() -> Self {
+        BatcherError::RactorRegistryError
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -94,12 +110,29 @@ impl BatcherActor {
         }
     }
 }
+impl ActorName for BatcherActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Batcher.to_string()
+    }
+}
 
 #[derive(Builder, Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Batch {
     transactions: HashMap<String, Transaction>,
     accounts: HashMap<String, Account>,
 }
+
+// Structure for persistence store `Account` values
+#[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountValue {
+    pub account: Account,
+}
+
+// // Structure for persistence store `Transaction` values
+// #[derive(Debug, Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
+// pub struct TransactionValue {
+//     transaction: Transaction,
+// }
 
 impl Batch {
     pub fn new() -> Self {
@@ -139,73 +172,86 @@ impl Batch {
         None
     }
 
-    pub(super) fn serialize_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        Ok(serde_json::to_string(&self)
-            .map_err(|e| {
-                BatcherError::Custom(format!(
-                    "ERROR: batcher.rs in serialized_batch method: {}",
-                    e
-                ))
-            })?
-            .as_bytes()
-            .to_vec())
+    pub(super) fn serialize_batch(&self) -> Option<Vec<u8>> {
+        Some(
+            serde_json::to_string(&self)
+                .typecast()
+                .log_err(|e| {
+                    BatcherError::Custom(format!(
+                        "ERROR: failed to serialize batch to json string: {e:?}"
+                    ))
+                })?
+                .as_bytes()
+                .to_vec(),
+        )
     }
 
-    pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Result<Self, BatcherError> {
+    pub(super) fn deserialize_batch(bytes: Vec<u8>) -> Option<Self> {
         let decompressed = Batch::decompress_batch(bytes)?;
         serde_json::from_str(&String::from_utf8_lossy(&decompressed))
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 89 {}", e)))
+            .typecast()
+            .log_err(|e| BatcherError::Custom(format!("ERROR: failed to deserialize batch: {e:?}")))
     }
 
-    pub(super) fn compress_batch(&self) -> Result<Vec<u8>, BatcherError> {
-        let mut compressor = ZlibEncoder::new(Vec::new(), Compression::best());
-        compressor
-            .write_all(&self.serialize_batch()?)
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
-        let compressed = compressor
-            .finish()
-            .map_err(|e| BatcherError::Custom(e.to_string()))?;
-
-        Ok(compressed)
+    pub(super) fn compress_batch(&self) -> Option<Vec<u8>> {
+        if let Some(serialized_batch) = &self.serialize_batch() {
+            let mut compressor = ZlibEncoder::new(Vec::new(), Compression::best());
+            compressor
+                .write_all(serialized_batch)
+                .typecast()
+                .log_err(|e| BatcherError::Custom(e.to_string()));
+            return compressor
+                .finish()
+                .typecast()
+                .log_err(|e| BatcherError::Custom(e.to_string()));
+        }
+        None
     }
 
-    pub(super) fn decompress_batch(bytes: Vec<u8>) -> Result<Vec<u8>, BatcherError> {
+    pub(super) fn decompress_batch(bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut decompressor = ZlibDecoder::new(Vec::new());
-        decompressor
-            .write_all(&bytes[..])
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 92 {}", e)))?;
-        let decompressed = decompressor
-            .finish()
-            .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 100 {}", e)))?;
-
-        Ok(decompressed)
+        decompressor.write_all(&bytes[..]).typecast().log_err(|e| {
+            BatcherError::Custom(format!(
+                "Batcher Error: failed to write bytes to decoder: {e:?}"
+            ))
+        })?;
+        decompressor.finish().typecast().log_err(|e| {
+            BatcherError::Custom(format!(
+                "Batcher Error: decoder failed to finalize decompressed batch: {e:?}"
+            ))
+        })
     }
 
-    pub fn encode_batch(&self) -> Result<String, BatcherError> {
-        let encoded = base64::encode(kzgpad_rs::convert_by_padding_empty_byte(
-            &self.compress_batch()?,
-        ));
-        log::info!("encoded batch: {:?}", &encoded);
-        Ok(encoded)
+    pub fn encode_batch(&self) -> Option<String> {
+        if let Some(compressed_batch) = &self.compress_batch() {
+            let encoded =
+                base64::encode(kzgpad_rs::convert_by_padding_empty_byte(compressed_batch));
+            log::info!("encoded batch: {:?}", &encoded);
+            return Some(encoded);
+        }
+        None
     }
 
-    pub fn decode_batch(batch: &str) -> Result<Self, BatcherError> {
+    pub fn decode_batch(batch: &str) -> Option<Self> {
         Self::deserialize_batch(kzgpad_rs::remove_empty_byte_from_padded_bytes(
-            &base64::decode(batch)
-                .map_err(|e| BatcherError::Custom(format!("ERROR: batcher.rs 118 {}", e)))?,
+            &base64::decode(batch).typecast().log_err(|e| {
+                BatcherError::Custom(format!(
+                    "Batcher Error: failed to decode batch data to base64: {e:?}"
+                ))
+            })?,
         ))
     }
 
-    pub(super) fn check_size(&self) -> Result<usize, BatcherError> {
+    pub(super) fn check_size(&self) -> Option<usize> {
         let encoded = self.encode_batch()?;
 
-        Ok(encoded.as_bytes().len())
+        Some(encoded.as_bytes().len())
     }
 
     pub(super) fn transaction_would_exceed_capacity(
         &self,
         transaction: Transaction,
-    ) -> Result<bool, BatcherError> {
+    ) -> Option<bool> {
         let mut test_batch = self.clone();
         test_batch
             .transactions
@@ -213,10 +259,7 @@ impl Batch {
         test_batch.at_capacity()
     }
 
-    pub(super) fn account_would_exceed_capacity(
-        &self,
-        account: Account,
-    ) -> Result<bool, BatcherError> {
+    pub(super) fn account_would_exceed_capacity(&self, account: Account) -> Option<bool> {
         let mut test_batch = self.clone();
         test_batch
             .accounts
@@ -224,12 +267,15 @@ impl Batch {
         test_batch.at_capacity()
     }
 
-    pub(super) fn at_capacity(&self) -> Result<bool, BatcherError> {
-        Ok(self.check_size()? >= 512 * 1024)
+    pub(super) fn at_capacity(&self) -> Option<bool> {
+        Some(self.check_size()? >= 512 * 1024)
     }
 
     pub fn insert_transaction(&mut self, transaction: Transaction) -> Result<(), BatcherError> {
-        if !self.transaction_would_exceed_capacity(transaction.clone())? {
+        if self
+            .transaction_would_exceed_capacity(transaction.clone())
+            .is_some_and(|at_cap| !at_cap)
+        {
             self.transactions
                 .insert(transaction.hash_string(), transaction.clone());
             return Ok(());
@@ -239,9 +285,10 @@ impl Batch {
     }
 
     pub fn insert_account(&mut self, account: Account) -> Result<(), BatcherError> {
-        if !self
+        if self
             .clone()
-            .account_would_exceed_capacity(account.clone())?
+            .account_would_exceed_capacity(account.clone())
+            .is_some_and(|at_cap| !at_cap)
         {
             log::info!("inserting account into batch");
             match account.account_type() {
@@ -270,7 +317,6 @@ impl Batch {
     }
 }
 
-#[derive(Debug)]
 pub struct Batcher {
     parent: Batch,
     children: VecDeque<Batch>,
@@ -296,22 +342,16 @@ impl Batcher {
                 next_proof = pending_receivers.next() => {
                     if let Some(Ok((request_id, proof))) = next_proof {
                         log::info!("batcher received blob verification proof");
-                        let batcher: ActorRef<BatcherMessage> = {
-                            ractor::registry::where_is(
-                                ActorType::Batcher.to_string()
-                            ).ok_or(
-                                BatcherError::Custom(
-                                    "unable to acquire batcher".to_string()
-                                )
-                            )?.into()
-                        };
+                        if let Some(batcher) = get_actor_ref::<BatcherMessage, BatcherError>(ActorType::Batcher) {
+                            let message = BatcherMessage::BlobVerificationProof {
+                                request_id,
+                                proof
+                            };
 
-                        let message = BatcherMessage::BlobVerificationProof {
-                            request_id,
-                            proof
-                        };
-
-                        batcher.cast(message)?;
+                            batcher.cast(message).typecast().log_err(|err|  {
+                                BatcherError::Custom(format!("failed to cast blob verification proof: {err:?}"))
+                            });
+                        }
                     }
                 },
             }
@@ -329,24 +369,23 @@ impl Batcher {
         }
     }
 
-    pub(super) async fn cache_account(account: &Account) -> Result<(), BatcherError> {
+    pub(super) async fn cache_account(account: &Account, location: String) {
         log::info!("Attempting to acquire account cache actor");
-        let account_cache: ActorRef<AccountCacheMessage> =
-            ractor::registry::where_is(ActorType::AccountCache.to_string())
-                .ok_or(BatcherError::Custom(
-                    "unable to acquire account cache actor".to_string(),
-                ))?
-                .into();
-
-        if let AccountType::Program(program_address) = account.account_type() {
-            log::warn!("caching account: {}", program_address.to_full_string());
+        if let Some(account_cache) =
+            get_actor_ref::<AccountCacheMessage, AccountCacheError>(ActorType::AccountCache)
+        {
+            if let AccountType::Program(program_address) = account.account_type() {
+                log::warn!("caching account: {}", program_address.to_full_string());
+            }
+            let message = AccountCacheMessage::Write {
+                account: account.clone(),
+                who: ActorType::Batcher,
+                location,
+            };
+            if let Err(err) = account_cache.cast(message) {
+                log::error!("failed to cast write message to account cache: {err:?}");
+            }
         }
-        let message = AccountCacheMessage::Write {
-            account: account.clone(),
-        };
-        account_cache.cast(message)?;
-
-        Ok(())
     }
 
     pub(super) async fn add_transaction_to_batch(
@@ -368,7 +407,10 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            batch.insert_transaction(transaction.clone());
+            batch
+                .insert_transaction(transaction)
+                .typecast()
+                .log_err(|e| e);
             guard.children.push_back(batch);
         }
     }
@@ -376,8 +418,9 @@ impl Batcher {
     pub(super) async fn add_account_to_batch(
         batcher: &Arc<Mutex<Batcher>>,
         account: Account,
+        location: String,
     ) -> Result<(), BatcherError> {
-        Batcher::cache_account(&account).await?;
+        Batcher::cache_account(&account, location).await;
         let mut guard = batcher.lock().await;
         let mut new_batch = false;
         let mut res = guard.parent.insert_account(account.clone());
@@ -393,7 +436,7 @@ impl Batcher {
 
         if new_batch {
             let mut batch = Batch::new();
-            batch.insert_account(account.clone());
+            batch.insert_account(account).typecast().log_err(|e| e);
             guard.children.push_back(batch);
         }
 
@@ -406,10 +449,11 @@ impl Batcher {
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
         log::warn!(
-            "checking account cache for account: {:?}",
-            transaction.from().to_full_string()
+            "checking account cache for account associated with address {:?} to add transaction: {:?}",
+            transaction.from(),
+            transaction
         );
-        let mut from_account = get_account(transaction.from()).await;
+        let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             log::warn!("found account, token pair");
             account.increment_nonce();
@@ -429,8 +473,8 @@ impl Batcher {
                 });
             }
 
-            log::info!(
-                "transaction is first for account {:x} bridge_in, building account",
+            log::warn!(
+                "transaction is first for account {:?} bridge_in, building account",
                 transaction.from()
             );
             let mut account = AccountBuilder::default()
@@ -448,7 +492,9 @@ impl Batcher {
                     txn: Box::new(transaction.clone()),
                 })?;
 
-            if let Some(program_account) = get_account(transaction.program_id()).await {
+            if let Some(program_account) =
+                get_account(transaction.program_id(), ActorType::Batcher).await
+            {
                 let token = account
                     .apply_send_transaction(transaction.clone(), Some(&program_account))
                     .map_err(|e| BatcherError::FailedTransaction {
@@ -482,10 +528,12 @@ impl Batcher {
                 "checking account cache for account: {}",
                 transaction.to().to_full_string()
             );
-            let mut to_account = get_account(transaction.to()).await;
+            let mut to_account = get_account(transaction.to(), ActorType::Batcher).await;
             let to_account = if let Some(mut account) = to_account {
                 log::warn!("found `to` account: {}", transaction.to().to_full_string());
-                if let Some(program_account) = get_account(transaction.program_id()).await {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
+                {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!(
@@ -541,7 +589,9 @@ impl Batcher {
                     })?;
 
                 log::warn!("applying transaction to `to` account");
-                if let Some(program_account) = get_account(transaction.program_id()).await {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
+                {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!(
@@ -575,7 +625,9 @@ impl Batcher {
             let to_account = if let Some(mut account) =
                 batch_buffer.get_mut(&transaction.to().to_full_string())
             {
-                if let Some(program_account) = get_account(transaction.program_id()).await {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
+                {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!(
@@ -602,8 +654,12 @@ impl Batcher {
                         txn: Box::new(transaction.clone()),
                     });
                 }
-            } else if let Some(mut account) = get_account(transaction.to()).await {
-                if let Some(program_account) = get_account(transaction.program_id()).await {
+            } else if let Some(mut account) =
+                get_account(transaction.to(), ActorType::Batcher).await
+            {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
+                {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     log::warn!(
@@ -642,56 +698,62 @@ impl Batcher {
 
         for (_, account) in batch_buffer {
             log::info!("adding account to batch");
-            Batcher::add_account_to_batch(&batcher, account)
-                .await
-                .map_err(|e| BatcherError::FailedTransaction {
-                    msg: e.to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?;
+            Batcher::add_account_to_batch(
+                &batcher,
+                account,
+                "add_transaction_to_account".to_string(),
+            )
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
         }
 
         log::info!("adding transaction to batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-        let scheduler: ActorRef<SchedulerMessage> =
-            ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire scheduler".to_string(),
+        if let Some(scheduler) =
+            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        {
+            let message = SchedulerMessage::TransactionApplied {
+                transaction_hash: transaction.clone().hash_string(),
+                token: token.clone(),
+            };
+
+            scheduler
+                .cast(message)
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
-                })?
-                .into();
-
-        let message = SchedulerMessage::TransactionApplied {
-            transaction_hash: transaction.clone().hash_string(),
-            token: token.clone(),
-        };
-
-        scheduler
-            .cast(message)
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
+                })?;
+        } else {
+            return Err(BatcherError::FailedTransaction {
+                msg: "failed to acquire SchedulerActor".to_string(),
                 txn: Box::new(transaction.clone()),
-            })?;
+            });
+        }
 
-        let pending_tx: ActorRef<PendingTransactionMessage> =
-            ractor::registry::where_is(ActorType::PendingTransactions.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire scheduler".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?
-                .into();
+        if let Some(pending_tx) = get_actor_ref::<PendingTransactionMessage, PendingTransactionError>(
+            ActorType::PendingTransactions,
+        ) {
+            let message = PendingTransactionMessage::Valid {
+                transaction: transaction.clone(),
+                cert: None,
+            };
 
-        let message = PendingTransactionMessage::Valid {
-            transaction: transaction.clone(),
-            cert: None,
-        };
-
-        pending_tx
-            .cast(message)
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction),
-            })?;
+            pending_tx
+                .cast(message)
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction),
+                })?;
+        } else {
+            return Err(BatcherError::FailedTransaction {
+                msg: "failed to acquire PendingTransactionActor".to_string(),
+                txn: Box::new(transaction.clone()),
+            });
+        }
 
         Ok(())
     }
@@ -711,7 +773,7 @@ impl Batcher {
                         "requesting account: {:?}",
                         &account_address.to_full_string()
                     );
-                    get_account(account_address)
+                    get_account(account_address, ActorType::Batcher)
                         .await
                         .ok_or(BatcherError::Custom(
                             "the `from` account in a transfer must exist".to_string(),
@@ -723,9 +785,11 @@ impl Batcher {
                     Ok(account.clone())
                 } else {
                     log::info!("requesting account: {:?}", &address.to_full_string());
-                    get_account(*address).await.ok_or(BatcherError::Custom(
-                        "the `from` account in a transfer must exist".to_string(),
-                    ))
+                    get_account(*address, ActorType::Batcher)
+                        .await
+                        .ok_or(BatcherError::Custom(
+                            "the `from` account in a transfer must exist".to_string(),
+                        ))
                 }
             }
             AddressOrNamespace::Namespace(namespace) => Err(BatcherError::Custom(
@@ -750,7 +814,7 @@ impl Batcher {
                         "requesting account: {:?}",
                         &account_address.to_full_string()
                     );
-                    get_account(account_address).await
+                    get_account(account_address, ActorType::Batcher).await
                 }
             }
             AddressOrNamespace::Address(address) => {
@@ -758,7 +822,7 @@ impl Batcher {
                     Some(account.clone())
                 } else {
                     log::info!("requesting account: {:?}", &address.to_full_string());
-                    get_account(*address).await
+                    get_account(*address, ActorType::Batcher).await
                 }
             }
             AddressOrNamespace::Namespace(namespace) => None,
@@ -790,7 +854,8 @@ impl Batcher {
         if let Some(mut account) =
             Batcher::get_transfer_to_account(transaction, &to, batch_buffer).await
         {
-            if let Some(program_account) = get_account(*transfer.token()).await {
+            if let Some(program_account) = get_account(*transfer.token(), ActorType::Batcher).await
+            {
                 account
                     .apply_transfer_to_instruction(
                         transfer.token(),
@@ -834,7 +899,7 @@ impl Batcher {
                             BatcherError::Custom(e.to_string())
                         })?;
 
-                    if let Some(program_account) = get_account(*transfer.token()).await {
+                    if let Some(program_account) = get_account(*transfer.token(), ActorType::Batcher).await {
                         account.apply_transfer_to_instruction(
                             transfer.token(), transfer.amount(), transfer.ids(), Some(&program_account)
                         ).map_err(|e| {
@@ -926,7 +991,7 @@ impl Batcher {
                     if let AccountType::Program(program_addr) = acct.account_type() {
                         log::warn!("applying token distribution to {}", program_addr.to_full_string());
                     }
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await {
                         acct.apply_token_distribution(
                             &program_id,
                             distribution.amount(),
@@ -954,7 +1019,7 @@ impl Batcher {
                         .program_account_data(ArbitraryData::new())
                         .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id,ActorType::Batcher).await {
                         acct.apply_token_distribution(
                             &program_id,
                             distribution.amount(),
@@ -983,7 +1048,7 @@ impl Batcher {
                     if let AccountType::Program(program_addr) = account.account_type() {
                         log::warn!("distribution going to program account: {}", program_addr.to_full_string());
                     }
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id,ActorType::Batcher).await {
                         account.apply_token_distribution(
                             &program_id,
                             distribution.amount(),
@@ -1012,7 +1077,7 @@ impl Batcher {
                         .program_account_data(ArbitraryData::new())
                         .build().map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id,ActorType::Batcher).await {
                         account.apply_token_distribution(
                             &program_id,
                             distribution.amount(),
@@ -1059,7 +1124,8 @@ impl Batcher {
         match token_update.account() {
             AddressOrNamespace::This => {
                 if let Some(mut account) = batch_buffer.get_mut(&transaction.to()) {
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await
+                    {
                         account
                             .apply_token_update(
                                 &program_id,
@@ -1080,8 +1146,9 @@ impl Batcher {
                     "attempting to get account: {} from cache in batcher",
                     &transaction.to()
                 );
-                if let Some(mut account) = get_account(transaction.to()).await {
-                    if let Some(program_account) = get_account(program_id).await {
+                if let Some(mut account) = get_account(transaction.to(), ActorType::Batcher).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await
+                    {
                         account
                             .apply_token_update(
                                 &program_id,
@@ -1105,7 +1172,8 @@ impl Batcher {
             }
             AddressOrNamespace::Address(address) => {
                 if let Some(mut account) = batch_buffer.get_mut(address) {
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await
+                    {
                         account
                             .apply_token_update(
                                 &program_id,
@@ -1122,8 +1190,9 @@ impl Batcher {
                     }
                 }
 
-                if let Some(mut account) = get_account(*address).await {
-                    if let Some(program_account) = get_account(program_id).await {
+                if let Some(mut account) = get_account(*address, ActorType::Batcher).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await
+                    {
                         account
                             .apply_token_update(
                                 &program_id,
@@ -1151,7 +1220,8 @@ impl Batcher {
                         .build()
                         .map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    if let Some(program_account) = get_account(program_id).await {
+                    if let Some(program_account) = get_account(program_id, ActorType::Batcher).await
+                    {
                         account
                             .apply_token_update(
                                 &program_id,
@@ -1192,7 +1262,7 @@ impl Batcher {
                     "attempting to get account {} from cache in batcher.rs 832",
                     transaction.to()
                 );
-                if let Some(mut account) = get_account(transaction.to()).await {
+                if let Some(mut account) = get_account(transaction.to(), ActorType::Batcher).await {
                     account
                         .apply_program_update(program_update)
                         .map_err(|e| BatcherError::Custom(e.to_string()))?;
@@ -1215,7 +1285,7 @@ impl Batcher {
                     "attempting to get account {} from cache in batcher.rs 852",
                     &address
                 );
-                if let Some(mut account) = get_account(*address).await {
+                if let Some(mut account) = get_account(*address, ActorType::Batcher).await {
                     account
                         .apply_program_update(program_update)
                         .map_err(|e| BatcherError::Custom(e.to_string()))?;
@@ -1266,118 +1336,117 @@ impl Batcher {
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
-        let actor: ActorRef<SchedulerMessage> =
-            ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire Scheduler".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?
-                .into();
-
-        let mut account = match get_account(transaction.from()).await {
-            None => {
-                let e = BatcherError::FailedTransaction {
-                    msg: "deployer account doesn't exit".to_string(),
-                    txn: Box::new(transaction.clone()),
-                };
-                let error_string = e.to_string();
-
-                let message = SchedulerMessage::CallTransactionFailure {
-                    transaction_hash: transaction.hash_string(),
-                    outputs: "".to_string(),
-                    error: error_string,
-                };
-                actor.cast(message);
-                return Err(e);
-            }
-            Some(account) => account,
-        };
-
-        let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs())
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-
-        let content_id = {
-            match json
-                .get("contentId")
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "content id is required".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })? {
-                Value::String(cid) => cid.clone(),
-                _ => {
-                    return Err(BatcherError::FailedTransaction {
-                        msg: "contentId is incorrect type: Must be String".to_string(),
+        if let Some(scheduler_actor) =
+            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        {
+            let mut account = match get_account(transaction.from(), ActorType::Batcher).await {
+                None => {
+                    let e = BatcherError::FailedTransaction {
+                        msg: "deployer account doesn't exit".to_string(),
                         txn: Box::new(transaction.clone()),
-                    })
+                    };
+                    let error_string = e.to_string();
+
+                    let message = SchedulerMessage::CallTransactionFailure {
+                        transaction_hash: transaction.hash_string(),
+                        outputs: "".to_string(),
+                        error: error_string,
+                    };
+                    scheduler_actor.cast(message);
+                    return Err(e);
                 }
-            }
-        };
+                Some(account) => account,
+            };
 
-        let program_id = create_program_id(content_id.clone(), &transaction).map_err(|e| {
-            BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            }
-        })?;
-
-        let mut metadata = Metadata::new();
-        metadata
-            .inner_mut()
-            .insert("content_id".to_string(), content_id);
-        let mut program_account = AccountBuilder::default()
-            .account_type(AccountType::Program(program_id))
-            .owner_address(transaction.from())
-            .nonce(U256::from(0))
-            .programs(BTreeMap::new())
-            .program_namespace(None)
-            .program_account_linked_programs(BTreeSet::new())
-            .program_account_data(ArbitraryData::new())
-            .program_account_metadata(metadata)
-            .build()
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-
-        Batcher::add_account_to_batch(&batcher, program_account)
-            .await
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-
-        account.increment_nonce();
-
-        Batcher::add_account_to_batch(&batcher, account)
-            .await
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-
-        let actor: ActorRef<SchedulerMessage> =
-            ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire Scheduler".to_string(),
+            let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs())
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
-                })?
-                .into();
+                })?;
 
-        let message = SchedulerMessage::RegistrationSuccess {
-            program_id,
-            transaction: transaction.clone(),
-        };
-        actor
-            .cast(message)
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction),
+            let content_id = {
+                match json
+                    .get("contentId")
+                    .ok_or(BatcherError::FailedTransaction {
+                        msg: "content id is required".to_string(),
+                        txn: Box::new(transaction.clone()),
+                    })? {
+                    Value::String(cid) => cid.clone(),
+                    _ => {
+                        return Err(BatcherError::FailedTransaction {
+                            msg: "contentId is incorrect type: Must be String".to_string(),
+                            txn: Box::new(transaction.clone()),
+                        })
+                    }
+                }
+            };
+
+            let program_id = create_program_id(content_id.clone(), &transaction).map_err(|e| {
+                BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction.clone()),
+                }
             })?;
 
-        Ok(())
+            let mut metadata = Metadata::new();
+            metadata
+                .inner_mut()
+                .insert("content_id".to_string(), content_id);
+            let mut program_account = AccountBuilder::default()
+                .account_type(AccountType::Program(program_id))
+                .owner_address(transaction.from())
+                .nonce(U256::from(0))
+                .programs(BTreeMap::new())
+                .program_namespace(None)
+                .program_account_linked_programs(BTreeSet::new())
+                .program_account_data(ArbitraryData::new())
+                .program_account_metadata(metadata)
+                .build()
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction.clone()),
+                })?;
+
+            Batcher::add_account_to_batch(
+                &batcher,
+                program_account,
+                "apply_program_registration: for program account".to_string(),
+            )
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
+
+            account.increment_nonce();
+
+            Batcher::add_account_to_batch(
+                &batcher,
+                account,
+                "apply_program_registration: for user account".to_string(),
+            )
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
+
+            let message = SchedulerMessage::RegistrationSuccess {
+                program_id,
+                transaction: transaction.clone(),
+            };
+            scheduler_actor
+                .cast(message)
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction),
+                })
+        } else {
+            Err(BatcherError::FailedTransaction {
+                msg: "unable to acquire Scheduler actor".to_string(),
+                txn: Box::new(transaction),
+            })
+        }
     }
 
     fn add_account_to_batch_buffer(batch_buffer: &mut HashMap<Address, Account>, account: Account) {
@@ -1400,7 +1469,7 @@ impl Batcher {
             return Ok(account.clone());
         }
 
-        if let Some(account) = get_account(transaction.to()).await {
+        if let Some(account) = get_account(transaction.to(), ActorType::Batcher).await {
             Ok(account)
         } else {
             let mut metadata = Metadata::new();
@@ -1434,22 +1503,25 @@ impl Batcher {
         outputs: Outputs,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
-        let mut caller =
-            get_account(transaction.to())
-                .await
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "caller account does not exist".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?;
+        let mut caller = get_account(transaction.to(), ActorType::Batcher)
+            .await
+            .ok_or(BatcherError::FailedTransaction {
+                msg: "caller account does not exist".to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
 
         caller.increment_nonce();
 
-        Batcher::add_account_to_batch(&batcher, caller)
-            .await
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
+        Batcher::add_account_to_batch(
+            &batcher,
+            caller,
+            "apply_instructions_to_accounts: for caller account".to_string(),
+        )
+        .await
+        .map_err(|e| BatcherError::FailedTransaction {
+            msg: e.to_string(),
+            txn: Box::new(transaction.clone()),
+        })?;
 
         for instruction in outputs.instructions().iter().cloned() {
             match instruction {
@@ -1535,140 +1607,206 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            Batcher::add_account_to_batch(&batcher, account)
-                .await
-                .map_err(|e| BatcherError::FailedTransaction {
-                    msg: e.to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?;
+            Batcher::add_account_to_batch(
+                &batcher,
+                account,
+                "apply_instructions_to_accounts: for batch buffer".to_string(),
+            )
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
         }
 
         log::warn!("Adding transaction to a batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
-        let scheduler: ActorRef<SchedulerMessage> =
-            ractor::registry::where_is(ActorType::Scheduler.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire scheduler actor".to_string(),
+        if let Some(scheduler_actor) =
+            get_actor_ref::<SchedulerMessage, SchedulerError>(ActorType::Scheduler)
+        {
+            if let Some(pending_transactions) = get_actor_ref::<
+                PendingTransactionMessage,
+                PendingTransactionError,
+            >(ActorType::PendingTransactions)
+            {
+                let message = PendingTransactionMessage::ValidCall {
+                    outputs: outputs.clone(),
+                    transaction: transaction.clone(),
+                    cert: None,
+                };
+
+                log::info!(
+                    "Informing pending transactions that the transaction has been applied successfully"
+                );
+                if let Err(err) = pending_transactions.cast(message) {
+                    log::error!(
+                        "failed to cast valid call message to pending transactions actor: {err:?}"
+                    );
+                }
+
+                log::warn!(
+                    "Batcher: attempting to get account: {:?}",
+                    transaction.from()
+                );
+                let account = get_account(transaction.from(), ActorType::Batcher)
+                    .await
+                    .ok_or(BatcherError::FailedTransaction {
+                        msg: "unable to acquire caller account".to_string(),
+                        txn: Box::new(transaction.clone()),
+                    })?;
+                let owner = account.owner_address();
+
+                let message = SchedulerMessage::CallTransactionApplied {
+                    transaction_hash: transaction.hash_string(),
+                    account,
+                };
+
+                log::warn!("Informing scheduler that the call transaction was applied");
+                if let Err(err) = scheduler_actor.cast(message) {
+                    log::error!(
+                        "failed to cast call transaction applied message to scheduler actor for account address {owner}: {err:?}"
+                    );
+                }
+                Ok(())
+            } else {
+                Err(BatcherError::FailedTransaction {
+                    msg: "unable to acquire PendingTransactionActor".to_string(),
                     txn: Box::new(transaction.clone()),
-                })?
-                .into();
-
-        let pending_transactions: ActorRef<PendingTransactionMessage> =
-            ractor::registry::where_is(ActorType::PendingTransactions.to_string())
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire pending transactions actor".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?
-                .into();
-
-        let message = PendingTransactionMessage::ValidCall {
-            outputs: outputs.clone(),
-            transaction: transaction.clone(),
-            cert: None,
-        };
-
-        log::info!(
-            "Informing pending transactions that the transaction has been applied successfully"
-        );
-        pending_transactions.cast(message);
-
-        log::warn!(
-            "attempting to get account: {:?} in batcher.rs 1121",
-            transaction.from()
-        );
-        let account =
-            get_account(transaction.from())
-                .await
-                .ok_or(BatcherError::FailedTransaction {
-                    msg: "unable to acquire caller account".to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?;
-
-        let message = SchedulerMessage::CallTransactionApplied {
-            transaction_hash: transaction.hash_string(),
-            account,
-        };
-
-        log::warn!("Informing scheduler that the call transaction was applied");
-        scheduler.cast(message);
-
-        Ok(())
+                })
+            }
+        } else {
+            Err(BatcherError::FailedTransaction {
+                msg: "unable to acquire SchedulerActor".to_string(),
+                txn: Box::new(transaction.clone()),
+            })
+        }
     }
 
-    pub async fn handle_transaction_error(
-        transaction: Transaction,
-        err: String,
-    ) -> Result<(), BatcherError> {
-        let pending_transactions: ActorRef<PendingTransactionMessage> = ractor::registry::where_is(
-            ActorType::PendingTransactions.to_string(),
+    pub fn handle_transaction_error(err: String, transaction: Transaction) {
+        get_actor_ref::<PendingTransactionMessage, PendingTransactionError>(
+            ActorType::PendingTransactions,
         )
-        .ok_or(BatcherError::Custom(
-            "unable to acquire pending transactions in batcher.rs handle_batcher_error method"
-                .to_string(),
-        ))?
-        .into();
-
-        let message = PendingTransactionMessage::Invalid {
-            transaction,
-            e: Box::new(BatcherError::Custom(err)) as Box<dyn std::error::Error + Send>,
-        };
-
-        pending_transactions.cast(message);
-
-        Ok(())
+        .and_then(|pending_transactions| {
+            let message = PendingTransactionMessage::Invalid {
+                transaction,
+                e: Box::new(BatcherError::Custom(err)) as Box<dyn std::error::Error + Send>,
+            };
+            pending_transactions.cast(message).typecast().log_err(|e| {
+                PendingTransactionError::Custom(format!(
+                    "failed to cast invalid transaction message to PendingTransactionActor: {e:?}"
+                ))
+            })
+        });
     }
 
-    async fn handle_next_batch_request(batcher: Arc<Mutex<Batcher>>) -> Result<(), BatcherError> {
+    async fn handle_next_batch_request(
+        batcher: Arc<Mutex<Batcher>>,
+        tikv_client: TikvClient,
+    ) -> Result<(), BatcherError> {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
             if !guard.parent.empty() {
                 log::info!("found next batch: {:?}", guard.parent);
-                let da_client: ActorRef<DaClientMessage> =
-                    ractor::registry::where_is(ActorType::DaClient.to_string())
-                        .ok_or(BatcherError::Custom(
-                            "unable to acquire DA Actor".to_string(),
-                        ))?
-                        .into();
 
-                let (tx, rx) = oneshot();
-                log::info!("Sending message to DA Client to store batch");
-                let message = DaClientMessage::StoreBatch {
-                    batch: guard.parent.encode_batch()?,
-                    tx,
-                };
-                da_client
-                    .cast(message)
-                    .map_err(|e| BatcherError::Custom(e.to_string()))?;
-                let handler = |resp: Result<BlobResponse, std::io::Error>| match resp {
-                    Ok(r) => Ok(r),
-                    Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>),
-                };
+                if let Some(batch) = guard.parent.to_owned().into() {
+                    let account_map = &guard.parent.accounts;
+                    log::info!("{account_map:?}");
+                    // let transaction_map = &guard.parent.transactions;
 
-                let blob_response = handle_actor_response(rx, handler)
-                    .await
-                    .map_err(|e| BatcherError::Custom(e.to_string()))?;
+                    for (addr, account) in account_map.iter() {
+                        let data = account.clone();
+                        //note: this can be serialized as well need be.
+                        //TiKV will accept any key if of type String, OR Vec<u8>
+                        let acc_val = AccountValue { account: data };
+                        // Serialize `Account` data to be stored.
+                        if let Some(val) = bincode::serialize(&acc_val).ok() {
+                            if tikv_client.put(addr.clone(), val).await.is_ok() {
+                                log::warn!(
+                                    "Inserted Account with address of {addr:?} to persistence layer",
+                                )
+                            } else {
+                                log::error!("failed to push Account data to persistence store")
+                            }
+                        } else {
+                            log::error!("failed to serialize account data")
+                        }
+                    }
 
-                log::info!(
-                    "Batcher received blob response: RequestId: {}",
-                    &blob_response.request_id()
-                );
-                let parent = guard.parent.clone();
-                guard.cache.insert(blob_response.request_id(), parent);
+                    // while let Some(transaction) = transaction_map.iter().next() {
+                    //     let data = transaction.1.clone();
+                    //     if let Some(txn_sig) = data.sig().ok() {
+                    //         log::info!("Recoverable signature obtained.");
 
-                if let Some(child) = guard.children.pop_front() {
-                    guard.parent = child;
-                    return Ok(());
+                    //         // note: this can be serialized as well need be
+                    //         let txn_key = txn_sig.to_vec();
+
+                    //         let txn_val = TransactionValue { transaction: data };
+
+                    //         // Serialize `Transaction` data to be stored.
+                    //         if let Some(val) = bincode::serialize(&txn_val).ok() {
+                    //             if let Ok(txn_key) = client.put(txn_key, val).await {
+                    //                 log::info!("Inserted Txn with signature: {:?}", txn_key)
+                    //             } else {
+                    //                 log::error!("failed to push Txn data to persistence store.")
+                    //             }
+                    //         } else {
+                    //             log::error!("failed to serialize txn data")
+                    //         }
+                    //     } else {
+                    //         log::error!("failed to obtain recoverable signature")
+                    //     }
+                    // }
                 }
 
-                guard.parent = Batch::new();
+                if let Some(da_client) =
+                    get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
+                {
+                    let (tx, rx) = oneshot();
+                    log::info!("Sending message to DA Client to store batch");
+                    let message = DaClientMessage::StoreBatch {
+                        batch: guard
+                            .parent
+                            .encode_batch()
+                            .ok_or(BatcherError::Custom("failed to encode batch".to_string()))?,
+                        tx,
+                    };
+                    da_client
+                        .cast(message)
+                        .typecast()
+                        .log_err(|e| BatcherError::Custom(e.to_string()));
+                    let handler = |resp: Result<BlobResponse, std::io::Error>| match resp {
+                        Ok(r) => Ok(r),
+                        Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>),
+                    };
 
-                Some(blob_response)
+                    let blob_response = handle_actor_response(rx, handler)
+                        .await
+                        .map_err(|e| BatcherError::Custom(e.to_string()))?;
+
+                    log::info!(
+                        "Batcher received blob response: RequestId: {}",
+                        &blob_response.request_id()
+                    );
+                    let parent = guard.parent.clone();
+                    guard.cache.insert(blob_response.request_id(), parent);
+
+                    if let Some(child) = guard.children.pop_front() {
+                        guard.parent = child;
+                        return Ok(());
+                    }
+
+                    guard.parent = Batch::new();
+
+                    Some(blob_response)
+                } else {
+                    None
+                }
             } else {
                 None
             }
         } {
-            Batcher::request_blob_validation(batcher, blob_response.request_id()).await?;
+            Batcher::request_blob_validation(batcher, blob_response.request_id()).await;
             return Ok(());
         }
 
@@ -1677,22 +1815,18 @@ impl Batcher {
         Ok(())
     }
 
-    async fn request_blob_validation(
-        batcher: Arc<Mutex<Batcher>>,
-        request_id: String,
-    ) -> Result<(), BatcherError> {
+    async fn request_blob_validation(batcher: Arc<Mutex<Batcher>>, request_id: String) {
         let (tx, rx) = oneshot();
-        let guard = batcher.lock().await;
-        guard.receiver_thread_tx.send(rx).await;
-        let da_actor: ActorRef<DaClientMessage> =
-            ractor::registry::where_is(ActorType::DaClient.to_string())
-                .ok_or(BatcherError::Custom(
-                    "unable to acquire da client actor ref".to_string(),
-                ))?
-                .into();
-        da_actor
-            .cast(DaClientMessage::ValidateBlob { request_id, tx })
-            .map_err(|e| BatcherError::Custom(e.to_string()))
+        {
+            let guard = batcher.lock().await;
+            guard.receiver_thread_tx.send(rx).await;
+        }
+        if let Some(da_actor) = get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
+        {
+            if let Err(err) = da_actor.cast(DaClientMessage::ValidateBlob { request_id, tx }) {
+                log::error!("failed to cast blob validation message for DaClientActor: {err:?}");
+            }
+        }
     }
 
     pub(super) async fn handle_blob_verification_proof(
@@ -1702,46 +1836,44 @@ impl Batcher {
     ) -> Result<(), BatcherError> {
         log::info!("received blob verification proof");
 
-        let eo_client: ActorRef<EoMessage> =
-            ractor::registry::where_is(ActorType::EoClient.to_string())
-                .ok_or(BatcherError::Custom(
-                    "unable to acquire eo client actor ref".to_string(),
-                ))?
-                .into();
+        if let Some(eo_client) = get_actor_ref::<EoMessage, EoClientError>(ActorType::EoClient) {
+            let accounts: HashSet<String> = {
+                let guard = batcher.lock().await;
+                guard
+                    .cache
+                    .get(&request_id)
+                    .ok_or(BatcherError::Custom("request id not in cache".to_string()))?
+                    .accounts
+                    .keys()
+                    .cloned()
+                    .collect()
+            };
 
-        let accounts: HashSet<String> = {
-            let guard = batcher.lock().await;
-            guard
-                .cache
-                .get(&request_id)
-                .ok_or(BatcherError::Custom("request id not in cache".to_string()))?
-                .accounts
-                .keys()
-                .cloned()
-                .collect()
-        };
+            base64::decode(proof.batch_metadata().batch_header_hash().to_string())
+                .typecast()
+                .log_err(|e| {
+                    BatcherError::Custom("unable to decode batch_header_hash()".to_string())
+                })
+                .and_then(|decoded| {
+                    let mut bytes = [0u8; 32];
+                    bytes.copy_from_slice(&decoded);
 
-        let decoded = base64::decode(proof.batch_metadata().batch_header_hash().to_string())
-            .map_err(|e| {
-                BatcherError::Custom("unable to decode batch_header_hash()".to_string())
-            })?;
+                    let batch_header_hash = H256(bytes);
 
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&decoded);
+                    let blob_index = proof.blob_index();
 
-        let batch_header_hash = H256(bytes);
+                    let message = EoMessage::Settle {
+                        accounts,
+                        batch_header_hash,
+                        blob_index,
+                    };
 
-        let blob_index = proof.blob_index();
-
-        let message = EoMessage::Settle {
-            accounts,
-            batch_header_hash,
-            blob_index,
-        };
-
-        let res = eo_client.cast(message);
-        if let Err(e) = res {
-            log::error!("{}", e);
+                    eo_client.cast(message).typecast().log_err(|e| {
+                        EoClientError::Custom(format!(
+                            "failed to cast settle message to EoClientActor: {e:?}"
+                        ))
+                    })
+                });
         }
 
         Ok(())
@@ -1770,10 +1902,10 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         let batcher_ptr = Arc::clone(state);
         match message {
-            BatcherMessage::GetNextBatch => {
-                let fut = Batcher::handle_next_batch_request(batcher_ptr);
-                let mut guard = self.future_pool.lock().await;
-                guard.push(fut.boxed());
+            BatcherMessage::GetNextBatch { tikv_client } => {
+                Batcher::handle_next_batch_request(batcher_ptr, tikv_client).await?;
+                // let mut guard = self.future_pool.lock().await;
+                // guard.push(fut.boxed());
             }
             BatcherMessage::AppendTransaction {
                 transaction,
@@ -1819,6 +1951,7 @@ impl Actor for BatcherActor {
         Ok(())
     }
 }
+
 impl ActorExt for BatcherActor {
     type Output = Result<(), BatcherError>;
     type Future<O> = StaticFuture<Self::Output>;
@@ -1840,10 +1973,7 @@ impl ActorExt for BatcherActor {
                         if let Some(Err(err)) = guard.next().await {
                             log::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
-                                if let Err(err) = Batcher::handle_transaction_error(*txn, msg).await
-                                {
-                                    log::error!("{err:?}");
-                                }
+                                Batcher::handle_transaction_error(msg, *txn)
                             }
                         }
                     })
@@ -1853,43 +1983,113 @@ impl ActorExt for BatcherActor {
     }
 }
 
-pub async fn batch_requestor(
-    mut stopper: tokio::sync::mpsc::Receiver<u8>,
-) -> Result<(), Box<dyn std::error::Error + Send>> {
-    let batcher: ActorRef<BatcherMessage> =
-        ractor::registry::where_is(ActorType::Batcher.to_string())
-            .unwrap()
-            .into();
+pub struct BatcherSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl BatcherSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for BatcherSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Batcher.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum BatcherSupervisorError {
+    #[default]
+    #[error("failed to acquire BatcherSupervisor from registry")]
+    RactorRegistryError,
+}
 
-    let batch_interval_secs = std::env::var("BATCH_INTERVAL")
-        .unwrap_or_else(|_| "180".to_string())
-        .parse::<u64>()
-        .unwrap_or(180);
-    loop {
-        log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
-        tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
-        let message = BatcherMessage::GetNextBatch;
-        log::warn!("requesting next batch");
-        batcher.cast(message).map_err(|e| {
-            Box::new(BatcherError::Custom(e.to_string())) as Box<dyn std::error::Error + Send>
-        });
+#[async_trait]
+impl Actor for BatcherSupervisor {
+    type Msg = BatcherMessage;
+    type State = ();
+    type Arguments = ();
 
-        if let Ok(1) = &stopper.try_recv() {
-            log::error!("breaking the batch requestor loop");
-            break;
-        }
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
     }
 
-    Ok(())
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
+        Ok(())
+    }
+}
+
+pub async fn batch_requestor(
+    mut stopper: tokio::sync::mpsc::Receiver<u8>,
+    tikv_client: TikvClient,
+) {
+    if let Some(batcher) = ractor::registry::where_is(ActorType::Batcher.to_string()) {
+        let batcher: ActorRef<BatcherMessage> = batcher.into();
+        let batch_interval_secs = std::env::var("BATCH_INTERVAL")
+            .unwrap_or_else(|_| "180".to_string())
+            .parse::<u64>()
+            .unwrap_or(180);
+        loop {
+            log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
+            tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
+            let message = BatcherMessage::GetNextBatch {
+                tikv_client: tikv_client.clone(),
+            };
+            log::warn!("requesting next batch");
+            if let Err(err) = batcher.cast(message) {
+                log::error!("Batcher Error: failed to cast GetNextBatch message to the BatcherActor during batch_requestor routine: {err:?}");
+            }
+
+            if let Ok(1) = &stopper.try_recv() {
+                log::error!("breaking the batch requestor loop");
+                break;
+            }
+        }
+    } else {
+        log::error!("unable to acquire BatcherActor during batch_requestor routine");
+    }
 }
 
 #[cfg(test)]
 mod batcher_tests {
     use crate::batcher::{ActorExt, Batcher, BatcherActor, BatcherMessage};
     use anyhow::Result;
+    use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
     use lasr_types::TransactionType;
     use std::sync::Arc;
+    use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
 
     /// Minimal reproduction of the `ractor::Actor` trait for testing the `handle`
@@ -1906,8 +2106,8 @@ mod batcher_tests {
         async fn handle(&self, message: Self::Msg, state: &mut Self::State) -> Result<()> {
             let batcher_ptr = Arc::clone(state);
             match message {
-                BatcherMessage::GetNextBatch => {
-                    let fut = Batcher::handle_next_batch_request(batcher_ptr);
+                BatcherMessage::GetNextBatch { tikv_client } => {
+                    let fut = Batcher::handle_next_batch_request(batcher_ptr, tikv_client);
                     let mut guard = self.future_pool.lock().await;
                     guard.push(fut.boxed());
                 }
@@ -1964,9 +2164,17 @@ mod batcher_tests {
         let batcher_actor = BatcherActor::new();
         let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
         let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
+        let bv_proof = BlobVerificationProof::default();
+        let request = "test".to_string();
 
         batcher_actor
-            .handle(BatcherMessage::GetNextBatch, &mut batcher)
+            .handle(
+                BatcherMessage::BlobVerificationProof {
+                    request_id: request,
+                    proof: bv_proof,
+                },
+                &mut batcher,
+            )
             .await
             .unwrap();
         // TODO: Add other handle methods to test interactions

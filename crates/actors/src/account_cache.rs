@@ -1,44 +1,72 @@
-use crate::MAX_BATCH_SIZE;
+use crate::{helpers::Coerce, process_group_changed, AccountValue, MAX_BATCH_SIZE};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
-use lasr_messages::{AccountCacheMessage, RpcMessage, RpcResponseError, TransactionResponse};
+use lasr_messages::{
+    AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
+    TransactionResponse,
+};
 use lasr_types::{Account, AccountType, Address};
-use ractor::{concurrency::OneshotReceiver, Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{
+    concurrency::OneshotReceiver, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
+};
 use std::{
     collections::HashMap,
-    fmt::Display,
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tikv_client::RawClient as TikvClient;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
 
-#[derive(Debug, Clone, Error)]
-pub struct AccountCacheError;
-
-impl Display for AccountCacheError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+impl ActorName for AccountCacheActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::AccountCache.to_string()
     }
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum AccountCacheError {
+    #[error("failed to acquire AccountCacheActor from registry")]
+    RactorRegistryError,
+
+    #[error("failed to acquire account data from cache for address {}", addr.to_full_string())]
+    FailedAccountAcquisition { addr: Address },
+
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl Default for AccountCacheError {
     fn default() -> Self {
-        AccountCacheError
+        AccountCacheError::RactorRegistryError
+    }
+}
+
+pub struct AccountCache {
+    inner: AccountCacheInner,
+    tikv_client: TikvClient,
+}
+impl AccountCache {
+    pub fn new(tikv_client: TikvClient) -> Self {
+        Self {
+            inner: AccountCacheInner::new(),
+            tikv_client,
+        }
     }
 }
 
 #[allow(unused)]
 #[derive(Debug, Default)]
-pub struct AccountCache {
+pub struct AccountCacheInner {
     cache: HashMap<Address, Account>,
     receivers: FuturesUnordered<OneshotReceiver<Address>>,
     batch_interval: Duration,
     last_batch: Option<Instant>,
 }
 
-impl AccountCache {
+impl AccountCacheInner {
     pub fn new() -> Self {
         let batch_interval_secs = std::env::var("BATCH_INTERVAL")
             .unwrap_or_else(|_| "180".to_string())
@@ -71,12 +99,16 @@ impl AccountCache {
         &mut self,
         account: Account,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        if let Some(a) = self.cache.get_mut(&account.owner_address()) {
+        let addr = account.owner_address();
+        if let Some(a) = self.cache.get_mut(&addr) {
             *a = account;
             return Ok(());
         }
 
-        Err(Box::new(AccountCacheError) as Box<dyn std::error::Error + Send>)
+        Err(
+            Box::new(AccountCacheError::FailedAccountAcquisition { addr })
+                as Box<dyn std::error::Error + Send>,
+        )
     }
 
     pub(crate) fn handle_cache_write(
@@ -161,14 +193,14 @@ impl AccountCacheActor {
 impl Actor for AccountCacheActor {
     type Msg = AccountCacheMessage;
     type State = AccountCache;
-    type Arguments = ();
+    type Arguments = TikvClient;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _: (),
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        Ok(AccountCache::new())
+        Ok(AccountCache::new(args))
     }
 
     async fn handle(
@@ -178,43 +210,77 @@ impl Actor for AccountCacheActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            AccountCacheMessage::Write { account } => {
-                log::info!(
-                    "Received account cache write request: 0x{:x}",
-                    &account.owner_address()
+            AccountCacheMessage::Write {
+                account,
+                who,
+                location,
+            } => {
+                let owner = &account.owner_address().to_full_string();
+                log::warn!(
+                    "Received account cache write request from {} for address {}: WHERE: {}",
+                    who.to_string(),
+                    owner,
+                    location
                 );
-                let _ = state.handle_cache_write(account.clone());
-                log::info!("Account: {:?}", &account);
+                let _ = state.inner.handle_cache_write(account.clone());
+                log::info!("Account written to for address {owner}: {:?}", &account);
             }
-            AccountCacheMessage::Read { address, tx } => {
-                log::info!(
-                    "Recieved account cache read request for account: {:?}",
-                    &address
+            AccountCacheMessage::Read { address, tx, who } => {
+                let hex_address = &address.to_full_string();
+                log::warn!(
+                    "Recieved account cache read request from {} for address: {}",
+                    who.to_string(),
+                    hex_address
                 );
-                let account = state.get(&address);
-                log::info!("acquired account option: {:?}", &account);
-                let _ = tx.send(account.cloned());
+                let account = if let Some(account) = state.inner.get(&address) {
+                    log::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
+                    Some(account.clone())
+                } else {
+                    // Pass to persistence store
+                    log::warn!(
+                        "Account not found in AccountCache for address {hex_address}, connecting to persistence store."
+                    );
+                    let acc_key = address.to_full_string();
+
+                    // Pull `Account` data from persistence store
+                    state
+                    .tikv_client
+                    .get(acc_key.to_owned())
+                    .await
+                    .typecast()
+                    .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {hex_address} in persistence store: {e:?}")))
+                    .flatten()
+                    .and_then(|returned_data| {
+                        bincode::deserialize(&returned_data)
+                            .typecast()
+                            .log_err(|e| e)
+                            .and_then(|AccountValue { account }| {
+                                log::warn!("retrieved account from persistence store for address {hex_address}: {account:?}");
+                                Some(account)
+                            })
+                    })
+                };
+                let _ = tx.send(account);
             }
             AccountCacheMessage::Remove { address } => {
-                let _ = state.remove(&address);
+                let _ = state.inner.remove(&address);
             }
             AccountCacheMessage::Update { account } => {
-                if let Err(_e) = state.update(account.clone()) {
-                    let _ = state.handle_cache_write(account.clone());
+                if let Err(_e) = state.inner.update(account.clone()) {
+                    let _ = state.inner.handle_cache_write(account.clone());
                 }
             }
             AccountCacheMessage::TryGetAccount { address, reply } => {
-                if let Some(account) = state.get(&address) {
+                if let Some(account) = state.inner.get(&address) {
                     let _ = reply.send(RpcMessage::Response {
                         response: Ok(TransactionResponse::GetAccountResponse(account.clone())),
                         reply: None,
                     });
                 } else {
-                    // Pass along to EO
-                    // EO passes along to DA if Account Blob discovered
                     let response = Err(RpcResponseError {
-                        description: "Unable to acquire account from DA or Protocol Cache"
-                            .to_string(),
+                        description:
+                            "Unable to acquire account from Persistence Store or Protocol Cache"
+                                .to_string(),
                     });
                     let _ = reply.send(RpcMessage::Response {
                         response,
@@ -227,7 +293,25 @@ impl Actor for AccountCacheActor {
     }
 }
 
-pub struct AccountCacheSupervisor;
+pub struct AccountCacheSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl AccountCacheSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for AccountCacheSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::AccountCache.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum AccountCacheSupervisorError {
+    #[default]
+    #[error("failed to acquire AccountCacheSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for AccountCacheSupervisor {
@@ -240,7 +324,6 @@ impl Actor for AccountCacheSupervisor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Da Client running prestart routine");
         Ok(())
     }
 
@@ -261,6 +344,7 @@ impl Actor for AccountCacheSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
@@ -269,7 +353,7 @@ impl Actor for AccountCacheSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

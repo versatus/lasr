@@ -1,4 +1,6 @@
-use crate::{get_account, ActorExt, StaticFuture, UnorderedFuturePool};
+use crate::{
+    get_account, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+};
 use async_trait::async_trait;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures::FutureExt;
@@ -9,16 +11,17 @@ use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
 #[cfg(feature = "local")]
 use lasr_compute::OciManager;
 use lasr_contract::create_program_id;
-use lasr_messages::BatcherMessage;
+use lasr_messages::{ActorName, BatcherMessage, SupervisorType};
 use lasr_messages::{
     ActorType, EngineMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
 };
 use lasr_types::{Inputs, ProgramSchema, Required, Transaction};
-use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use ractor::{Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "remote")]
 use std::time::Duration;
 use std::{collections::HashMap, path::Path, sync::Arc};
+use thiserror::Error;
 #[cfg(feature = "remote")]
 use tokio::sync::mpsc::Receiver;
 use tokio::{
@@ -193,7 +196,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         op: String,
         inputs: String,
     ) -> std::io::Result<Inputs> {
-        if let Some(program_account) = get_account(transaction.to()).await {
+        if let Some(program_account) = get_account(transaction.to(), ActorType::Executor).await {
             Ok(Inputs {
                 version: 1,
                 account_info: program_account.clone(),
@@ -262,6 +265,11 @@ impl<C: ClientT> ExecutionEngine<C> {
 #[derive(Clone)]
 pub struct ExecutorActor {
     future_pool: UnorderedFuturePool<StaticFuture<()>>,
+}
+impl ActorName for ExecutorActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Executor.to_string()
+    }
 }
 
 impl ExecutorActor {
@@ -483,7 +491,7 @@ impl ExecutorActor {
         let inputs = transaction.inputs();
         let transaction_hash = transaction.hash_string();
 
-        match get_account(program_id).await {
+        match get_account(program_id, ActorType::Executor).await {
             Some(_) => {
                 let state = engine.lock().await;
                 match state
@@ -540,7 +548,7 @@ impl ExecutorActor {
         let inputs = transaction.inputs();
         let transaction_hash = transaction.hash_string();
 
-        match get_account(program_id).await {
+        match get_account(program_id, ActorType::Executor).await {
             Some(account) => {
                 let content_id = account
                     .program_account_metadata()
@@ -816,7 +824,7 @@ impl Actor for ExecutorActor {
                     op: transaction.op(),
                     inputs: transaction.inputs(),
                 };
-                if let Some(account) = get_account(transaction.to()).await {
+                if let Some(account) = get_account(transaction.to(), ActorType::Executor).await {
                     let metadata = account.program_account_metadata();
                     if let Some(cid) = metadata.inner().get("content_id") {
                         log::info!("found cid, converting inputs to json");
@@ -951,7 +959,25 @@ impl ActorExt for ExecutorActor {
     }
 }
 
-pub struct ExecutorSupervisor;
+pub struct ExecutorSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl ExecutorSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for ExecutorSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Executor.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum ExecutorSupervisorError {
+    #[default]
+    #[error("failed to acquire ExecutorSupervisor from registry")]
+    RactorRegistryError,
+}
 
 #[async_trait]
 impl Actor for ExecutorSupervisor {
@@ -985,6 +1011,7 @@ impl Actor for ExecutorSupervisor {
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
                 log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
                 log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
@@ -993,7 +1020,7 @@ impl Actor for ExecutorSupervisor {
                 log::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
-                log::warn!("process group changed: {:?}", m.get_group());
+                process_group_changed(m);
             }
         }
         Ok(())

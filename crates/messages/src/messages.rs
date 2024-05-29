@@ -1,4 +1,4 @@
-use crate::RpcRequestMethod;
+use crate::{ActorType, RpcRequestMethod};
 use derive_builder::Builder;
 use eigenda_client::batch::BatchHeaderHash;
 use eigenda_client::proof::BlobVerificationProof;
@@ -12,6 +12,7 @@ use ractor::RpcReplyPort;
 use ractor_cluster::RactorMessage;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
+use tikv_client::RawClient as TikvClient;
 use web3::ethabi::{Address as EthereumAddress, FixedBytes};
 use web3::types::TransactionReceipt;
 
@@ -275,16 +276,6 @@ pub enum EoMessage {
         batch_header_hash: H256,
         blob_index: u128,
     },
-    GetAccountBlobIndex {
-        address: Address,
-        sender: OneshotSender<EoMessage>,
-    },
-    GetAccountBalance {
-        program_id: Address,
-        address: Address,
-        sender: OneshotSender<EoMessage>,
-        token_type: u8,
-    },
     GetContractBlobIndex {
         program_id: Address,
         sender: OneshotSender<EoMessage>,
@@ -382,10 +373,13 @@ pub enum DaClientMessage {
 pub enum AccountCacheMessage {
     Write {
         account: Account,
+        who: ActorType,
+        location: String,
     },
     Read {
         address: Address,
         tx: OneshotSender<Option<Account>>,
+        who: ActorType,
     },
     Remove {
         address: Address,
@@ -447,13 +441,15 @@ pub enum PendingTransactionMessage {
     CleanGraph,
 }
 
-#[derive(Debug, RactorMessage)]
+#[derive(RactorMessage)]
 pub enum BatcherMessage {
     AppendTransaction {
         transaction: Transaction,
         outputs: Option<Outputs>,
     },
-    GetNextBatch,
+    GetNextBatch {
+        tikv_client: TikvClient,
+    },
     BlobVerificationProof {
         request_id: String,
         proof: BlobVerificationProof,

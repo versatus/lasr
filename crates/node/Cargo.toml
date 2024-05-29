@@ -14,7 +14,14 @@ remote = []
 name = "lasr_node"
 path = "src/main.rs"
 
+[[example]]
+name = "tikv_example"
+path = "examples/tikv_account_example.rs"
+
 [dependencies]
+bincode = "1.3.3"
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = "1.0.108"
 secp256k1 = { version = "0.28.0", features = [
   "serde",
   "recovery",
@@ -23,11 +30,12 @@ secp256k1 = { version = "0.28.0", features = [
   "hashes",
 ] }
 web3 = { version = "0.19.0" }
+tikv-client = "0.3.0"
 tokio = { version = "1.34.0", features = ["full"] }
 tokio-stream = "0.1.14"
 tokio-rayon = "2.1.0"
 num_cpus = "1.16.0"
-jsonrpsee = { version = "0.16.2", features = [
+jsonrpsee = { version = "0.22.5", features = [
   "macros",
   "client-core",
   "server-core",
@@ -48,7 +56,6 @@ lasr_actors = { path = "../actors", features = ["local"] }
 lasr_compute = { path = "../compute", features = ["local"] }
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
-lasr_clients = { path = "../clients", features = ["local"] }
 lasr_rpc = { path = "../rpc" }
 
 [dev-dependencies]

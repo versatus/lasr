@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    check_account_cache, check_da_for_account, create_handler, handle_actor_response, ActorExt,
-    StaticFuture, UnorderedFuturePool,
+    check_account_cache, create_handler, handle_actor_response, process_group_changed, ActorExt,
+    Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eigenda_client::payload::EigenDaBlobPayload;
@@ -17,18 +17,19 @@ use futures::{
 };
 use lasr_contract::create_program_id;
 use lasr_messages::{
-    AccountCacheMessage, ActorType, BridgeEvent, DaClientMessage, EngineMessage, EoEvent,
-    EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage, ValidatorMessage,
+    AccountCacheMessage, ActorName, ActorType, BridgeEvent, DaClientMessage, EngineMessage,
+    EoEvent, EoMessage, ExecutorMessage, PendingTransactionMessage, SchedulerMessage,
+    SupervisorType, ValidatorMessage,
 };
 use ractor::{
     concurrency::{oneshot, OneshotReceiver, OneshotSender},
-    Actor, ActorProcessingErr, ActorRef,
+    Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use thiserror::Error;
 
-use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
+use jsonrpsee::{tracing::trace_span, types::ErrorObjectOwned as RpcError};
 use lasr_types::{
     Account, AccountType, Address, AddressOrNamespace, ArbitraryData, Metadata, Outputs,
     RecoverableSignature, Status, Token, TokenBuilder, Transaction, TransactionBuilder,
@@ -39,6 +40,11 @@ use tokio::sync::{mpsc::Sender, Mutex};
 #[derive(Clone, Debug, Default)]
 pub struct EngineActor {
     future_pool: UnorderedFuturePool<StaticFuture<Result<(), EngineError>>>,
+}
+impl ActorName for EngineActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::Engine.to_string()
+    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -64,16 +70,8 @@ impl EngineActor {
             if let Ok(Some(account)) = self.check_cache(address).await {
                 return account;
             }
-
-            if let Ok(mut account) = self.get_account_from_da(address).await {
-                return account;
-            }
         } else {
             if let Ok(Some(account)) = self.check_cache(address).await {
-                return account;
-            }
-
-            if let Ok(mut account) = self.get_account_from_da(address).await {
                 return account;
             }
         }
@@ -83,10 +81,6 @@ impl EngineActor {
 
     async fn get_caller_account(&self, address: &Address) -> Result<Account, EngineError> {
         if let Ok(Some(account)) = self.check_cache(address).await {
-            return Ok(account);
-        }
-
-        if let Ok(mut account) = self.get_account_from_da(address).await {
             return Ok(account);
         }
 
@@ -100,10 +94,6 @@ impl EngineActor {
             if let Ok(Some(account)) = self.check_cache(&program_address).await {
                 return Ok(account);
             }
-
-            if let Ok(mut account) = self.get_account_from_da(&program_address).await {
-                return Ok(account);
-            }
         }
 
         Err(EngineError::Custom(
@@ -111,13 +101,20 @@ impl EngineActor {
         ))
     }
 
-    async fn write_to_cache(account: Account) -> Result<(), EngineError> {
-        let message = AccountCacheMessage::Write { account };
-        let cache_actor = ractor::registry::where_is(ActorType::AccountCache.to_string()).ok_or(
-            EngineError::Custom("unable to find AccountCacheActor in registry".to_string()),
-        )?;
-        cache_actor.send_message(message);
-        Ok(())
+    fn write_to_cache(account: Account, location: String) {
+        let owner = account.owner_address();
+        let message = AccountCacheMessage::Write {
+            account,
+            who: ActorType::Engine,
+            location,
+        };
+        if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
+            if let Err(e) = cache_actor.send_message(message) {
+                log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
+            }
+        } else {
+            log::error!("unable to find AccountCacheActor in registry");
+        }
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
@@ -125,7 +122,7 @@ impl EngineActor {
             "checking account cache for account: {} from engine",
             &address.to_full_string()
         );
-        Ok(check_account_cache(*address).await)
+        Ok(check_account_cache(*address, ActorType::Engine).await)
     }
 
     async fn handle_cache_response(
@@ -142,55 +139,12 @@ impl EngineActor {
                         return Ok(None)
                     }
                     Err(e) => {
-                        log::error!("{}", e);
+                        log::error!("{e:?}");
                     },
                 }
             }
         }
         Ok(None)
-    }
-
-    async fn request_blob_index(
-        &self,
-        account: &Address,
-    ) -> Result<
-        (
-            Address,              /*user*/
-            ethereum_types::H256, /* batchHeaderHash*/
-            u128,                 /*blobIndex*/
-        ),
-        EngineError,
-    > {
-        let (tx, rx) = oneshot();
-        let message = EoMessage::GetAccountBlobIndex {
-            address: *account,
-            sender: tx,
-        };
-        let actor: ActorRef<EoMessage> =
-            ractor::registry::where_is(ActorType::EoServer.to_string())
-                .ok_or(EngineError::Custom(
-                    "unable to acquire EO Server Actor".to_string(),
-                ))?
-                .into();
-
-        actor
-            .cast(message)
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-        let handler = create_handler!(retrieve_blob_index);
-        let blob_response = handle_actor_response(rx, handler)
-            .await
-            .map_err(|e| EngineError::Custom(e.to_string()))?;
-
-        Ok(blob_response)
-    }
-
-    async fn get_account_from_da(&self, address: &Address) -> Result<Account, EngineError> {
-        check_da_for_account(*address)
-            .await
-            .ok_or(EngineError::Custom(format!(
-                "unable to find account 0x{:x}",
-                address
-            )))
     }
 
     async fn set_pending_transaction(
@@ -460,7 +414,7 @@ impl Actor for EngineActor {
                 guard.push(fut.boxed());
             }
             EngineMessage::Cache { account, .. } => {
-                EngineActor::write_to_cache(account);
+                EngineActor::write_to_cache(account, "EngineMessage::Cache".to_string())
             }
             EngineMessage::Call { transaction } => {
                 let fut = EngineActor::handle_call(transaction);
@@ -524,6 +478,73 @@ impl ActorExt for EngineActor {
                     .await;
             }
         })
+    }
+}
+
+pub struct EngineSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl EngineSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for EngineSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::Engine.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum EngineSupervisorError {
+    #[default]
+    #[error("failed to acquire EngineSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for EngineSupervisor {
+    type Msg = EngineMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
+        Ok(())
     }
 }
 

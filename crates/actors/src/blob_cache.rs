@@ -2,17 +2,22 @@ use async_trait::async_trait;
 use eigenda_client::proof::BlobVerificationProof;
 use eigenda_client::response::BlobResponse;
 use futures::stream::FuturesUnordered;
+use lasr_messages::{ActorName, SupervisorType};
 use lasr_messages::{ActorType, BlobCacheMessage, DaClientMessage};
 use lasr_types::{Address, Transaction};
-use ractor::Actor;
 use ractor::ActorRef;
+use ractor::SupervisionEvent;
 use ractor::{
     concurrency::{oneshot, OneshotReceiver},
     ActorProcessingErr,
 };
+use ractor::{Actor, ActorCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use thiserror::Error;
+use tokio::sync::mpsc::Sender;
+
+use crate::{process_group_changed, Coerce};
 
 #[derive(Debug, Default)]
 pub struct PendingBlobCache {
@@ -84,6 +89,11 @@ impl BlobCacheActor {
         Self
     }
 }
+impl ActorName for BlobCacheActor {
+    fn name(&self) -> ractor::ActorName {
+        ActorType::BlobCache.to_string()
+    }
+}
 
 #[async_trait]
 impl Actor for BlobCacheActor {
@@ -105,6 +115,73 @@ impl Actor for BlobCacheActor {
         _message: Self::Msg,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        Ok(())
+    }
+}
+
+pub struct BlobCacheSupervisor {
+    panic_tx: Sender<ActorCell>,
+}
+impl BlobCacheSupervisor {
+    pub fn new(panic_tx: Sender<ActorCell>) -> Self {
+        Self { panic_tx }
+    }
+}
+impl ActorName for BlobCacheSupervisor {
+    fn name(&self) -> ractor::ActorName {
+        SupervisorType::BlobCache.to_string()
+    }
+}
+#[derive(Debug, Error, Default)]
+pub enum BlobCacheSupervisorError {
+    #[default]
+    #[error("failed to acquire BlobCacheSupervisor from registry")]
+    RactorRegistryError,
+}
+
+#[async_trait]
+impl Actor for BlobCacheSupervisor {
+    type Msg = BlobCacheMessage;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        Ok(())
+    }
+
+    async fn handle_supervisor_evt(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: SupervisionEvent,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        log::warn!("Received a supervision event: {:?}", message);
+        match message {
+            SupervisionEvent::ActorStarted(actor) => {
+                log::info!(
+                    "actor started: {:?}, status: {:?}",
+                    actor.get_name(),
+                    actor.get_status()
+                );
+            }
+            SupervisionEvent::ActorPanicked(who, reason) => {
+                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                self.panic_tx.send(who).await.typecast().log_err(|e| e);
+            }
+            SupervisionEvent::ActorTerminated(who, _, reason) => {
+                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+            }
+            SupervisionEvent::PidLifecycleEvent(event) => {
+                log::info!("pid lifecycle event: {:?}", event);
+            }
+            SupervisionEvent::ProcessGroupChanged(m) => {
+                process_group_changed(m);
+            }
+        }
         Ok(())
     }
 }
