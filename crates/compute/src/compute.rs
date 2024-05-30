@@ -363,9 +363,6 @@ impl OciManager {
             if tokio::fs::metadata(&temp_file_path).await.is_ok() {
                 // If it exists, make sure it is empty
                 tokio::fs::write(&temp_file_path, b"").await?;
-            } else {
-                // If it doesn't exist, create it
-                let _ = tokio::fs::File::create(&temp_file_path).await?;
             }
 
             // Create a standard file for stdout redirection
