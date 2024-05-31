@@ -351,6 +351,23 @@ impl OciManager {
             &container_id
         );
         Ok(tokio::spawn(async move {
+            // Create temp file for this container to output to
+            let temp_file_path = std::env::temp_dir().join(format!("lasr/{}.out", container_id));
+
+            // Create the temporary file for container output
+            if let Some(parent) = temp_file_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+
+            // Check if the file exists
+            if tokio::fs::metadata(&temp_file_path).await.is_ok() {
+                // If it exists, make sure it is empty
+                tokio::fs::write(&temp_file_path, b"").await?;
+            }
+
+            // Create a standard file for stdout redirection
+            let container_stdout_file = std::fs::File::create(&temp_file_path)?;
+
             let mut child = Command::new("runsc")
                 .arg("--rootless")
                 .arg("--network=none")
@@ -359,7 +376,7 @@ impl OciManager {
                 .arg(&container_path)
                 .arg(&container_id)
                 .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
+                .stdout(Stdio::from(container_stdout_file))
                 .spawn()?;
 
             let mut stdin = child.stdin.take().ok_or({
@@ -377,22 +394,23 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             })
             .await?;
+            let status = child.wait().await?;
+            if !status.success() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "runsc command failed",
+                ));
+            }
 
-            let stdout = child.stdout.take().ok_or(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "stdout returned None",
-            ))?;
-            let mut stdout_reader = BufReader::new(stdout);
-            let buffer_size = 1024;
-            let mut buffer = vec![0; buffer_size];
+            let mut file = tokio::fs::File::open(&temp_file_path).await?;
+            let mut outputs = String::new();
+            file.read_to_string(&mut outputs).await?;
 
-            let mut outputs: String = String::new();
-            while let Ok(bytes) = stdout_reader.read(&mut buffer).await {
-                if bytes == 0 {
-                    break;
-                }
-                let chunk = String::from_utf8_lossy(&buffer[..bytes]);
-                outputs.push_str(&chunk);
+            if outputs.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "temporary file is empty after container execution",
+                ));
             }
 
             log::warn!("result from container: {container_id} = {:#?}", outputs);
@@ -418,11 +436,14 @@ impl OciManager {
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
             log::warn!("casted message to inform executor");
+
+            // Clean up the temporary file
+            tokio::fs::remove_file(temp_file_path).await?;
+
             Ok::<_, std::io::Error>(outputs)
         }))
     }
 }
-
 #[derive(Builder, Clone, Debug)]
 pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
     containers: P,
