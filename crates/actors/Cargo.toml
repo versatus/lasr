@@ -11,12 +11,20 @@ local = []
 remote = []
 
 [dependencies]
-ethereum-types = "0.14.1"
-web3 = { version = "0.19.0" }
-tikv-client = "0.3.0"
-tokio = { version = "1.34.0", features = ["full"] }
-futures = "0.3.29"
+async-recursion = "1.0.5"
+async-std = { version = "1", features = ["attributes", "tokio1"] }
 async-trait = "0.1.74"
+base64 = "0.13"
+bincode = "1.3.3"
+chrono = "0.4.35"
+derive_builder = "0.12.0"
+eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
+eo_listener = { git = "https://github.com/versatus/eo_listener" }
+ethereum-types = "0.14.1"
+flate2 = "1.0.28"
+futures = "0.3.29"
+hex = "0.4.3"
+internal_rpc = { git = "https://github.com/versatus/versatus.git" }
 jsonrpsee = { version = "0.22.5", features = [
   "macros",
   "client-core",
@@ -25,34 +33,20 @@ jsonrpsee = { version = "0.22.5", features = [
   "http-client",
   "ws-client",
 ] }
-serde = { version = "1.0.192", features = ["derive"] }
-serde_json = "1.0.108"
-bincode = "1.3.3"
-derive_builder = "0.12.0"
-sha3 = "0.10.8"
-eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
-ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
-ractor_cluster_derive = "0.9.3"
-ractor_cluster = "0.9.3"
-thiserror = "1.0.50"
-rayon = "1.8.0"
-eo_listener = { git = "https://github.com/versatus/eo_listener" }
-log = "0.4.20"
-base64 = "0.13"
-flate2 = "1.0.28"
-async-recursion = "1.0.5"
-tokio-rayon = "2.1.0"
-num_cpus = "1.16.0"
-schemars = "0.8.16"
-chrono = "0.4.35"
-uuid = { version = "1.3", features = ["v4", "serde"] }
-internal_rpc = { git = "https://github.com/versatus/versatus.git" }
-lasr_types = { path = "../types" }
-lasr_rpc = { path = "../rpc" }
+kzgpad-rs = { git = "https://github.com/Layr-Labs/kzgpad-rs.git" }
 lasr_compute = { path = "../compute" }
 lasr_contract = { path = "../contract" }
 lasr_messages = { path = "../messages" }
-kzgpad-rs = { git = "https://github.com/Layr-Labs/kzgpad-rs.git" }
+lasr_rpc = { path = "../rpc" }
+lasr_types = { path = "../types" }
+log = "0.4.20"
+num_cpus = "1.16.0"
+ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
+ractor_cluster = "0.9.3"
+ractor_cluster_derive = "0.9.3"
+rayon = "1.8.0"
+rustc-hex = "2.1.0"
+schemars = "0.8.16"
 secp256k1 = { version = "0.28.0", features = [
   "serde",
   "recovery",
@@ -60,11 +54,16 @@ secp256k1 = { version = "0.28.0", features = [
   "rand",
   "hashes",
 ] }
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = "1.0.108"
+sha3 = "0.10.8"
+thiserror = "1.0.50"
+tikv-client = "0.3.0"
+tokio = { version = "1.34.0", features = ["full"] }
+tokio-rayon = "2.1.0"
 tokio-stream = "0.1.14"
-rustc-hex = "2.1.0"
-hex = "0.4.3"
-async-std = { version = "1", features = ["attributes", "tokio1"] }
-dotenv = "0.15.0"
+uuid = { version = "1.3", features = ["v4", "serde"] }
+web3 = { version = "0.19.0" }
 
 [dev-dependencies]
 anyhow = "1"
