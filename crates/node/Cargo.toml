@@ -57,6 +57,7 @@ lasr_compute = { path = "../compute", features = ["local"] }
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
 lasr_rpc = { path = "../rpc" }
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 simple_logger = "4.3.0"
