@@ -4,7 +4,9 @@ use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
-use lasr_actors::harvester_listener::{HarvesterListenerActor, HarvesterListenerSupervisor};
+use lasr_actors::harvester_listener::{
+    HarvesterListener, HarvesterListenerActor, HarvesterListenerSupervisor,
+};
 use lasr_actors::{
     graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
     ActorManager, ActorManagerBuilder, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
@@ -18,7 +20,7 @@ use lasr_actors::{
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
-use lasr_types::Address;
+use lasr_types::{Address, NodeType};
 use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
 use tikv_client::RawClient as TikvClient;
@@ -220,7 +222,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batcher = Arc::new(Mutex::new(Batcher::new(
         receivers_thread_tx,
         tikv_client.clone(),
+        NodeType::FarmerHarvester,
     )));
+    let harvester_listener = Arc::new(Mutex::new(HarvesterListener::new(Some(
+        tikv_client.clone(),
+    ))));
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
@@ -243,6 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .harvester_listener(
             harvester_listener_actor.clone(),
+            harvester_listener.clone(),
             harvester_listener_supervisor,
         )
         .await?
@@ -356,6 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 harvester_listener_actor.clone(),
+                                harvester_listener.clone(),
                             )
                             .await
                             .typecast()

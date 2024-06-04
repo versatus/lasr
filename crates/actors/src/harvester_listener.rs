@@ -1,10 +1,11 @@
 #![allow(unused)]
 use crate::{
     check_account_cache, create_handler, da_client, eo_server, get_actor_ref,
-    handle_actor_response, BatcherError, Coerce, PendingTransactionActor, PendingTransactionError,
-    SchedulerError,
+    handle_actor_response, AccountValue, Batch, Batcher, BatcherError, Coerce,
+    PendingTransactionActor, PendingTransactionError, SchedulerError,
 };
 use async_trait::async_trait;
+use eigenda_client::proof::BlobVerificationProof;
 use futures::stream::FuturesUnordered;
 use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
@@ -12,13 +13,17 @@ use lasr_messages::{
     HarvesterListenerMessage, PendingTransactionMessage, PgGroupType, RpcMessage, RpcResponseError,
     SchedulerMessage, SupervisorType, TransactionResponse, ValidatorMessage,
 };
-use lasr_types::{Account, Address, RecoverableSignature, Transaction};
+use lasr_types::{Account, Address, NodeType, RecoverableSignature, Transaction};
+use ractor::concurrency::OneshotReceiver;
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use ractor::{ActorCell, SupervisionEvent};
-use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
 use thiserror::*;
+use tikv_client::RawClient as TikvClient;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 /// A generic error type to propagate errors from this actor
@@ -39,6 +44,16 @@ impl Default for HarvesterListenerError {
 }
 
 pub type MethodResults = Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>;
+
+pub struct HarvesterListener {
+    tikv_client: Option<TikvClient>,
+}
+
+impl HarvesterListener {
+    pub fn new(tikv_client: Option<TikvClient>) -> Self {
+        Self { tikv_client }
+    }
+}
 
 /// The actor struct for the harvester listener actor
 #[derive(Debug, Clone, Default)]
@@ -99,27 +114,27 @@ impl HarvesterListenerActor {
 #[async_trait]
 impl Actor for HarvesterListenerActor {
     type Msg = HarvesterListenerMessage;
-    type State = ();
-    type Arguments = ();
+    type State = Arc<Mutex<HarvesterListener>>;
+    type Arguments = Arc<Mutex<HarvesterListener>>;
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
-        args: (),
+        args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         ractor::pg::join(
             PgGroupType::HarvesterListener.to_string(),
             vec![myself.get_cell()],
         );
 
-        Ok(())
+        Ok(args)
     }
 
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
             HarvesterListenerMessage::TransactionApplied(transaction, token) => {
@@ -199,7 +214,7 @@ impl Actor for HarvesterListenerActor {
                 })
                 .await?;
             }
-            HarvesterListenerMessage::Invalid(transaction, error) => {
+            HarvesterListenerMessage::InvalidTransactionNotification(transaction, error) => {
                 log::info!("Informing pending transactions that the transaction is invalid");
                 if let Err(err) = self
                     .send_message_to_pending_transaction_actor(PendingTransactionMessage::Invalid {
@@ -212,6 +227,24 @@ impl Actor for HarvesterListenerActor {
                     log::error!(
                         "failed to cast invalid message to pending transactions actor: {err:?}"
                     );
+                }
+            }
+            HarvesterListenerMessage::ForwardAccountWrite(addr, account) => {
+                match state.lock().await.tikv_client {
+                    Some(ref tikv_client) => {
+                        let acc_val = AccountValue { account };
+                        // Serialize `Account` data to be stored.
+                        if let Some(val) = bincode::serialize(&acc_val).ok() {
+                            if tikv_client.put(addr.clone(), val).await.is_ok() {
+                                log::warn!(
+                                "Inserted Account with address of {addr:?} to persistence layer",
+                            )
+                            } else {
+                                log::error!("failed to push Account data to persistence store")
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
 

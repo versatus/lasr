@@ -130,7 +130,8 @@ pub enum HarvesterListenerMessage {
     CallTransactionApplied(Transaction, Account, Outputs),
     CallTransactionFailure(String, String, String),
     RegistrationSuccess(Transaction, Address),
-    Invalid(Transaction, String),
+    InvalidTransactionNotification(Transaction, String),
+    ForwardAccountWrite(String, Account),
 }
 
 /// A message type that the `Validator` actor can handle

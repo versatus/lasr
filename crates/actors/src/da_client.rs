@@ -165,12 +165,12 @@ impl Actor for DaClientActor {
         match message {
             // Optimistically and naively store account blobs
             DaClientMessage::StoreBatch { batch, tx } => {
-                DaClientActor::store_batch(da_client_ptr, batch, tx).await;
+                Self::store_batch(da_client_ptr, batch, tx).await;
                 // let guard = self.future_pool.lock().await;
                 // guard.push(fut.boxed());
             }
             DaClientMessage::ValidateBlob { request_id, tx } => {
-                let fut = DaClientActor::validate_blob(da_client_ptr, request_id, tx);
+                let fut = Self::validate_blob(da_client_ptr, request_id, tx);
                 let guard = self.future_pool.lock().await;
                 guard.push(fut.boxed());
             }
@@ -181,7 +181,7 @@ impl Actor for DaClientActor {
                 blob_index,
                 tx,
             } => {
-                let fut = DaClientActor::retrieve_account(
+                let fut = Self::retrieve_account(
                     da_client_ptr,
                     address,
                     batch_header_hash,

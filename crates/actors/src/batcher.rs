@@ -56,12 +56,15 @@ use lasr_contract::create_program_id;
 use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstruction, ContractLogType, CreateInstruction, Instruction, Metadata, MetadataValue,
-    Namespace, Outputs, ProgramAccount, ProgramUpdate, TokenDistribution, TokenOrProgramUpdate,
-    TokenUpdate, Transaction, TransactionType, TransferInstruction, UpdateInstruction, U256,
+    Namespace, NodeType, Outputs, ProgramAccount, ProgramUpdate, TokenDistribution,
+    TokenOrProgramUpdate, TokenUpdate, Transaction, TransactionType, TransferInstruction,
+    UpdateInstruction, U256,
 };
 
 use crate::harvester_listener::HarvesterListenerError;
 use derive_builder::Builder;
+use lasr_types::NodeType::Harvester;
+use log::warn;
 
 pub const VERSE_ADDR: Address = Address::verse_addr();
 pub const ETH_ADDR: Address = Address::eth_addr();
@@ -320,6 +323,7 @@ impl Batch {
 }
 
 pub struct Batcher {
+    node_type: NodeType,
     parent: Batch,
     children: VecDeque<Batch>,
     cache: HashMap<String /* request_id*/, Batch>,
@@ -366,8 +370,10 @@ impl Batcher {
     pub fn new(
         receiver_thread_tx: Sender<OneshotReceiver<(String, BlobVerificationProof)>>,
         tikv_client: TikvClient,
+        node_type: NodeType,
     ) -> Self {
         Self {
+            node_type,
             parent: Batch::new(),
             children: VecDeque::new(),
             cache: HashMap::new(),
@@ -1647,7 +1653,8 @@ impl Batcher {
             ractor::pg::get_members(&PgGroupType::HarvesterListener.to_string());
 
         if !harvester_listeners.is_empty() {
-            let message = HarvesterListenerMessage::Invalid(transaction, err);
+            let message =
+                HarvesterListenerMessage::InvalidTransactionNotification(transaction, err);
 
             for harvester_listeners in harvester_listeners {
                 harvester_listeners.send_message(message.clone()).map_err(|e| {
@@ -1664,6 +1671,7 @@ impl Batcher {
     async fn handle_next_batch_request(
         batcher: Arc<Mutex<Batcher>>,
         tikv_client: TikvClient,
+        node_type: NodeType,
     ) -> Result<(), BatcherError> {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
@@ -1688,6 +1696,28 @@ impl Batcher {
                                 )
                             } else {
                                 log::error!("failed to push Account data to persistence store")
+                            }
+                            match node_type {
+                                Harvester => {
+                                    let harvester_listeners = ractor::pg::get_members(
+                                        &PgGroupType::HarvesterListener.to_string(),
+                                    );
+
+                                    if !harvester_listeners.is_empty() {
+                                        let message = HarvesterListenerMessage::ForwardAccountWrite(
+                                            addr.clone(),
+                                            account.clone(),
+                                        );
+
+                                        for actor in harvester_listeners {
+                                            actor.send_message(message.clone()).unwrap_or_else(|_| {
+                                                warn!(
+                                                    "failed to cast forward account write message to HarvesterListener actor for account address {addr:?}")
+                                            });
+                                        }
+                                    }
+                                }
+                                (_) => {}
                             }
                         } else {
                             log::error!("failed to serialize account data")
@@ -1864,9 +1894,11 @@ impl Actor for BatcherActor {
         let batcher_ptr = Arc::clone(state);
         match message {
             BatcherMessage::GetNextBatch => {
+                let state = state.lock().await;
                 Batcher::handle_next_batch_request(
                     batcher_ptr,
-                    state.lock().await.tikv_client.clone(),
+                    state.tikv_client.clone(),
+                    state.node_type.clone(),
                 )
                 .await?;
                 // let mut guard = self.future_pool.lock().await;
@@ -2069,7 +2101,7 @@ mod batcher_tests {
     use eigenda_client::proof::BlobVerificationProof;
     use futures::{FutureExt, StreamExt};
     use lasr_messages::BlobVerificationProofArgs;
-    use lasr_types::TransactionType;
+    use lasr_types::{NodeType, TransactionType};
     use std::sync::Arc;
     use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
@@ -2167,7 +2199,11 @@ mod batcher_tests {
             .unwrap();
         let batcher_actor = BatcherActor::new();
         let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
-        let mut batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx, tikv_client)));
+        let mut batcher = Arc::new(Mutex::new(Batcher::new(
+            receivers_thread_tx,
+            tikv_client,
+            NodeType::FarmerHarvester,
+        )));
         let bv_proof = BlobVerificationProof::default();
         let request = "test".to_string();
 

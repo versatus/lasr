@@ -10,7 +10,9 @@ use thiserror::Error;
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::Mutex;
 
-use crate::harvester_listener::{HarvesterListenerActor, HarvesterListenerSupervisorError};
+use crate::harvester_listener::{
+    HarvesterListener, HarvesterListenerActor, HarvesterListenerSupervisorError,
+};
 use crate::{
     get_actor_ref, AccountCacheActor, AccountCacheSupervisorError, Batcher, BatcherActor,
     BatcherSupervisorError, BlobCacheActor, BlobCacheSupervisorError, DaClient, DaClientActor,
@@ -200,16 +202,21 @@ impl ActorManager {
         actor_manager: Arc<Mutex<ActorManager>>,
         actor_name: ractor::ActorName,
         handler: HarvesterListenerActor,
+        startup_args: Arc<Mutex<HarvesterListener>>,
     ) -> Result<(), ActorManagerError> {
         if let Some(supervisor) = get_actor_ref::<
             HarvesterListenerMessage,
             HarvesterListenerSupervisorError,
         >(SupervisorType::HarvesterListener)
         {
-            let actor =
-                Actor::spawn_linked(Some(actor_name.clone()), handler, (), supervisor.get_cell())
-                    .await
-                    .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
+            let actor = Actor::spawn_linked(
+                Some(actor_name.clone()),
+                handler,
+                startup_args,
+                supervisor.get_cell(),
+            )
+            .await
+            .map_err(|e| ActorManagerError::Custom(e.to_string()))?;
             let actor_spawn = ActorSpawn::new(actor);
             {
                 let mut guard = actor_manager.lock().await;
@@ -546,6 +553,7 @@ impl ActorManagerBuilder {
     pub async fn harvester_listener(
         self,
         harvester_listener_actor: HarvesterListenerActor,
+        harvester_listener: Arc<Mutex<HarvesterListener>>,
         harvester_listener_supervisor: ActorRef<HarvesterListenerMessage>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut new = self;
@@ -553,7 +561,7 @@ impl ActorManagerBuilder {
             Actor::spawn_linked(
                 Some(harvester_listener_actor.name()),
                 harvester_listener_actor,
-                (),
+                harvester_listener,
                 harvester_listener_supervisor.get_cell(),
             )
             .await
