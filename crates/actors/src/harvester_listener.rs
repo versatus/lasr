@@ -7,7 +7,6 @@ use crate::{
 use async_trait::async_trait;
 use eigenda_client::proof::BlobVerificationProof;
 use futures::stream::FuturesUnordered;
-use jsonrpsee::core::Error as RpcError;
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, DaClientMessage, EngineMessage, EoMessage,
     HarvesterListenerMessage, PendingTransactionMessage, PgGroupType, RpcMessage, RpcResponseError,
