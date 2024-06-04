@@ -32,7 +32,7 @@ use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Warn)
+    simple_logger::init_with_level(log::Level::Error)
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
     log::info!("Current Working Directory: {:?}", std::env::current_dir());
@@ -454,10 +454,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
     let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
+        .max_connections(1000)
         .build(format!("0.0.0.0:{}", port))
         .await
         .map_err(Box::new)?;
-    let server_handle = server.start(lasr_rpc.into_rpc()).map_err(Box::new)?;
+    let server_handle = server.start(lasr_rpc.into_rpc());
     let eo_server_wrapper = EoServerWrapper::new(inner_eo_server);
 
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);

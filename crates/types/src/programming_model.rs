@@ -850,6 +850,11 @@ impl ProgramUpdate {
     pub fn updates(&self) -> &Vec<ProgramUpdateField> {
         &self.updates
     }
+
+    /// Check if the account address or namespace is the program itself
+    pub fn is_self(&self, account: &AddressOrNamespace) -> bool {
+        self.account() == account
+    }
 }
 
 /// Information needed to make a transfer of assets from one account

@@ -21,3 +21,4 @@ ethereum-types = "0.14.1"
 thiserror = "1.0.50"
 eo_listener = { git = "https://github.com/versatus/eo_listener" }
 eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
+jsonrpsee = { version = "0.22.5", features = ["full"] }

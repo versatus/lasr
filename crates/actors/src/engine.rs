@@ -29,7 +29,7 @@ use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use thiserror::Error;
 
-use jsonrpsee::{core::Error as RpcError, tracing::trace_span};
+use jsonrpsee::{tracing::trace_span, types::ErrorObjectOwned as RpcError};
 use lasr_types::{
     Account, AccountType, Address, AddressOrNamespace, ArbitraryData, Metadata, Outputs,
     RecoverableSignature, Status, Token, TokenBuilder, Transaction, TransactionBuilder,
