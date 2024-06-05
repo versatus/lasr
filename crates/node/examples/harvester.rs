@@ -55,12 +55,9 @@ pub async fn main() {
 
         let transaction = Transaction::default();
 
-        let token: Token = transaction.into();
-
         remote_actor
             .send_message(HarvesterListenerMessage::TransactionApplied(
-                "".to_string(),
-                token,
+                transaction,
             ))
             .unwrap();
 

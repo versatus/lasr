@@ -126,7 +126,7 @@ pub enum SchedulerMessage {
 /// Message types that the `HarvesterListener` actor can `handle`
 #[derive(Debug, RactorClusterMessage, Clone)]
 pub enum HarvesterListenerMessage {
-    TransactionApplied(Transaction, Token),
+    TransactionApplied(Transaction),
     CallTransactionApplied(Transaction, Account, Outputs),
     CallTransactionFailure(String, String, String),
     RegistrationSuccess(Transaction, Address),

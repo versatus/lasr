@@ -727,7 +727,7 @@ impl Batcher {
 
         if !harvester_listeners.is_empty() {
             let message =
-                HarvesterListenerMessage::TransactionApplied(transaction.clone(), token.clone());
+                HarvesterListenerMessage::TransactionApplied(transaction.clone());
 
             for actor in harvester_listeners {
                 actor.send_message(message.clone()).map_err(|e| {
@@ -2121,9 +2121,10 @@ mod batcher_tests {
             let batcher_ptr = Arc::clone(state);
             match message {
                 BatcherMessage::GetNextBatch => {
-                    let fut = Self::handle_next_batch_request(
+                    let fut = Batcher::handle_next_batch_request(
                         batcher_ptr,
                         state.lock().await.tikv_client.clone(),
+                        NodeType::FarmerHarvester,
                     );
                     let mut guard = self.future_pool.lock().await;
                     guard.push(fut.boxed());
@@ -2134,7 +2135,7 @@ mod batcher_tests {
                         TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
                             log::warn!("send transaction");
                             let fut =
-                                Self::add_transaction_to_account(batcher_ptr, transaction.clone());
+                                Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2142,7 +2143,7 @@ mod batcher_tests {
                             log::error!("Call transaction result did not contain outputs")
                         }
                         TransactionType::RegisterProgram(_) => {
-                            let fut = Self::apply_program_registration(batcher_ptr, transaction);
+                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2155,12 +2156,12 @@ mod batcher_tests {
                         TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
                             log::warn!("send transaction");
                             let fut =
-                                Self::add_transaction_to_account(batcher_ptr, transaction.clone());
+                                Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
                         TransactionType::Call(_) => {
-                            let fut = Self::apply_instructions_to_accounts(
+                            let fut = Batcher::apply_instructions_to_accounts(
                                 batcher_ptr,
                                 transaction,
                                 outputs,
@@ -2169,7 +2170,7 @@ mod batcher_tests {
                             guard.push(fut.boxed());
                         }
                         TransactionType::RegisterProgram(_) => {
-                            let fut = Self::apply_program_registration(batcher_ptr, transaction);
+                            let fut = Batcher::apply_program_registration(batcher_ptr, transaction);
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         }
@@ -2178,7 +2179,7 @@ mod batcher_tests {
                 }
                 BatcherMessage::BlobVerificationProof(args) => {
                     log::info!("received blob verification proof");
-                    let fut = Self::handle_blob_verification_proof(
+                    let fut = Batcher::handle_blob_verification_proof(
                         batcher_ptr,
                         args.request_id,
                         args.proof,

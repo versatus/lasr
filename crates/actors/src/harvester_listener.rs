@@ -136,12 +136,12 @@ impl Actor for HarvesterListenerActor {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            HarvesterListenerMessage::TransactionApplied(transaction, token) => {
+            HarvesterListenerMessage::TransactionApplied(transaction) => {
                 log::info!("Informing Scheduler that the transaction was applied");
                 if let Err(err) = self
                     .send_message_to_scheduler(SchedulerMessage::TransactionApplied {
                         transaction_hash: transaction.hash_string(),
-                        token,
+                        token: transaction.clone().into(),
                     })
                     .await
                 {
@@ -330,8 +330,8 @@ mod tests {
     use anyhow::anyhow;
     use bincode::serialize;
     use eo_listener::EoServerError;
-    use lasr_messages::AccountCacheMessage;
-    use lasr_messages::ActorType::{HarvesterListener, PendingTransactions};
+    use lasr_messages::{AccountCacheMessage, messages};
+    use lasr_messages::ActorType::HarvesterListener as HarvesterListenerType;
     use lasr_types::{Address, AddressOrNamespace, Token, Transaction, TransactionType, U256};
     use log::info;
     use ractor::concurrency::Duration;
@@ -374,10 +374,43 @@ mod tests {
                 };
             }
         }
+        pub struct FakePendingTransactionActor;
+
+        #[async_trait]
+        impl Actor for FakePendingTransactionActor {
+            type Msg = PendingTransactionMessage;
+            type State = ();
+            type Arguments = ();
+
+            async fn pre_start(
+                &self,
+                myself: ActorRef<Self::Msg>,
+                _: (),
+            ) -> Result<Self::State, ActorProcessingErr> {
+                Ok(())
+            }
+
+            async fn handle(
+                &self,
+                _myself: ActorRef<Self::Msg>,
+                message: Self::Msg,
+                _state: &mut Self::State,
+            ) -> Result<(), ActorProcessingErr> {
+                return match message {
+                    messages::PendingTransactionMessage::Valid {
+                        transaction, cert
+                    } => Ok(()),
+                    (_) => {
+                        panic!("unexpected message: {:?}", message);
+                    }
+                };
+            }
+        }
 
         simple_logger::init_with_level(log::Level::Info)
             .map_err(|e| EoServerError::Other(e.to_string()))
             .unwrap();
+
         let fake_scheduler = FakeSchedulerActor;
 
         let fake_scheduler_ref =
@@ -385,28 +418,34 @@ mod tests {
                 .await
                 .expect("unable to spawn fake scheduler actor");
 
+        let fake_pending_transaction = FakePendingTransactionActor;
+
+        let fake_pending_transaction_ref =
+            Actor::spawn(Some(ActorType::PendingTransactions.to_string()), fake_pending_transaction, ())
+                .await
+                .expect("unable to spawn fake scheduler actor");
+
         let harvester_listener_actor = HarvesterListenerActor::new();
+        let harvester_listener = Arc::new(Mutex::new(HarvesterListener::new(None)));
         let (harvester_listener_actor_ref, _) = Actor::spawn(
-            Some(HarvesterListener.to_string()),
+            Some(HarvesterListenerType.to_string()),
             harvester_listener_actor,
-            (),
+            harvester_listener,
         )
         .await
         .expect("unable to spawn validator actor");
 
-        let string = "".to_string();
+        ractor::concurrency::sleep(Duration::from_millis(100)).await;
 
         let transaction = Transaction::default();
 
-        let token = transaction.into();
-
-        let message = HarvesterListenerMessage::TransactionApplied(string, token);
+        let message = HarvesterListenerMessage::TransactionApplied(transaction);
 
         let result = harvester_listener_actor_ref.cast(message);
 
         assert!(result.is_ok());
 
-        ractor::concurrency::sleep(Duration::from_millis(1000)).await;
+        ractor::concurrency::sleep(Duration::from_millis(100)).await;
 
         assert!(ractor::registry::where_is(ActorType::Scheduler.to_string()).is_some());
     }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use async_trait::async_trait;
 use eo_listener::EoServerError;
 use lasr_actors::harvester_listener::HarvesterListenerActor;
@@ -68,10 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Node server actor spawned");
     let harvester_listener_actor = HarvesterListenerActor::new();
+    let harvester_listener = Arc::new(Mutex::new(lasr_actors::harvester_listener::HarvesterListener::new(None)));
     let (harvester_listener_actor_ref, _) = Actor::spawn(
         Some(ActorType::HarvesterListener.to_string()),
         harvester_listener_actor,
-        (),
+        harvester_listener,
     )
     .await
     .expect("unable to spawn validator actor");
