@@ -224,9 +224,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tikv_client.clone(),
         NodeType::FarmerHarvester,
     )));
-    let harvester_listener = Arc::new(Mutex::new(HarvesterListener::new(Some(
-        tikv_client.clone(),
-    ))));
+    let harvester_listener = Arc::new(Mutex::new(HarvesterListener::new(
+        None,
+    )));
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
