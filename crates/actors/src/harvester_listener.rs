@@ -243,7 +243,9 @@ impl Actor for HarvesterListenerActor {
                             }
                         }
                     }
-                    _ => {}
+                    None => {
+                        log::warn!("Tikv client not available, ForwardAccountWrite received from Harvester");
+                    }
                 }
             }
 
