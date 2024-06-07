@@ -458,7 +458,7 @@ impl Batcher {
             log::warn!("found account, token pair");
             account.increment_nonce();
             let token = account
-                .apply_send_transaction(transaction.clone(), None)
+                .apply_bridge_transaction(transaction.clone(), None)
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
                     txn: Box::new(transaction.clone()),

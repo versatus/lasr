@@ -397,17 +397,58 @@ impl Account {
         crate::U256::from(0)
     }
 
-    pub fn apply_send_transaction(
+    pub fn apply_bridge_transaction(
         &mut self,
         transaction: Transaction,
         program_account: Option<&Account>,
     ) -> AccountResult<Token> {
         if transaction.transaction_type().is_bridge_in() {
-            let token: Token = transaction.into();
-            self.insert_program(&token.program_id(), token.clone());
-            return Ok(token);
+            let mut programs = self.programs.clone();
+            if let Some(token) = programs.get_mut(&transaction.program_id()) {
+                let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
+                if let Some(account) = program_account {
+                    log::warn!("found program account");
+                    let program_account_metadata = account.program_account_metadata();
+                    log::warn!("found program metadata: {:?}", &program_account_metadata);
+                    let program_account_data = account.program_account_data();
+                    log::warn!("found program data: {:?}", &program_account_data);
+                    new_token
+                        .metadata_mut()
+                        .extend(program_account_metadata.inner().clone());
+                    log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                    new_token
+                        .data_mut()
+                        .extend(program_account_data.inner().clone());
+                    log::warn!("applied data to token: {:?}", &new_token.data());
+                    *token = new_token;
+                    log::warn!(
+                        "replaced token with new token: token_metadata: {:?}",
+                        &token.metadata()
+                    );
+                    log::warn!("new token balance: {:?}", &token.balance());
+                    log::warn!(
+                        "replaced token with new token: token_data: {:?}",
+                        &token.data()
+                    );
+                    self.programs.insert(token.program_id(), token.clone());
+                    return Ok(token.clone());
+                } else {
+                    *token = new_token;
+                    self.programs.insert(token.program_id(), token.clone());
+                    return Ok(token.clone());
+                }
+            }
         }
+        Err(Box::new(ToTokenError::Custom(
+            "unable to convert transaction into token".to_string(),
+        )))
+    }
 
+    pub fn apply_send_transaction(
+        &mut self,
+        transaction: Transaction,
+        program_account: Option<&Account>,
+    ) -> AccountResult<Token> {
         if transaction.to() == transaction.from() {
             if let Some(token) = self.programs.get(&transaction.program_id()) {
                 return Ok(token.clone());

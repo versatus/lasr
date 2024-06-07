@@ -59,7 +59,7 @@ impl ValidatorCore {
             let batcher: ActorRef<BatcherMessage> =
                 ractor::registry::where_is(ActorType::Batcher.to_string())
                     .ok_or(Box::new(ValidatorError::Custom(
-                        "unable to acquire pending transaction actor".to_string(),
+                        "unable to acquire batcher actor".to_string(),
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
             let message = BatcherMessage::AppendTransaction {
