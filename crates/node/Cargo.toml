@@ -67,6 +67,7 @@ lasr_messages = { path = "../messages" }
 lasr_rpc = { path = "../rpc" }
 async-trait = "0.1.80"
 ractor_cluster = "0.9.3"
+anyhow = "1.0.86"
 
 
 [dev-dependencies]
