@@ -457,15 +457,25 @@ impl Batcher {
         let (from_account, token) = if let Some(mut account) = from_account {
             log::error!("found account, token pair");
             account.increment_nonce();
-            log::error!("applied bridge in txn, and incremented nonce");
-            let token = account
-                .apply_send_transaction(transaction.clone(), None)
-                .map_err(|e| BatcherError::FailedTransaction {
-                    msg: e.to_string(),
-                    txn: Box::new(transaction.clone()),
-                })?;
-            batch_buffer.insert(transaction.from().to_full_string(), account.clone());
-            (account, token)
+            if transaction.transaction_type().is_bridge_in() {
+                let token = account
+                    .apply_bridge_transaction(transaction.clone(), None)
+                    .map_err(|e| BatcherError::FailedTransaction {
+                        msg: e.to_string(),
+                        txn: Box::new(transaction.clone()),
+                    })?;
+                batch_buffer.insert(transaction.from().to_full_string(), account.clone());
+                (account, token)
+            } else {
+                let token = account
+                    .apply_send_transaction(transaction.clone(), None)
+                    .map_err(|e| BatcherError::FailedTransaction {
+                        msg: e.to_string(),
+                        txn: Box::new(transaction.clone()),
+                    })?;
+                batch_buffer.insert(transaction.from().to_full_string(), account.clone());
+                (account, token)
+            }
         } else {
             if !transaction.transaction_type().is_bridge_in() {
                 return Err(BatcherError::FailedTransaction {
