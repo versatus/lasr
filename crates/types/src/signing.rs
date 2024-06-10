@@ -50,8 +50,8 @@ impl RecoverableSignature {
     pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
         let r_hex = hex::encode(self.get_r());
         let s_hex = hex::encode(self.get_s());
-        log::warn!("attempting to recover from r: {}, s: {}", r_hex, s_hex);
-        log::warn!("MessageBytes: {}", hex::encode(message_bytes));
+        log::error!("attempting to recover from r: {}, s: {}", r_hex, s_hex);
+        log::error!("MessageBytes: {}", hex::encode(message_bytes));
         if self.v >= 27 && self.v <= 28 {
             log::warn!("v is >= 27, <= 28, using electrum signature");
             let esig = ElectrumSignature {

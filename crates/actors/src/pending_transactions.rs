@@ -563,7 +563,7 @@ impl PendingGraph {
         if let Some(validator) =
             get_actor_ref::<ValidatorMessage, ValidatorError>(ActorType::Validator)
         {
-            log::warn!(
+            log::error!(
                 "casting message to validator to validate transaction: {}",
                 &transaction.hash_string()
             );
@@ -713,9 +713,9 @@ impl Actor for PendingTransactionActor {
                 transaction,
                 outputs,
             } => {
-                log::warn!("received new transction {}", transaction.hash_string());
+                log::error!("received new transction {}", transaction.hash_string());
                 state.add_transaction(transaction.clone(), outputs);
-                log::warn!(
+                log::error!(
                     "added transaction: {} to dependency graph",
                     transaction.hash_string()
                 );

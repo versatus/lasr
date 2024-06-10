@@ -390,7 +390,7 @@ impl Transaction {
                 s: ethers_core::abi::ethereum_types::U256::from(s),
                 v: v as u64,
             };
-            log::warn!("attempting to recover from {}", sig.to_string());
+            log::error!("attempting to recover from {}", sig.to_string());
             let addr = sig.recover(self.hash())?;
             return Ok(addr.into());
         }

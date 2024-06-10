@@ -198,7 +198,7 @@ impl Actor for TaskScheduler {
                 transaction_hash,
                 token,
             } => {
-                log::warn!("Received TransactionApplied message, checking for RPCReplyPort");
+                log::error!("Received TransactionApplied message, checking for RPCReplyPort");
                 if let Some(reply_port) = state.remove(&transaction_hash) {
                     let response = Ok(TransactionResponse::SendResponse(token));
                     let message = RpcMessage::Response {

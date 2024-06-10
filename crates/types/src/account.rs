@@ -407,7 +407,7 @@ impl Account {
             if let Some(token) = programs.get_mut(&transaction.program_id()) {
                 let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
                 if let Some(account) = program_account {
-                    log::warn!("found program account");
+                    log::error!("found bridge in program account");
                     let program_account_metadata = account.program_account_metadata();
                     log::warn!("found program metadata: {:?}", &program_account_metadata);
                     let program_account_data = account.program_account_data();
@@ -415,18 +415,18 @@ impl Account {
                     new_token
                         .metadata_mut()
                         .extend(program_account_metadata.inner().clone());
-                    log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                    log::error!("applied metadata to token: {:?}", &new_token.metadata());
                     new_token
                         .data_mut()
                         .extend(program_account_data.inner().clone());
-                    log::warn!("applied data to token: {:?}", &new_token.data());
+                    log::error!("applied data to token: {:?}", &new_token.data());
                     *token = new_token;
-                    log::warn!(
+                    log::error!(
                         "replaced token with new token: token_metadata: {:?}",
                         &token.metadata()
                     );
-                    log::warn!("new token balance: {:?}", &token.balance());
-                    log::warn!(
+                    log::error!("new token balance: {:?}", &token.balance());
+                    log::error!(
                         "replaced token with new token: token_data: {:?}",
                         &token.data()
                     );
@@ -438,10 +438,14 @@ impl Account {
                     return Ok(token.clone());
                 }
             }
+            Err(Box::new(ToTokenError::Custom(
+                "unable to convert transaction into token".to_string(),
+            )))
+        } else {
+            Err(Box::new(ToTokenError::Custom(
+                "send transaction's are handled by apply_send_transaction().".to_string(),
+            )))
         }
-        Err(Box::new(ToTokenError::Custom(
-            "unable to convert transaction into token".to_string(),
-        )))
     }
 
     pub fn apply_send_transaction(
@@ -465,7 +469,7 @@ impl Account {
             if let Some(token) = programs.get_mut(&transaction.program_id()) {
                 let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
                 if let Some(account) = program_account {
-                    log::warn!("found program account");
+                    log::error!("found send program account");
                     let program_account_metadata = account.program_account_metadata();
                     log::warn!("found program metadata: {:?}", &program_account_metadata);
                     let program_account_data = account.program_account_data();
@@ -473,18 +477,18 @@ impl Account {
                     new_token
                         .metadata_mut()
                         .extend(program_account_metadata.inner().clone());
-                    log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                    log::error!("applied metadata to token: {:?}", &new_token.metadata());
                     new_token
                         .data_mut()
                         .extend(program_account_data.inner().clone());
-                    log::warn!("applied data to token: {:?}", &new_token.data());
+                    log::error!("applied data to token: {:?}", &new_token.data());
                     *token = new_token;
-                    log::warn!(
+                    log::error!(
                         "replaced token with new token: token_metadata: {:?}",
                         &token.metadata()
                     );
-                    log::warn!("new token balance: {:?}", &token.balance());
-                    log::warn!(
+                    log::error!("new token balance: {:?}", &token.balance());
+                    log::error!(
                         "replaced token with new token: token_data: {:?}",
                         &token.data()
                     );
@@ -518,7 +522,7 @@ impl Account {
                         let mut new_token: Token =
                             (token.clone(), transaction.clone()).try_into()?;
                         if let Some(account) = program_account {
-                            log::warn!("found program account");
+                            log::error!("found program account");
                             let program_account_metadata = account.program_account_metadata();
                             log::warn!("found program metadata: {:?}", &program_account_metadata);
                             let program_account_data = account.program_account_data();
@@ -526,18 +530,18 @@ impl Account {
                             new_token
                                 .metadata_mut()
                                 .extend(program_account_metadata.inner().clone());
-                            log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                            log::error!("applied metadata to token: {:?}", &new_token.metadata());
                             new_token
                                 .data_mut()
                                 .extend(program_account_data.inner().clone());
-                            log::warn!("applied data to token: {:?}", &new_token.data());
+                            log::error!("applied data to token: {:?}", &new_token.data());
                             *token = new_token;
-                            log::warn!(
+                            log::error!(
                                 "replaced token with new token: token_metadata: {:?}",
                                 &token.metadata()
                             );
-                            log::warn!("new token balance: {:?}", &token.balance());
-                            log::warn!(
+                            log::error!("new token balance: {:?}", &token.balance());
+                            log::error!(
                                 "replaced token with new token: token_data: {:?}",
                                 &token.data()
                             );
@@ -918,7 +922,7 @@ impl Account {
     }
 
     pub fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
-        log::warn!("attempting to validate program_id");
+        log::error!("attempting to validate program_id");
         if let Some(_token) = self.programs.get(program_id) {
             return Ok(());
         }
@@ -933,9 +937,9 @@ impl Account {
     }
 
     pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
-        log::warn!("attempting to validate balance");
+        log::error!("attempting to validate balance");
         if let Some(token) = self.programs.get(program_id) {
-            log::warn!("token.balance() {} >= {} amount", &token.balance(), &amount);
+            log::error!("token.balance() {} >= {} amount", &token.balance(), &amount);
             if token.balance() >= amount {
                 return Ok(());
             } else {
@@ -1189,7 +1193,7 @@ impl From<PublicKey> for Address {
     /// hashing to derive the Ethereum address. It returns the last 20 bytes of the hash
     /// as the address.
     fn from(value: PublicKey) -> Self {
-        log::warn!("attempting to recover address from public key");
+        log::error!("attempting to recover address from public key");
         let serialized_pk = value.serialize_uncompressed();
 
         let mut hasher = Keccak256::new();

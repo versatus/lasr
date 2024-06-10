@@ -448,15 +448,16 @@ impl Batcher {
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
-        log::warn!(
+        log::error!(
             "checking account cache for account associated with address {:?} to add transaction: {:?}",
             transaction.from(),
             transaction
         );
         let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
-            log::warn!("found account, token pair");
+            log::error!("found account, token pair");
             account.increment_nonce();
+            log::error!("applied bridge in txn, and incremented nonce");
             let token = account
                 .apply_bridge_transaction(transaction.clone(), None)
                 .map_err(|e| BatcherError::FailedTransaction {
@@ -473,7 +474,7 @@ impl Batcher {
                 });
             }
 
-            log::warn!(
+            log::error!(
                 "transaction is first for account {:?} bridge_in, building account",
                 transaction.from()
             );
@@ -524,23 +525,23 @@ impl Batcher {
         );
 
         if transaction.to() != transaction.from() {
-            log::warn!(
+            log::error!(
                 "checking account cache for account: {}",
                 transaction.to().to_full_string()
             );
             let mut to_account = get_account(transaction.to(), ActorType::Batcher).await;
             let to_account = if let Some(mut account) = to_account {
-                log::warn!("found `to` account: {}", transaction.to().to_full_string());
+                log::error!("found `to` account: {}", transaction.to().to_full_string());
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::warn!(
-                        "applied send transaction, account {} now has new token",
+                    log::error!(
+                        "1 applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::warn!(
+                    log::error!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -569,7 +570,7 @@ impl Batcher {
                     });
                 }
             } else {
-                log::warn!(
+                log::error!(
                     "first transaction send to account {} building account",
                     transaction.to().to_full_string()
                 );
@@ -588,17 +589,17 @@ impl Batcher {
                         txn: Box::new(transaction.clone()),
                     })?;
 
-                log::warn!("applying transaction to `to` account");
+                log::error!("applying transaction to `to` account");
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::warn!(
-                        "applied send transaction, account {} now has new token",
+                    log::error!(
+                        "2 applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::warn!(
+                    log::error!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -630,11 +631,11 @@ impl Batcher {
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::warn!(
-                        "applied send transaction, account {} now has new token",
+                    log::error!(
+                        "3 applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::warn!(
+                    log::error!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -662,11 +663,11 @@ impl Batcher {
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::warn!(
-                        "applied send transaction, account {} now has new token",
+                    log::error!(
+                        "4 applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::warn!(
+                    log::error!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -697,7 +698,7 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            log::info!("adding account to batch");
+            log::error!("adding account to batch");
             Batcher::add_account_to_batch(
                 &batcher,
                 account,
@@ -710,7 +711,7 @@ impl Batcher {
             })?;
         }
 
-        log::info!("adding transaction to batch");
+        log::error!("adding transaction to batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
         if let Some(scheduler) =
@@ -1722,7 +1723,7 @@ impl Batcher {
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
                             if tikv_client.put(addr.clone(), val).await.is_ok() {
-                                log::warn!(
+                                log::error!(
                                     "Inserted Account with address of {addr:?} to persistence layer",
                                 )
                             } else {
@@ -1911,10 +1912,17 @@ impl Actor for BatcherActor {
                 transaction,
                 outputs,
             } => {
-                log::warn!("appending transaction to batch");
+                log::error!("appending transaction to batch");
                 match transaction.transaction_type() {
-                    TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
-                        log::warn!("send transaction");
+                    TransactionType::Send(_) => {
+                        log::error!("send transaction");
+                        let fut =
+                            Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
+                        let mut guard = self.future_pool.lock().await;
+                        guard.push(fut.boxed());
+                    }
+                    TransactionType::BridgeIn(_) => {
+                        log::error!("bridge in transaction");
                         let fut =
                             Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
                         let mut guard = self.future_pool.lock().await;
@@ -2066,7 +2074,7 @@ pub async fn batch_requestor(
             let message = BatcherMessage::GetNextBatch {
                 tikv_client: tikv_client.clone(),
             };
-            log::warn!("requesting next batch");
+            log::error!("requesting next batch");
             if let Err(err) = batcher.cast(message) {
                 log::error!("Batcher Error: failed to cast GetNextBatch message to the BatcherActor during batch_requestor routine: {err:?}");
             }
@@ -2117,8 +2125,17 @@ mod batcher_tests {
                 } => {
                     log::warn!("appending transaction to batch");
                     match transaction.transaction_type() {
-                        TransactionType::Send(_) | TransactionType::BridgeIn(_) => {
+                        TransactionType::Send(_) => {
                             log::warn!("send transaction");
+                            let fut = Batcher::add_transaction_to_account(
+                                batcher_ptr,
+                                transaction.clone(),
+                            );
+                            let mut guard = self.future_pool.lock().await;
+                            guard.push(fut.boxed());
+                        }
+                        TransactionType::BridgeIn(_) => {
+                            log::warn!("bridge in transaction");
                             let fut = Batcher::add_transaction_to_account(
                                 batcher_ptr,
                                 transaction.clone(),
