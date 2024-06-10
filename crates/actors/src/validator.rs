@@ -1080,7 +1080,7 @@ impl ValidatorActor {
             }
             TransactionType::BridgeIn(_) => {
                 log::error!("attempting to bridge in");
-                let account = if let Some(account) =
+                let _account = if let Some(account) =
                     get_account(transaction.from(), ActorType::Validator).await
                 {
                     Some(account)

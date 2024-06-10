@@ -459,7 +459,7 @@ impl Batcher {
             account.increment_nonce();
             log::error!("applied bridge in txn, and incremented nonce");
             let token = account
-                .apply_bridge_transaction(transaction.clone(), None)
+                .apply_send_transaction(transaction.clone(), None)
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
@@ -629,8 +629,8 @@ impl Batcher {
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
-                    let _ =
-                        account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    let _ = account
+                        .apply_bridge_transaction(transaction.clone(), Some(&program_account));
                     log::error!(
                         "3 applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
