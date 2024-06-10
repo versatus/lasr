@@ -1,6 +1,7 @@
 use derive_builder::Builder;
 use ethereum_types::U256 as EthU256;
 use hex::FromHexError;
+use ractor::BytesConvertable;
 use schemars::JsonSchema;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
@@ -266,6 +267,16 @@ pub struct Token {
     approvals: BTreeMap<Address, Vec<U256>>,
     data: ArbitraryData,
     status: Status,
+}
+
+impl BytesConvertable for Token {
+    fn into_bytes(self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        bincode::deserialize(&bytes).unwrap()
+    }
 }
 
 impl Token {

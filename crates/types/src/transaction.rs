@@ -317,6 +317,16 @@ impl Default for Transaction {
     }
 }
 
+impl ractor::serialization::BytesConvertable for Transaction {
+    fn into_bytes(self) -> Vec<u8> {
+        self.as_bytes()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        serde_json::from_slice(&bytes).unwrap()
+    }
+}
+
 #[derive(
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]

@@ -10,7 +10,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::{ffi::OsStr, fmt::Display};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use web3_pkg::web3_store::Web3Store;
 

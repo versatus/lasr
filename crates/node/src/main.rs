@@ -4,6 +4,9 @@ use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
 use eo_listener::{EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
+use lasr_actors::harvester_listener::{
+    HarvesterListener, HarvesterListenerActor, HarvesterListenerSupervisor,
+};
 use lasr_actors::{
     graph_cleaner, helpers::Coerce, AccountCacheActor, AccountCacheSupervisor, ActorExt,
     ActorManager, ActorManagerBuilder, Batcher, BatcherActor, BatcherError, BatcherSupervisor,
@@ -17,7 +20,7 @@ use lasr_actors::{
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
-use lasr_types::Address;
+use lasr_types::{Address, NodeType};
 use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
 use tikv_client::RawClient as TikvClient;
@@ -124,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pending_tx_supervisor = PendingTransactionSupervisor::new(panic_tx.clone());
     let lasr_rpc_server_supervisor = LasrRpcServerSupervisor::new(panic_tx.clone());
     let scheduler_supervisor = TaskSchedulerSupervisor::new(panic_tx.clone());
+    let harvester_listener_supervisor = HarvesterListenerSupervisor::new(panic_tx.clone());
     let eo_server_supervisor = EoServerSupervisor::new(panic_tx.clone());
     let engine_supervisor = EngineSupervisor::new(panic_tx.clone());
     let validator_supervisor = ValidatorSupervisor::new(panic_tx.clone());
@@ -164,6 +168,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Actor::spawn(Some(scheduler_supervisor.name()), scheduler_supervisor, ())
             .await
             .map_err(Box::new)?;
+    let (harvester_listener_supervisor, _harvester_listener_supervisor_handle) = Actor::spawn(
+        Some(harvester_listener_supervisor.name()),
+        harvester_listener_supervisor,
+        (),
+    )
+    .await
+    .map_err(Box::new)?;
     let (eo_server_supervisor, _eo_server_supervisor_handle) =
         Actor::spawn(Some(eo_server_supervisor.name()), eo_server_supervisor, ())
             .await
@@ -205,9 +216,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let da_client_actor = DaClientActor::new();
     let batcher_actor = BatcherActor::new();
     let executor_actor = ExecutorActor::new();
+    let harvester_listener_actor = HarvesterListenerActor::new();
 
     let (receivers_thread_tx, receivers_thread_rx) = tokio::sync::mpsc::channel(128);
-    let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
+    let batcher = Arc::new(Mutex::new(Batcher::new(
+        receivers_thread_tx,
+        tikv_client.clone(),
+        NodeType::FarmerHarvester,
+    )));
+    let harvester_listener = Arc::new(Mutex::new(HarvesterListener::new(None)));
     tokio::spawn(Batcher::run_receivers(receivers_thread_rx));
 
     let da_client = Arc::new(Mutex::new(DaClient::new(eigen_da_client)));
@@ -227,6 +244,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .lasr_rpc_server(lasr_rpc_actor.clone(), lasr_rpc_server_supervisor)
         .await?
         .scheduler(scheduler_actor.clone(), scheduler_supervisor)
+        .await?
+        .harvester_listener(
+            harvester_listener_actor.clone(),
+            harvester_listener.clone(),
+            harvester_listener_supervisor,
+        )
         .await?
         .eo_server(eo_server_actor.clone(), eo_server_supervisor)
         .await?
@@ -328,6 +351,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 scheduler_actor.clone(),
+                            )
+                            .await
+                            .typecast()
+                            .log_err(|e| e);
+                        }
+                        ActorType::HarvesterListener => {
+                            ActorManager::respawn_harvester_listener(
+                                manager_ptr,
+                                actor_name,
+                                harvester_listener_actor.clone(),
+                                harvester_listener.clone(),
                             )
                             .await
                             .typecast()

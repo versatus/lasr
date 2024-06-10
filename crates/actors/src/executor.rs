@@ -311,10 +311,7 @@ impl ExecutorActor {
                 ))?
                 .into();
 
-        let message = BatcherMessage::AppendTransaction {
-            transaction,
-            outputs: None,
-        };
+        let message = BatcherMessage::AppendTransaction(transaction);
         actor
             .cast(message)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
@@ -324,10 +321,7 @@ impl ExecutorActor {
 
     #[cfg(feature = "remote")]
     fn registration_success(transaction: Transaction) -> std::io::Result<()> {
-        let message = BatcherMessage::AppendTransaction {
-            transaction,
-            outputs: None,
-        };
+        let message = BatcherMessage::AppendTransaction(transaction);
 
         let batcher: ActorRef<BatcherMessage> =
             ractor::registry::where_is(ActorType::Batcher.to_string())

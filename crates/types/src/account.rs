@@ -4,6 +4,7 @@ use crate::{
 };
 use derive_builder::Builder;
 use hex::{FromHexError, ToHex};
+use ractor::BytesConvertable;
 use schemars::JsonSchema;
 use secp256k1::PublicKey;
 use serde::de::Visitor;
@@ -87,13 +88,23 @@ impl<'de> Deserialize<'de> for Address {
 /// This structure is used to store Ethereum Compatible addresses, which are
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-#[derive(Clone, Copy, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Address([u8; 20]);
 
 impl std::fmt::Debug for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_full_string())
+    }
+}
+
+impl BytesConvertable for Address {
+    fn into_bytes(self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        bincode::deserialize(&*bytes).unwrap()
     }
 }
 
@@ -290,10 +301,11 @@ impl ProgramAccount {
 }
 
 #[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
 )]
 #[serde(rename_all = "camelCase")]
 pub enum AccountType {
+    #[default]
     User,
     Program(Address),
 }
@@ -304,7 +316,18 @@ pub enum AccountType {
 /// programs, nonce, signatures, hashes, and certificates. It implements traits for
 /// serialization, hashing, and comparison.
 #[derive(
-    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Builder,
+    Clone,
+    Default,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
@@ -316,6 +339,16 @@ pub struct Account {
     program_account_data: ArbitraryData,
     program_account_metadata: Metadata,
     program_account_linked_programs: BTreeSet<AddressOrNamespace>,
+}
+
+impl BytesConvertable for Account {
+    fn into_bytes(self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        bincode::deserialize(&*bytes).unwrap()
+    }
 }
 
 impl Account {

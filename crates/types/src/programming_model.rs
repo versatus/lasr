@@ -4,6 +4,7 @@ use crate::{
     Account, Address, Certificate, Namespace, ProgramField, ProgramFieldValue, TokenField,
     TokenFieldValue, TokenWitness, Transaction, TransactionFields, U256,
 };
+use ractor::BytesConvertable;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -82,6 +83,16 @@ pub struct Outputs {
     )]
     inputs: Inputs,
     instructions: Vec<Instruction>,
+}
+
+impl BytesConvertable for Outputs {
+    fn into_bytes(self) -> Vec<u8> {
+        serde_json::to_vec(&self).unwrap()
+    }
+
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        serde_json::from_slice(&bytes).unwrap()
+    }
 }
 
 /// This struct is a builder for the [`Outputs`] struct.
