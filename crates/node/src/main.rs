@@ -527,6 +527,7 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
+    //TODO: handle edge case of blocks_processed.dat not being found
     log::error!("attempting to load processed blocks in eo server setup");
     let mut buf = Vec::new();
     let mut file = std::fs::OpenOptions::new()
@@ -539,6 +540,8 @@ fn setup_eo_server(
 
     let blocks_processed: BlocksProcessed =
         bincode::deserialize(&buf).map_err(|e| EoServerError::Other(e.to_string()))?;
+
+    log::error!("blocks processed: {:?}", blocks_processed);
 
     let bridge_from_block = if let Some(b) = blocks_processed.bridge {
         b
