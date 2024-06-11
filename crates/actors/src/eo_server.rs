@@ -55,7 +55,7 @@ impl EoServerWrapper {
                 ))?
                 .into();
 
-        log::info!("attempting to load processed blocks");
+        log::error!("attempting to load processed blocks");
         if let Err(e) = self.server.load_processed_blocks().await {
             log::error!("unable to load processed blocks from file: {}", e);
         }
@@ -66,7 +66,7 @@ impl EoServerWrapper {
             match &logs.log_result {
                 Ok(log) => {
                     if !log.is_empty() {
-                        log::info!("non-empty log found: {:?}", log);
+                        log::error!("non-empty log found: {:?}", log);
                         eo_actor
                             .cast(EoMessage::Log {
                                 log_type: logs.event_type,
@@ -114,7 +114,7 @@ impl EoServerActor {
     }
 
     fn handle_eo_event(events: EoEvent) -> Result<(), EoServerError> {
-        log::warn!("discovered EO event: {:?}", events);
+        log::error!("discovered EO event: {:?}", events);
         let message = EngineMessage::EoEvent { event: events };
         let engine: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
@@ -131,7 +131,7 @@ impl EoServerActor {
     fn parse_bridge_log(
         mut logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        log::warn!("Parsing bridge event: {:?}", logs);
+        log::error!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         logs.sort_unstable_by(|a, b| {
@@ -351,7 +351,7 @@ impl Actor for EoServerActor {
                 amount,
                 content,
             } => {
-                log::info!("Eo Server ready to bridge assets to EO contract");
+                log::error!("Eo Server ready to bridge assets to EO contract");
             }
             _ => {
                 log::info!("Eo Server received unhandled message");

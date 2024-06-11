@@ -558,11 +558,11 @@ fn setup_eo_server(
     log::info!("address: {:?}", address);
     log::info!("contract: {:?}", contract);
     log::info!("blob_settled_topic: {:?}", blob_settled_topic);
-    log::info!("bridge_topic: {:?}", bridge_topic);
+    log::error!("bridge_topic: {:?}", bridge_topic);
     log::info!("blob_settled_filter: {:?}", blob_settled_filter);
-    log::info!("bridge_filter: {:?}", bridge_filter);
+    log::error!("bridge_filter: {:?}", bridge_filter);
     log::info!("blob_settled_event: {:?}", blob_settled_event);
-    log::info!("bridge_event: {:?}", bridge_event);
+    log::error!("bridge_event: {:?}", bridge_event);
     log::info!("path: {:?}", path);
 
     let eo_server = eo_listener::EoServerBuilder::default()
