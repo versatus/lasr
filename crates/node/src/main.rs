@@ -1,7 +1,7 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::BTreeSet, io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::{EoServer as EoListener, EoServerError};
+use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
@@ -527,15 +527,45 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
+    log::error!("attempting to load processed blocks in eo server setup");
+    let mut buf = Vec::new();
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|e| EoServerError::Other(e.to_string()))?;
+
+    file.read_to_end(&mut buf)
+        .map_err(|e| EoServerError::Other(e.to_string()))?;
+
+    let blocks_processed: BlocksProcessed =
+        bincode::deserialize(&buf).map_err(|e| EoServerError::Other(e.to_string()))?;
+
+    let bridge_from_block = if let Some(b) = blocks_processed.bridge {
+        b
+    } else {
+        web3::types::U64::from(0)
+    };
+    log::error!("bridge from block: {}", bridge_from_block);
+
+    let settle_from_block = if let Some(b) = blocks_processed.settle {
+        b
+    } else {
+        web3::types::U64::from(0)
+    };
+    log::error!("settle from block: {}", settle_from_block);
+
+    let bridge_processed = blocks_processed.bridge_processed;
+    let settled_processed = blocks_processed.settled_processed;
+
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(settle_from_block))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(bridge_from_block))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
@@ -571,14 +601,14 @@ fn setup_eo_server(
         .web3(web3_instance)
         .eo_address(eo_address)
         .block_time(std::time::Duration::from_millis(2500))
-        .bridge_processed_blocks(BTreeSet::new())
-        .settled_processed_blocks(BTreeSet::new())
+        .bridge_processed_blocks(bridge_processed)
+        .settled_processed_blocks(settled_processed)
         .contract(contract)
         .bridge_topic(bridge_topic)
         .blob_settled_topic(blob_settled_topic)
         .bridge_filter(bridge_filter)
-        .current_bridge_filter_block(0.into())
-        .current_blob_settlement_filter_block(0.into())
+        .current_bridge_filter_block(bridge_from_block)
+        .current_blob_settlement_filter_block(settle_from_block)
         .blob_settled_filter(blob_settled_filter)
         .blob_settled_event(blob_settled_event)
         .bridge_event(bridge_event)
