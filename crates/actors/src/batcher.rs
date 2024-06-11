@@ -639,12 +639,12 @@ impl Batcher {
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
-                    let _ = account
-                        .apply_bridge_transaction(transaction.clone(), Some(&program_account));
-                    log::error!(
-                        "applied bridge in transaction, account {} now has new token",
-                        account.owner_address().to_full_string()
-                    );
+                    // let _ = account
+                    //     .apply_bridge_transaction(transaction.clone(), Some(&program_account));
+                    // log::error!(
+                    //     "applied bridge in transaction, account {} now has new token",
+                    //     account.owner_address().to_full_string()
+                    // );
                     log::error!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())

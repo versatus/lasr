@@ -1,5 +1,5 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, io::Read, path::PathBuf, str::FromStr, sync::Arc};
+use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
 use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
