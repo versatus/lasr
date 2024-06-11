@@ -507,7 +507,7 @@ impl Batcher {
                 get_account(transaction.program_id(), ActorType::Batcher).await
             {
                 let token = account
-                    .apply_send_transaction(transaction.clone(), Some(&program_account))
+                    .apply_bridge_transaction(transaction.clone(), Some(&program_account))
                     .map_err(|e| BatcherError::FailedTransaction {
                         msg: e.to_string(),
                         txn: Box::new(transaction.clone()),
@@ -517,7 +517,7 @@ impl Batcher {
                 (account, token)
             } else {
                 let token = account
-                    .apply_send_transaction(transaction.clone(), None)
+                    .apply_bridge_transaction(transaction.clone(), None)
                     .map_err(|e| BatcherError::FailedTransaction {
                         msg: e.to_string(),
                         txn: Box::new(transaction.clone()),
