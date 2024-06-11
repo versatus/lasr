@@ -25,16 +25,35 @@ use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Error)
-        .map_err(|e| EoServerError::Other(e.to_string()))?;
+    let file_appender = tracing_appender::rolling::daily("./logs", "lasr.log");
 
-    log::info!("Current Working Directory: {:?}", std::env::current_dir());
+    // Create a file layer with a lower log level (e.g., below ERROR).
+    let file_layer = tracing_subscriber::fmt::Layer::new()
+        .with_writer(file_appender)
+        .with_filter(LevelFilter::INFO);
 
-    log::warn!(
+    // Create a stdout layer with ERROR log level.
+    let stdout_layer = tracing_subscriber::fmt::Layer::new()
+        .with_writer(std::io::stdout)
+        .with_filter(LevelFilter::ERROR);
+
+    // Set up the subscriber with both layers.
+    tracing_subscriber::registry()
+        .with(file_layer)
+        .with(stdout_layer)
+        .init();
+
+    tracing::info!("Current Working Directory: {:?}", std::env::current_dir());
+
+    tracing::warn!(
         "Version, branch and hash: {} {}",
         env!("CARGO_PKG_VERSION"),
         option_env!("GIT_REV").unwrap_or("N/A")
@@ -61,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
-    log::warn!("Ethereum RPC URL: {}", eth_rpc_url);
+    tracing::warn!("Ethereum RPC URL: {}", eth_rpc_url);
     let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = Arc::new(Mutex::new(
@@ -94,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]
-    log::info!("Attempting to connect compute agent");
+    tracing::info!("Attempting to connect compute agent");
     #[cfg(feature = "remote")]
     let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
@@ -104,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     #[cfg(feature = "remote")]
-    log::info!("Attempting to connect strorage agent");
+    tracing::info!("Attempting to connect strorage agent");
     #[cfg(feature = "remote")]
     let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
@@ -443,7 +462,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
                                 Batcher::handle_transaction_error(msg, *txn)
                             }
@@ -464,7 +483,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -482,7 +501,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -552,18 +571,18 @@ fn setup_eo_server(
         .clone();
 
     // Logging out all the variables being sent to the EoServer
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("eo_address: {:?}", eo_address);
-    log::info!("contract_address: {:?}", contract_address);
-    log::info!("address: {:?}", address);
-    log::info!("contract: {:?}", contract);
-    log::info!("blob_settled_topic: {:?}", blob_settled_topic);
-    log::info!("bridge_topic: {:?}", bridge_topic);
-    log::info!("blob_settled_filter: {:?}", blob_settled_filter);
-    log::info!("bridge_filter: {:?}", bridge_filter);
-    log::info!("blob_settled_event: {:?}", blob_settled_event);
-    log::info!("bridge_event: {:?}", bridge_event);
-    log::info!("path: {:?}", path);
+    tracing::info!("web3_instance: {:?}", web3_instance);
+    tracing::info!("eo_address: {:?}", eo_address);
+    tracing::info!("contract_address: {:?}", contract_address);
+    tracing::info!("address: {:?}", address);
+    tracing::info!("contract: {:?}", contract);
+    tracing::info!("blob_settled_topic: {:?}", blob_settled_topic);
+    tracing::info!("bridge_topic: {:?}", bridge_topic);
+    tracing::info!("blob_settled_filter: {:?}", blob_settled_filter);
+    tracing::info!("bridge_filter: {:?}", bridge_filter);
+    tracing::info!("blob_settled_event: {:?}", blob_settled_event);
+    tracing::info!("bridge_event: {:?}", bridge_event);
+    tracing::info!("path: {:?}", path);
 
     let eo_server = eo_listener::EoServerBuilder::default()
         .web3(web3_instance)
@@ -612,10 +631,10 @@ async fn setup_eo_client(
     let user_address: Address = public_key.into();
 
     // Logging out all the variables being sent to the EoClient
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("contract: {:?}", contract);
-    log::info!("user_address: {:?}", user_address);
-    log::info!("sk: {:?}", sk);
+    tracing::info!("web3_instance: {:?}", web3_instance);
+    tracing::info!("contract: {:?}", contract);
+    tracing::info!("user_address: {:?}", user_address);
+    tracing::info!("sk: {:?}", sk);
 
     EoClient::new(web3_instance, contract, user_address, sk)
         .await
