@@ -642,7 +642,7 @@ impl Batcher {
                     let _ = account
                         .apply_bridge_transaction(transaction.clone(), Some(&program_account));
                     log::error!(
-                        "3 applied send transaction, account {} now has new token",
+                        "applied bridge in transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
                     log::error!(

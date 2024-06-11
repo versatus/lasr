@@ -48,31 +48,12 @@ impl Default for ValidatorCore {
 impl ValidatorCore {
     fn validate_bridge_in(
         &self,
-    ) -> impl FnOnce(Transaction, Account) -> Result<(), Box<dyn std::error::Error + Send>> {
-        |tx, account| {
+    ) -> impl FnOnce(Transaction) -> Result<(), Box<dyn std::error::Error + Send>> {
+        |tx| {
             if tx.from() != tx.to() {
                 return Err(Box::new(ValidatorError::Custom(
                     "bridge tx from and to must be the same".to_string(),
                 )) as Box<dyn std::error::Error + Send>);
-            }
-
-            let pending_transactions: ActorRef<PendingTransactionMessage> =
-                ractor::registry::where_is(ActorType::PendingTransactions.to_string())
-                    .ok_or(Box::new(ValidatorError::Custom(
-                        "unable to acquire pending transaction actor".to_string(),
-                    )) as Box<dyn std::error::Error + Send>)?
-                    .into();
-
-            log::error!("validating bridge in nonce");
-            if let Err(e) = account.validate_nonce(tx.nonce()) {
-                let error_string = e.to_string();
-                let message = PendingTransactionMessage::Invalid {
-                    transaction: tx.clone(),
-                    e,
-                };
-                let _ = pending_transactions.cast(message);
-                return Err(Box::new(ValidatorError::Custom(error_string))
-                    as Box<dyn std::error::Error + Send>);
             }
 
             let batcher: ActorRef<BatcherMessage> =
@@ -1080,7 +1061,7 @@ impl ValidatorActor {
             }
             TransactionType::BridgeIn(_) => {
                 log::error!("attempting to bridge in");
-                let account = if let Some(account) =
+                let _account = if let Some(account) =
                     get_account(transaction.from(), ActorType::Validator).await
                 {
                     Some(account)
@@ -1093,7 +1074,7 @@ impl ValidatorActor {
                 let state = validator_core.lock().await;
                 let op = state.validate_bridge_in();
                 state.pool.spawn_fifo(move || {
-                    let _ = op(transaction.clone(), account.unwrap());
+                    let _ = op(transaction.clone());
                 });
                 // get account
                 // check bridged balance in EO
