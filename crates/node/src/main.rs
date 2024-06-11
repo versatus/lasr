@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let inner_eo_server =
         setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
+    log::error!("inner_eo_server established with blocks processed path");
 
     const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
     let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT]).await?;
@@ -429,6 +430,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(graph_cleaner());
     tokio::spawn(eo_server_wrapper.run());
+    log::error!("eo_server_wrapper running");
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
 
