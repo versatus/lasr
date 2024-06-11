@@ -87,7 +87,7 @@ impl<'de> Deserialize<'de> for Address {
 /// This structure is used to store Ethereum Compatible addresses, which are
 /// derived from the public key. It implements traits like Clone, Copy, Debug,
 /// Serialize, Deserialize, etc., for ease of use across various contexts.
-#[derive(Clone, Copy, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Address([u8; 20]);
 
