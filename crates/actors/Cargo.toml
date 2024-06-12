@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["local"]
+default = ["local", "mock_storage"]
 local = []
 remote = []
+mock_storage = []
 
 [dependencies]
 ethereum-types = "0.14.1"

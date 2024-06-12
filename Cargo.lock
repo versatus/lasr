@@ -3023,6 +3023,8 @@ dependencies = [
  "serde_json",
  "sha3",
  "thiserror",
+ "tikv-client",
+ "tokio",
  "typetag",
  "uint",
  "web3-signature",
