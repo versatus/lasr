@@ -1,4 +1,10 @@
 #![allow(async_fn_in_trait)]
+//! Persistent storage types used in the protocol, or for testing means.
+//! The main export of this module is the `PersistenceStore` trait, which
+//! is used for generalizing access to some storage either for production
+//! or in-memory key-value storage, and works in tandem with `ractor::Actor`.
+//!
+//! TL;DR allows using `HashMap` for storage in tests.
 
 /// Drop in replacement trait for subbing out storage types where
 /// they would otherwise be inconvenient.
