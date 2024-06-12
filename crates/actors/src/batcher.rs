@@ -1823,7 +1823,9 @@ impl Batcher {
         if let Some(da_actor) = get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
         {
             if let Err(err) = da_actor.cast(DaClientMessage::ValidateBlob { request_id, tx }) {
-                tracing::error!("failed to cast blob validation message for DaClientActor: {err:?}");
+                tracing::error!(
+                    "failed to cast blob validation message for DaClientActor: {err:?}"
+                );
             }
         }
     }

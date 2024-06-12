@@ -26,9 +26,9 @@ use tokio::sync::{
     Mutex,
 };
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 use web3::types::BlockNumber;
 
 #[tokio::main]

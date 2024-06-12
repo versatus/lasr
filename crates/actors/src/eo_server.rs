@@ -79,7 +79,9 @@ impl EoServerWrapper {
                             self.server.save_blocks_processed();
                         }
                     }
-                    Err(e) => tracing::error!("EoServer Error: server log returned an error: {e:?}"),
+                    Err(e) => {
+                        tracing::error!("EoServer Error: server log returned an error: {e:?}")
+                    }
                 }
 
                 if let ActorStatus::Stopped = eo_actor.get_status() {

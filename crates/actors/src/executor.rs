@@ -480,7 +480,9 @@ impl ExecutorActor {
                 if let Err(e) =
                     ExecutorActor::registration_error(transaction.hash_string(), e.to_string())
                 {
-                    tracing::error!("Executor Error: Failure while handling registration error: {e:?}");
+                    tracing::error!(
+                        "Executor Error: Failure while handling registration error: {e:?}"
+                    );
                 }
             }
         }
@@ -849,7 +851,9 @@ impl Actor for ExecutorActor {
                                     match poll_spawn_result {
                                         Ok(handle) => {
                                             // Stash the job_id
-                                            tracing::info!("Received handle, stashing in PendingJob");
+                                            tracing::info!(
+                                                "Received handle, stashing in PendingJob"
+                                            );
                                             let pending_job =
                                                 PendingJob::new(handle, tx, transaction);
                                             state.pending.insert(job_id.clone(), pending_job);
