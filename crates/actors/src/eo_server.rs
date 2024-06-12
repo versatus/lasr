@@ -57,10 +57,10 @@ impl EoServerWrapper {
                     ))?
                     .into();
 
-            // log::info!("attempting to load processed blocks");
-            // if let Err(e) = self.server.load_processed_blocks().await {
-            //     log::error!("unable to load processed blocks from file: {}", e);
-            // }
+            log::info!("attempting to load processed blocks");
+            if let Err(e) = self.server.load_processed_blocks().await {
+                log::error!("unable to load processed blocks from file: {}", e);
+            }
 
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
             loop {
