@@ -301,7 +301,6 @@ impl Batch {
                         .insert(account.owner_address().to_full_string(), account.clone());
                 }
             }
-            tracing::info!("{:?}", &self);
             return Ok(());
         }
 

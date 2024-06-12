@@ -255,7 +255,7 @@ impl Actor for AccountCacheActor {
                             .typecast()
                             .log_err(|e| e)
                             .and_then(|AccountValue { account }| {
-                                tracing::warn!("retrieved account from persistence store for address {hex_address}: {account:?}");
+                                tracing::debug!("retrieved account from persistence store for address {hex_address}: {account:?}");
                                 Some(account)
                             })
                     })
