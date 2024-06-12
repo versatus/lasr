@@ -43,7 +43,7 @@ use web3::types::BlockNumber;
 use crate::{
     account_cache, get_account, get_actor_ref, handle_actor_response, process_group_changed,
     AccountCacheActor, AccountCacheError, ActorExt, Coerce, DaClientError, EoClientError,
-    PendingTransactionError, SchedulerError, StaticFuture, UnorderedFuturePool,
+    PendingTransactionError, SchedulerError, StaticFuture, StorageRef, UnorderedFuturePool,
 };
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
@@ -1703,7 +1703,7 @@ impl Batcher {
 
     async fn handle_next_batch_request(
         batcher: Arc<Mutex<Batcher>>,
-        storage_ref: <AccountCacheActor as Actor>::Arguments,
+        storage_ref: StorageRef,
     ) -> Result<(), BatcherError> {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
@@ -2056,7 +2056,7 @@ impl Actor for BatcherSupervisor {
 
 pub async fn batch_requestor(
     mut stopper: tokio::sync::mpsc::Receiver<u8>,
-    storage_ref: <AccountCacheActor as Actor>::Arguments,
+    storage_ref: StorageRef,
 ) {
     if let Some(batcher) = ractor::registry::where_is(ActorType::Batcher.to_string()) {
         let batcher: ActorRef<BatcherMessage> = batcher.into();

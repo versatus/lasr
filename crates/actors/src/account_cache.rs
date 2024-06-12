@@ -21,6 +21,8 @@ use tokio::sync::mpsc::Sender;
 #[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
 
+pub type StorageRef = <AccountCacheActor as Actor>::Arguments;
+
 impl ActorName for AccountCacheActor {
     fn name(&self) -> ractor::ActorName {
         ActorType::AccountCache.to_string()
