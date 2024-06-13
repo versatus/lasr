@@ -69,3 +69,4 @@ dotenv = "0.15.0"
 
 [dev-dependencies]
 anyhow = "1"
+serial_test = "3.1.1"
