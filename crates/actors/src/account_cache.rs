@@ -233,7 +233,7 @@ impl Actor for AccountCacheActor {
                     hex_address
                 );
                 let account = if let Some(account) = state.inner.get(&address) {
-                    tracing::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
+                    tracing::debug!("retrieved account from account cache for address {hex_address}: {account:?}");
                     Some(account.clone())
                 } else {
                     // Pass to persistence store
