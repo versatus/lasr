@@ -681,10 +681,8 @@ async fn load_processed_blocks(
     let blocks_processed = blocks_processed
         .and_then(|mut file| {
             let mut buf = Vec::new();
-            file.read_to_end(&mut buf).typecast().log_err(|e| {
-                format!("failed to read blocks_processed.dat, checking from persistence.. {e:?}")
-            });
-            let blocks_processed_bytes = if !buf.is_empty() {
+
+            let blocks_processed_bytes = if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
                 tracing::error!("buf found in blocks_processed.dat");
                 Some(buf)
             } else {
