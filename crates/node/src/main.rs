@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_, block_processed_path) = std::env::vars()
         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
         .expect("missing BLOCKS_PROCESSED_PATH environment variable");
-    tracing::error!("BLOCKS PROCESSED PATH: {blocks_processed_path}");
+    tracing::error!("BLOCKS PROCESSED PATH: {block_processed_path}");
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
