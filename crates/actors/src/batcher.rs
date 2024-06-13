@@ -444,7 +444,7 @@ impl Batcher {
         Ok(())
     }
 
-    pub(super) async fn add_transaction_to_account(
+    pub async fn add_transaction_to_account(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {

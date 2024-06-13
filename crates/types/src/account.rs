@@ -290,10 +290,11 @@ impl ProgramAccount {
 }
 
 #[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
 )]
 #[serde(rename_all = "camelCase")]
 pub enum AccountType {
+    #[default]
     User,
     Program(Address),
 }
@@ -304,7 +305,18 @@ pub enum AccountType {
 /// programs, nonce, signatures, hashes, and certificates. It implements traits for
 /// serialization, hashing, and comparison.
 #[derive(
-    Builder, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Builder,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct Account {

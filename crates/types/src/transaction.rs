@@ -299,6 +299,23 @@ pub struct Transaction {
     s: [u8; 32],
 }
 
+impl Transaction {
+    /// A test bridge in transaction.
+    pub fn bridge_in(amount: u64, to: Address) -> Self {
+        const SENDER_ADDRESS: [u8; 20] = [1; 20];
+        const SENDER_PROGRAM_ADDRESS: [u8; 20] = [0; 20];
+        let bridge_value = crate::U256::from(amount);
+        Self {
+            transaction_type: TransactionType::BridgeIn(bridge_value),
+            from: SENDER_ADDRESS, // this is the default sender for testing
+            program_id: SENDER_PROGRAM_ADDRESS, // this is the default sender program for testing
+            to: to.inner(),
+            value: bridge_value,
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for Transaction {
     fn default() -> Self {
         Self {
