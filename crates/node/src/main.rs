@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await
     .map_err(Box::new)?;
-    log::error!("inner_eo_server established with blocks processed path");
+    tracing::error!("inner_eo_server established with blocks processed path");
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -454,8 +454,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run());
-    log::error!("eo_server_wrapper running");
+    tokio::spawn(eo_server_wrapper.run(tikv_client.clone()));
+    tracing::error!("eo_server_wrapper running");
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
 
@@ -670,7 +670,7 @@ async fn load_processed_blocks(
     tikv_client: TikvClient,
 ) -> Result<(U64, U64, BTreeSet<U64>, BTreeSet<U64>), Box<dyn std::error::Error>> {
     //TODO: 1. test edge case of `blocks_processed.dat` not being found
-    tarcing::error!("attempting to load processed blocks in eo server setup");
+    tracing::error!("attempting to load processed blocks in eo server setup");
     let mut buf = Vec::new();
     let mut file = std::fs::OpenOptions::new()
         .read(true)

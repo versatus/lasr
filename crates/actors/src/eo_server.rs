@@ -1,11 +1,11 @@
 #![allow(unused)]
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, io::Read, sync::Arc};
 
 use crate::{
     create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
 };
 use async_trait::async_trait;
-use eo_listener::{EoServer as InnerEoServer, EventType};
+use eo_listener::{BlocksProcessed, EoServer as InnerEoServer, EventType};
 use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
@@ -18,6 +18,7 @@ use ractor::{
     SupervisionEvent,
 };
 use thiserror::Error;
+use tikv_client::RawClient as TikvClient;
 use tokio::sync::{mpsc::Sender, Mutex};
 use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 
@@ -47,7 +48,7 @@ impl EoServerWrapper {
         Self { server }
     }
 
-    pub async fn run(mut self) -> Result<(), EoServerError> {
+    pub async fn run(mut self, tikv_client: TikvClient) -> Result<(), EoServerError> {
         // loop to reacquire the eo_server actor if it stops
         loop {
             let eo_actor: ActorRef<EoMessage> =
@@ -72,6 +73,7 @@ impl EoServerWrapper {
                                 .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
                             self.server.save_blocks_processed();
+                            update_blocks_processed_in_persistence(tikv_client.clone());
                         }
                     }
                     Err(e) => {
@@ -91,6 +93,71 @@ impl EoServerWrapper {
 
         Ok(())
     }
+}
+
+pub async fn update_blocks_processed_in_persistence(
+    tikv_client: TikvClient,
+) -> Result<(), EoServerError> {
+    // retrieve BlocksProcessed after update to relay to Persistence store
+    let (_, block_processed_path) = std::env::vars()
+        .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
+        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
+    let mut buf = Vec::new();
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(block_processed_path)
+        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+    file.read_to_end(&mut buf)
+        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+
+    let blocks_processed: BlocksProcessed =
+        bincode::deserialize(&buf).map_err(|e| EoServerError::Custom(e.to_string()))?;
+
+    // Update persistence store `bridge_from_block` value
+    if let Some(b) = blocks_processed.bridge {
+        let key = "bridge_from_block".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                tracing::error!("Updated block_from_bridge {b} in persistence store")
+            }
+        } else {
+            tracing::error!("failed to serialize `bridge_from_block`");
+        }
+    }
+    // Update persistence store `settle_from_block` value
+    if let Some(b) = blocks_processed.settle {
+        let key = "settle_from_block".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                tracing::error!("Updated settle_from_bridge {b} in persistence store")
+            }
+        } else {
+            tracing::error!("failed to serialize `settle_from_block`");
+        }
+    }
+    // Update persistence store `bridge_processed` value
+    if let Some(b) = Some(blocks_processed.bridge_processed) {
+        let key = "bridge_processed".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                tracing::error!("Updated bridge_processed {:?} in persistence store", b)
+            }
+        } else {
+            tracing::error!("failed to serialize `bridge_processed`");
+        }
+    }
+    // Update persistence store `settled_processed` value
+    if let Some(b) = Some(blocks_processed.settled_processed) {
+        let key = "settled_processed".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                tracing::error!("Updated settled_processed {:?} in persistence store", b)
+            }
+        } else {
+            tracing::error!("failed to serialize `settled_processed`");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Error)]
