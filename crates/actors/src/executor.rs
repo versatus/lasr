@@ -445,7 +445,8 @@ impl ExecutorActor {
         let manager = {
             let state = engine.lock().await;
             let manager = state.manager.clone();
-            if let Err(_) = manager.check_pinned_status(&content_id).await {
+            if let Err(e) = manager.check_pinned_status(&content_id).await {
+                tracing::error!("Error checking pinned status: {e:?}");
                 match state.pin_object(&content_id.clone(), true).await {
                     Ok(()) => {
                         tracing::info!("Successfully pinned objects");

@@ -129,7 +129,13 @@ impl OciManager {
             "calling self.store.is_pinned to check if {} is pinned",
             content_id
         );
-        let store = self.try_get_store()?;
+        let store = match self.try_get_store() {
+            Ok(store) => store,
+            Err(e) => {
+                tracing::error!("Error getting store: {e}");
+                return Err(e)
+            },
+        };
         store
             .is_pinned(content_id)
             .await
