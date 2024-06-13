@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_file(true)
         .with_line_number(true)
         .with_thread_ids(true)
+        .with_target(false)
         .with_filter(LevelFilter::INFO);
 
     // Create a stdout layer with ERROR log level.

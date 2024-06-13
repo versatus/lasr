@@ -168,7 +168,7 @@ impl<C: ClientT> ExecutionEngine<C> {
         inputs: Inputs,
         transaction_hash: &str,
     ) -> std::io::Result<tokio::task::JoinHandle<std::io::Result<String>>> {
-        let handle = self
+        let handle = match self
             .manager
             .run_container(
                 content_id,
@@ -177,7 +177,13 @@ impl<C: ClientT> ExecutionEngine<C> {
                 inputs,
                 Some(transaction_hash.to_owned()),
             )
-            .await?;
+            .await {
+            Ok(handle) => handle,
+            Err(e) => {
+                tracing::error!("Error while attempting to run container: {e:?}");
+                return Err(e);
+                }
+            };
         tracing::warn!("returning handle to executor");
         Ok(handle)
     }

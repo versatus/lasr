@@ -440,6 +440,8 @@ impl OciManager {
             // Clean up the temporary file
             tokio::fs::remove_file(temp_file_path).await?;
 
+            tracing::warn!("temporary file removed");
+
             Ok::<_, std::io::Error>(outputs)
         }))
     }
