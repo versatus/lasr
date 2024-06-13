@@ -1,5 +1,5 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, io::Read, path::PathBuf, str::FromStr, sync::Arc};
+use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
 use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
@@ -12,7 +12,7 @@ use lasr_actors::{
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
     LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
     PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
-    ValidatorCore, ValidatorSupervisor,
+    ValidatorCore, ValidatorSupervisor, TIKV_PROCESSED_BLOCKS_KEY,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
@@ -29,7 +29,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
-use web3::types::{BlockNumber, U64};
+use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -558,20 +558,20 @@ async fn setup_eo_server(
         .typecast()
         .log_err(|e| e.to_string())
     {
-        let bridge_from_block = blocks_processed.0;
-        let settle_from_block = blocks_processed.1;
-        let bridge_processed = blocks_processed.2;
-        let settled_processed = blocks_processed.3;
+        let bridge_from_block = blocks_processed.bridge;
+        let settle_from_block = blocks_processed.settle;
+        let bridge_processed = blocks_processed.bridge_processed;
+        let settled_processed = blocks_processed.settled_processed;
 
         let blob_settled_filter = web3::types::FilterBuilder::default()
-            .from_block(BlockNumber::Number(settle_from_block))
+            .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
             .to_block(BlockNumber::Latest)
             .address(vec![contract_address])
             .topics(blob_settled_topic.clone(), None, None, None)
             .build();
 
         let bridge_filter = web3::types::FilterBuilder::default()
-            .from_block(BlockNumber::Number(bridge_from_block))
+            .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
             .to_block(BlockNumber::Latest)
             .address(vec![contract_address])
             .topics(bridge_topic.clone(), None, None, None)
@@ -613,8 +613,8 @@ async fn setup_eo_server(
             .bridge_topic(bridge_topic)
             .blob_settled_topic(blob_settled_topic)
             .bridge_filter(bridge_filter)
-            .current_bridge_filter_block(bridge_from_block)
-            .current_blob_settlement_filter_block(settle_from_block)
+            .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
+            .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
             .blob_settled_filter(blob_settled_filter)
             .blob_settled_event(blob_settled_event)
             .bridge_event(bridge_event)
@@ -668,169 +668,45 @@ async fn setup_eo_client(
 async fn load_processed_blocks(
     path: &str,
     tikv_client: TikvClient,
-) -> Result<(U64, U64, BTreeSet<U64>, BTreeSet<U64>), Box<dyn std::error::Error>> {
-    //TODO: 1. test edge case of `blocks_processed.dat` not being found
+) -> Result<BlocksProcessed, Box<dyn std::error::Error>> {
     tracing::error!("attempting to load processed blocks in eo server setup");
-    let mut buf = Vec::new();
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .create(true) // Creates `blocks_processed.dat` ONLY if not found.
-        .open(path)
-        .map_err(|e| EoServerError::Other(e.to_string()))?;
-
-    file.read_to_end(&mut buf)
-        .map_err(|e| EoServerError::Other(e.to_string()))?;
-
-    // This portion needs to be tested, could potentially fail if BlocksProcessed is empty.
-    let blocks_processed: BlocksProcessed =
-        bincode::deserialize(&buf).map_err(|e| EoServerError::Other(e.to_string()))?;
-
-    // Gets the last block that was processed with relavence to bridge events,
-    // either through the `blocks_processed.dat` file or TiKV persistence store.
-    let bridge_from_block = if let Some(b) = blocks_processed.bridge {
-        let key = "bridge_from_block".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated block_from_bridge {b} in persistence store")
-            }
-            Some(b)
-        } else {
-            tracing::error!("failed to serialize `bridge_from_block`");
-            Some(b)
-        }
-    } else {
-        let key = "bridge_from_block".to_string();
-        tikv_client
-            .get(key)
-            .await
-            .typecast()
-            .log_err(|e| e.to_string())
-            .flatten()
-            .and_then(|returned_data| {
-                bincode::deserialize(&returned_data)
-                    .typecast()
-                    .log_err(|e| e)
-                    .and_then(|b: U64| {
-                        tracing::error!(
-                            "retrieved `bridge_from_block` from persistence store: {b:?}"
-                        );
-                        Some(b)
-                    })
+    let blocks_processed = {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .create(true) // Creates `blocks_processed.dat` ONLY if not found.
+            .open(path)
+            .ok()
+            .and_then(|mut file| {
+                let mut buf = Vec::new();
+                file.read_to_end(&mut buf).typecast().log_err(|e| {
+                    format!(
+                        "failed to read blocks_processed.dat, checking from persistence.. {e:?}"
+                    )
+                });
+                let blocks_processed_bytes = if !buf.is_empty() {
+                    Some(buf)
+                } else {
+                    get_blocks_processed_from_persistence(tikv_client)
+                        .ok()
+                        .flatten()
+                };
+                bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default())
+                    .ok()
             })
+            .unwrap_or_default()
     };
-    tracing::error!("bridge from block: {:?}", bridge_from_block);
+    Ok(blocks_processed)
+}
 
-    // Gets the last block that was processed with relavence to blob settle events,
-    // either through the `blocks_processed.dat` file or TiKV persistence store.
-    let settle_from_block = if let Some(b) = blocks_processed.settle {
-        let key = "settle_from_block".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated settle_from_bridge {b} in persistence store")
-            }
-            Some(b)
-        } else {
-            tracing::error!("failed to serialize `settle_from_block`");
-            Some(b)
-        }
-    } else {
-        let key = "settle_from_block".to_string();
-        tikv_client
-            .get(key)
-            .await
-            .typecast()
-            .log_err(|e| e.to_string())
-            .flatten()
-            .and_then(|returned_data| {
-                bincode::deserialize(&returned_data)
-                    .typecast()
-                    .log_err(|e| e)
-                    .and_then(|b: U64| {
-                        tracing::error!(
-                            "retrieved `settled_from_block` from persistence store: {b:?}"
-                        );
-                        Some(b)
-                    })
-            })
-    };
-    tracing::error!("settle from block: {:?}", settle_from_block);
+fn get_blocks_processed_from_persistence(
+    tikv_client: TikvClient,
+) -> Result<Option<Vec<u8>>, EoServerError> {
+    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+        EoServerError::Other(format!(
+            "failed to start tokio runtime to get processed blocks from persistence: {e:?}"
+        ))
+    })?;
+    let res = rt.block_on(async { tikv_client.get(TIKV_PROCESSED_BLOCKS_KEY.to_string()).await });
 
-    // Gets blocks that have been processed and transfered to the `bridge_processed` field of
-    // the `BlocksProcessed` structure. Either through the `blocks_processed.dat` file or TiKV persistence store.
-    let bridge_processed = if let Some(b) = Some(blocks_processed.bridge_processed) {
-        let key = "bridge_processed".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated bridge_processed {:?} in persistence store", b)
-            }
-            Some(b)
-        } else {
-            tracing::error!("failed to serialize `bridge_processed`");
-            Some(b)
-        }
-    } else {
-        let key = "bridge_processed".to_string();
-        tikv_client
-            .get(key)
-            .await
-            .typecast()
-            .log_err(|e| e.to_string())
-            .flatten()
-            .and_then(|returned_data| {
-                bincode::deserialize(&returned_data)
-                    .typecast()
-                    .log_err(|e| e)
-                    .and_then(|b: BTreeSet<U64>| {
-                        tracing::error!(
-                            "retrieved `bridge_processed` from persistence store: {b:?}"
-                        );
-                        Some(b)
-                    })
-            })
-    };
-    tracing::error!("bridge processed set values: {:?}", bridge_processed);
-
-    // Gets blocks that have been processed and transfered to the `settled_processed` field of
-    // the `BlocksProcessed` structure. Either through the `blocks_processed.dat` file or TiKV persistence store.
-    let settled_processed = if let Some(b) = Some(blocks_processed.settled_processed) {
-        let key = "settled_processed".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated settled_processed {:?} in persistence store", b)
-            }
-            Some(b)
-        } else {
-            tracing::error!("failed to serialize `settled_processed`");
-            Some(b)
-        }
-    } else {
-        let key = "settled_processed".to_string();
-        tikv_client
-            .get(key)
-            .await
-            .typecast()
-            .log_err(|e| e.to_string())
-            .flatten()
-            .and_then(|returned_data| {
-                bincode::deserialize(&returned_data)
-                    .typecast()
-                    .log_err(|e| e)
-                    .and_then(|b: BTreeSet<U64>| {
-                        tracing::error!(
-                            "retrieved `settled_processed` from persistence store: {b:?}"
-                        );
-                        Some(b)
-                    })
-            })
-    };
-    tracing::error!("settled processed set values: {:?}", settled_processed);
-
-    let res = (
-        bridge_from_block.unwrap_or_default(),
-        settle_from_block.unwrap_or_default(),
-        bridge_processed.unwrap_or_default(),
-        settled_processed.unwrap_or_default(),
-    );
-
-    Ok(res)
+    Ok(res.typecast().log_err(|e| e.to_string()).flatten())
 }

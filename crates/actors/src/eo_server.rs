@@ -17,6 +17,7 @@ use ractor::{
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,
     SupervisionEvent,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::{mpsc::Sender, Mutex};
@@ -29,6 +30,8 @@ use lasr_messages::{
     EoMessage, SchedulerMessage, SettlementEvent, SettlementEventBuilder, SupervisorType,
     ValidatorMessage,
 };
+
+pub const TIKV_PROCESSED_BLOCKS_KEY: &str = "blocks_processed";
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
@@ -70,10 +73,14 @@ impl EoServerWrapper {
                                     log_type: logs.event_type,
                                     log: log.to_vec(),
                                 })
-                                .map_err(|e| EoServerError::Custom(e.to_string()))?;
+                                .typecast()
+                                .log_err(|e| EoServerError::Custom(e.to_string()));
 
                             self.server.save_blocks_processed();
-                            update_blocks_processed_in_persistence(tikv_client.clone());
+                            update_blocks_processed_in_persistence(tikv_client.clone())
+                                .await
+                                .typecast()
+                                .log_err(|e| e);
                         }
                     }
                     Err(e) => {
@@ -110,53 +117,9 @@ pub async fn update_blocks_processed_in_persistence(
     file.read_to_end(&mut buf)
         .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-    let blocks_processed: BlocksProcessed =
-        bincode::deserialize(&buf).map_err(|e| EoServerError::Custom(e.to_string()))?;
+    let key = TIKV_PROCESSED_BLOCKS_KEY.to_string();
+    tikv_client.put(key, buf).await.typecast().log_err(|e| e);
 
-    // Update persistence store `bridge_from_block` value
-    if let Some(b) = blocks_processed.bridge {
-        let key = "bridge_from_block".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated block_from_bridge {b} in persistence store")
-            }
-        } else {
-            tracing::error!("failed to serialize `bridge_from_block`");
-        }
-    }
-    // Update persistence store `settle_from_block` value
-    if let Some(b) = blocks_processed.settle {
-        let key = "settle_from_block".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated settle_from_bridge {b} in persistence store")
-            }
-        } else {
-            tracing::error!("failed to serialize `settle_from_block`");
-        }
-    }
-    // Update persistence store `bridge_processed` value
-    if let Some(b) = Some(blocks_processed.bridge_processed) {
-        let key = "bridge_processed".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated bridge_processed {:?} in persistence store", b)
-            }
-        } else {
-            tracing::error!("failed to serialize `bridge_processed`");
-        }
-    }
-    // Update persistence store `settled_processed` value
-    if let Some(b) = Some(blocks_processed.settled_processed) {
-        let key = "settled_processed".to_string();
-        if let Some(value) = bincode::serialize(&b).ok() {
-            if tikv_client.put(key, value).await.is_ok() {
-                tracing::error!("Updated settled_processed {:?} in persistence store", b)
-            }
-        } else {
-            tracing::error!("failed to serialize `settled_processed`");
-        }
-    }
     Ok(())
 }
 
