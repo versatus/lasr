@@ -38,6 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a file layer with a lower log level (e.g., below ERROR).
     let file_layer = tracing_subscriber::fmt::Layer::new()
         .with_writer(file_appender)
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
         .with_filter(LevelFilter::INFO);
 
     // Create a stdout layer with ERROR log level.
