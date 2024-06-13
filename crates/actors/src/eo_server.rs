@@ -63,7 +63,7 @@ impl EoServerWrapper {
                 match &logs.log_result {
                     Ok(log) => {
                         if !log.is_empty() {
-                            log::info!("non-empty log found: {:?}", log);
+                            tracing::info!("non-empty log found: {:?}", log);
                             eo_actor
                                 .cast(EoMessage::Log {
                                     log_type: logs.event_type,
@@ -74,11 +74,13 @@ impl EoServerWrapper {
                             self.server.save_blocks_processed();
                         }
                     }
-                    Err(e) => log::error!("EoServer Error: server log returned an error: {e:?}"),
+                    Err(e) => {
+                        tracing::error!("EoServer Error: server log returned an error: {e:?}")
+                    }
                 }
 
                 if let ActorStatus::Stopped = eo_actor.get_status() {
-                    log::error!(
+                    tracing::error!(
                         "EoServerActor stopped! Waiting 15s, then attempting to reacquire EoServerActor..."
                     );
                     break;
@@ -114,7 +116,7 @@ impl EoServerActor {
     }
 
     fn handle_eo_event(events: EoEvent) -> Result<(), EoServerError> {
-        log::warn!("discovered EO event: {:?}", events);
+        tracing::warn!("discovered EO event: {:?}", events);
         let message = EngineMessage::EoEvent { event: events };
         let engine: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
@@ -131,7 +133,7 @@ impl EoServerActor {
     fn parse_bridge_log(
         mut logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        log::warn!("Parsing bridge event: {:?}", logs);
+        tracing::warn!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         logs.sort_unstable_by(|a, b| {
@@ -282,38 +284,38 @@ impl EoServerActor {
     fn handle_log(log: Vec<web3::ethabi::Log>, log_type: EventType) {
         match log_type {
             EventType::Bridge(_) => {
-                log::warn!("received bridge event");
+                tracing::warn!("received bridge event");
                 let parsed_bridge_log_res = EoServerActor::parse_bridge_log(log);
                 match parsed_bridge_log_res {
                     Ok(parsed_bridge_log) => {
                         let res = EoServerActor::handle_eo_event(parsed_bridge_log.into());
 
                         if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {e:?}");
+                            tracing::error!("eo_server encountered an error: {e:?}");
                         } else {
-                            log::info!("{:?}", res);
+                            tracing::info!("{:?}", res);
                         }
                     }
                     Err(e) => {
-                        log::error!("Error parsing bridge log: {e:?}");
+                        tracing::error!("Error parsing bridge log: {e:?}");
                     }
                 }
             }
             EventType::Settlement(_) => {
-                log::info!("eo_server discovered Settlement event");
+                tracing::info!("eo_server discovered Settlement event");
                 let parsed_settlement_log_res = EoServerActor::parse_settlement_log(log);
                 match parsed_settlement_log_res {
                     Ok(parsed_settlement_log) => {
                         let res = EoServerActor::handle_eo_event(parsed_settlement_log.into());
 
                         if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {e:?}");
+                            tracing::error!("eo_server encountered an error: {e:?}");
                         } else {
-                            log::info!("{:?}", res);
+                            tracing::info!("{:?}", res);
                         }
                     }
                     Err(e) => {
-                        log::error!("Error parsing settlement log: {e:?}");
+                        tracing::error!("Error parsing settlement log: {e:?}");
                     }
                 }
             }
@@ -351,10 +353,10 @@ impl Actor for EoServerActor {
                 amount,
                 content,
             } => {
-                log::info!("Eo Server ready to bridge assets to EO contract");
+                tracing::info!("Eo Server ready to bridge assets to EO contract");
             }
             _ => {
-                log::info!("Eo Server received unhandled message");
+                tracing::info!("Eo Server received unhandled message");
             }
         }
         Ok(())
@@ -401,24 +403,24 @@ impl Actor for EoServerSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

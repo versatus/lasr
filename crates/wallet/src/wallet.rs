@@ -274,7 +274,7 @@ impl<L: LasrRpcClient + Send + Sync> Wallet<L> {
     }
 
     pub async fn get_account(&mut self, address: &Address) -> WalletResult<()> {
-        log::info!("calling get_account for {:x}", address);
+        tracing::info!("calling get_account for {:x}", address);
         let account: Account = serde_json::from_str(
             &self
                 .client

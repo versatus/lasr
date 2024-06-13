@@ -98,7 +98,7 @@ impl ValidatorCore {
                         e,
                     };
                     let _ = pending_transactions.cast(message);
-                    log::error!("{}", &error_string);
+                    tracing::error!("{}", &error_string);
                     return Err(Box::new(ValidatorError::Custom(error_string))
                         as Box<dyn std::error::Error + Send>);
                 }
@@ -138,7 +138,7 @@ impl ValidatorCore {
                         "unable to acquire pending transaction actor".to_string(),
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
-            log::warn!("attempting to validate call: {}", tx.hash_string());
+            tracing::warn!("attempting to validate call: {}", tx.hash_string());
 
             if let Err(e) = tx.verify_signature() {
                 let error_string = e.to_string();
@@ -151,8 +151,8 @@ impl ValidatorCore {
                     as Box<dyn std::error::Error + Send>);
             }
 
-            log::warn!("signature is valid");
-            log::warn!("acquiring caller from account map");
+            tracing::warn!("signature is valid");
+            tracing::warn!("acquiring caller from account map");
             let caller = match account_map.get(&AddressOrNamespace::Address(tx.from())) {
                 Some(Some(account)) => account,
                 _ => {
@@ -171,7 +171,7 @@ impl ValidatorCore {
                 }
             };
 
-            log::warn!("validating caller nonce");
+            tracing::warn!("validating caller nonce");
             if let Err(e) = caller.clone().validate_nonce(tx.nonce()) {
                 let error_string = e.to_string();
                 let message = PendingTransactionMessage::Invalid {
@@ -184,7 +184,7 @@ impl ValidatorCore {
             }
 
             let instructions = outputs.instructions();
-            log::warn!("call returned {} instruction", instructions.len());
+            tracing::warn!("call returned {} instruction", instructions.len());
             ValidatorCore::validate_instructions(
                 instructions,
                 &tx,
@@ -193,14 +193,14 @@ impl ValidatorCore {
                 &account_map,
             )?;
 
-            log::warn!("Completed the validation of all instruction");
+            tracing::warn!("Completed the validation of all instruction");
             let batcher: ActorRef<BatcherMessage> =
                 ractor::registry::where_is(ActorType::Batcher.to_string())
                     .ok_or(Box::new(ValidatorError::Custom(
                         "unable to acquire batcher actor".to_string(),
                     )) as Box<dyn std::error::Error + Send>)?
                     .into();
-            log::info!("transaction {} is valid, responding", tx.hash_string());
+            tracing::info!("transaction {} is valid, responding", tx.hash_string());
             let message = BatcherMessage::AppendTransaction {
                 transaction: tx,
                 outputs: Some(outputs),
@@ -239,7 +239,7 @@ impl ValidatorCore {
                     // get the program address of the token being transfered
                     let token_address = transfer.token();
 
-                    log::warn!(
+                    tracing::warn!(
                         "validating caller information: {:?}",
                         caller.programs().get(token_address)
                     );
@@ -260,7 +260,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("`caller` balance is valid");
+                                    tracing::info!("`caller` balance is valid");
                                 }
                             }
                         } else {
@@ -276,7 +276,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("`caller` token ownership is valid");
+                                    tracing::info!("`caller` token ownership is valid");
                                 }
                             }
                         }
@@ -381,11 +381,11 @@ impl ValidatorCore {
                                                     as Box<dyn std::error::Error + Send>);
                                             }
                                             _ => {
-                                                log::info!("is approved spender");
+                                                tracing::info!("is approved spender");
                                             }
                                         };
                                     } else {
-                                        log::info!("is approved spender");
+                                        tracing::info!("is approved spender");
                                     }
                                 }
                             } else if transfer_from_account
@@ -412,11 +412,11 @@ impl ValidatorCore {
                                             as Box<dyn std::error::Error + Send>);
                                     }
                                     _ => {
-                                        log::info!("is approved spender");
+                                        tracing::info!("is approved spender");
                                     }
                                 };
                             } else {
-                                log::info!("is approved spender");
+                                tracing::info!("is approved spender");
                             }
                         } else {
                             // If non-fungible token check ids
@@ -434,7 +434,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("is token owner")
+                                    tracing::info!("is token owner")
                                 }
                             }
 
@@ -464,7 +464,7 @@ impl ValidatorCore {
                                             as Box<dyn std::error::Error + Send>);
                                     }
                                     _ => {
-                                        log::info!("is approved");
+                                        tracing::info!("is approved");
                                     }
                                 }
                             }
@@ -518,7 +518,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("balance is valid");
+                                    tracing::info!("balance is valid");
                                 }
                             }
                         } else {
@@ -534,13 +534,13 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("token ownership is valid");
+                                    tracing::info!("token ownership is valid");
                                 }
                             }
                         }
                     } else {
                         // If not attempt to get the account for the transferrer
-                        log::info!("Attempting to burn from non caller address");
+                        tracing::info!("Attempting to burn from non caller address");
                         let burn_from_account = match account_map.get(burn_from) {
                             Some(Some(account)) => account,
                             _ => {
@@ -591,7 +591,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("balance is valid");
+                                    tracing::info!("balance is valid");
                                 }
                             }
                             // Check that the caller or the program being called
@@ -620,11 +620,11 @@ impl ValidatorCore {
                                             as Box<dyn std::error::Error + Send>);
                                     }
                                     _ => {
-                                        log::info!("approved spender");
+                                        tracing::info!("approved spender");
                                     }
                                 }
                             } else {
-                                log::info!("approved spender");
+                                tracing::info!("approved spender");
                             }
                         } else {
                             // If non-fungible token check ids
@@ -642,7 +642,7 @@ impl ValidatorCore {
                                         as Box<dyn std::error::Error + Send>);
                                 }
                                 _ => {
-                                    log::info!("valid token ownership");
+                                    tracing::info!("valid token ownership");
                                 }
                             }
 
@@ -672,17 +672,17 @@ impl ValidatorCore {
                                             as Box<dyn std::error::Error + Send>);
                                     }
                                     _ => {
-                                        log::info!("approved spender");
+                                        tracing::info!("approved spender");
                                     }
                                 }
                             } else {
-                                log::info!("approved spender");
+                                tracing::info!("approved spender");
                             }
                         }
                     }
                 }
                 Instruction::Update(updates) => {
-                    log::info!("call {} returned update instruction", tx.hash_string());
+                    tracing::info!("call {} returned update instruction", tx.hash_string());
                     for update in updates.updates() {
                         match update {
                             TokenOrProgramUpdate::TokenUpdate(token_update) => {
@@ -1003,7 +1003,7 @@ impl ValidatorActor {
         validator_core: Arc<Mutex<ValidatorCore>>,
         transaction: Transaction,
     ) -> Result<(), ValidatorError> {
-        log::info!(
+        tracing::info!(
             "Received transaction to validate: {}",
             transaction.hash_string()
         );
@@ -1012,16 +1012,16 @@ impl ValidatorActor {
         let from_address = transaction.from();
         match transaction_type {
             TransactionType::Send(_) => {
-                log::info!("Received send transaction, checking account_cache for account {:?} from validator", &from_address);
+                tracing::info!("Received send transaction, checking account_cache for account {:?} from validator", &from_address);
                 let account =
                     if let Some(account) = get_account(from_address, ActorType::Validator).await {
-                        log::info!(
+                        tracing::info!(
                             "validator found account in cache for address: {:?}",
                             from_address
                         );
                         Some(account)
                     } else {
-                        log::warn!(
+                        tracing::warn!(
                         "unable to find account for address {:?} in cache or persistence store.",
                         from_address
                         );
@@ -1046,7 +1046,7 @@ impl ValidatorActor {
 
                     actor.cast(message)?;
                 } else {
-                    log::info!("validating send transaction");
+                    tracing::info!("validating send transaction");
                     let state = validator_core.lock().await;
                     let op = state.validate_send();
                     state.pool.spawn_fifo(move || {
@@ -1060,13 +1060,13 @@ impl ValidatorActor {
                 // install op
             }
             TransactionType::BridgeIn(_) => {
-                log::warn!("attempting to bridge in");
+                tracing::warn!("attempting to bridge in");
                 let _account = if let Some(account) =
                     get_account(transaction.from(), ActorType::Validator).await
                 {
                     Some(account)
                 } else {
-                    log::warn!(
+                    tracing::warn!(
                         "unable to find account for address {from_address:?} in cache or persistence store."
                     );
                     None
@@ -1105,7 +1105,7 @@ impl ValidatorActor {
         outputs: Option<Outputs>,
         transaction: Transaction,
     ) -> Result<(), ValidatorError> {
-        log::warn!(
+        tracing::warn!(
             "pending call received by validator for: {}",
             &transaction.hash_string()
         );
@@ -1127,28 +1127,28 @@ impl ValidatorActor {
                 match &address {
                     AddressOrNamespace::This => {
                         let addr = transaction.to();
-                        log::info!(
+                        tracing::info!(
                             "Received call transaction checking account {} from validator",
                             &addr.to_full_string()
                         );
                         if let Some(account) = get_account(addr, ActorType::Validator).await {
-                            log::info!("Found `this` account in cache");
+                            tracing::info!("Found `this` account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
+                            tracing::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         }
                     }
                     AddressOrNamespace::Address(addr) => {
-                        log::info!(
+                        tracing::info!(
                             "looking for account {:?} in cache from validator",
                             addr.to_full_string()
                         );
                         if let Some(account) = get_account(*addr, ActorType::Validator).await {
-                            log::info!("found account in cache");
+                            tracing::info!("found account in cache");
                             validator_accounts.insert(address.clone(), Some(account));
                         } else {
-                            log::warn!("unable to find account for address {addr:?} in cache or persistence store.");
+                            tracing::warn!("unable to find account for address {addr:?} in cache or persistence store.");
                             validator_accounts.insert(address.clone(), None);
                         };
                     }
@@ -1166,7 +1166,7 @@ impl ValidatorActor {
                 let _ = op(validator_accounts, outputs, transaction);
             });
         } else {
-            log::error!("Call transactions must have an output associated with them");
+            tracing::error!("Call transactions must have an output associated with them");
             if let Some(actor) =
                 ractor::registry::where_is(ActorType::PendingTransactions.to_string())
             {
@@ -1251,7 +1251,7 @@ impl ActorExt for ValidatorActor {
                 future_handler
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -1300,24 +1300,24 @@ impl Actor for ValidatorSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

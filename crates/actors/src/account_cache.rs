@@ -119,15 +119,15 @@ impl AccountCacheInner {
             AccountType::User => {
                 let address = account.owner_address();
                 if let Some(entry) = self.cache.get_mut(&address) {
-                    log::info!("Found account: 0x{:x} in cache, updating...", &address);
+                    tracing::info!("Found account: 0x{:x} in cache, updating...", &address);
                     *entry = account;
                 } else {
-                    log::info!(
+                    tracing::info!(
                         "Did not find account: 0x{:x} in cache, inserting...",
                         &address
                     );
                     self.cache.insert(address, account);
-                    log::info!(
+                    tracing::info!(
                         "Inserted account: 0x{:x} in cache, cache.len(): {}",
                         &address,
                         self.cache.len()
@@ -136,18 +136,18 @@ impl AccountCacheInner {
             }
             AccountType::Program(program_address) => {
                 if let Some(entry) = self.cache.get_mut(&program_address) {
-                    log::info!(
+                    tracing::info!(
                         "Found program_account: 0x{:x} in cache, updating...",
                         &program_address
                     );
                     *entry = account;
                 } else {
-                    log::info!(
+                    tracing::info!(
                         "Did not find account: 0x{:x} in cache, inserting...",
                         &program_address
                     );
                     self.cache.insert(program_address, account);
-                    log::info!(
+                    tracing::info!(
                         "Inserted account: 0x{:x} in cache, cache.len(): {}",
                         &program_address,
                         self.cache.len()
@@ -178,7 +178,7 @@ impl AccountCacheInner {
     }
 
     fn build_batch(&self) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::info!("Time to build a batch and settle it");
+        tracing::info!("Time to build a batch and settle it");
         Ok(())
     }
 }
@@ -216,28 +216,28 @@ impl Actor for AccountCacheActor {
                 location,
             } => {
                 let owner = &account.owner_address().to_full_string();
-                log::warn!(
+                tracing::warn!(
                     "Received account cache write request from {} for address {}: WHERE: {}",
                     who.to_string(),
                     owner,
                     location
                 );
                 let _ = state.inner.handle_cache_write(account.clone());
-                log::info!("Account written to for address {owner}: {:?}", &account);
+                tracing::info!("Account written to for address {owner}: {:?}", &account);
             }
             AccountCacheMessage::Read { address, tx, who } => {
                 let hex_address = &address.to_full_string();
-                log::warn!(
+                tracing::warn!(
                     "Recieved account cache read request from {} for address: {}",
                     who.to_string(),
                     hex_address
                 );
                 let account = if let Some(account) = state.inner.get(&address) {
-                    log::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
+                    tracing::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
                     Some(account.clone())
                 } else {
                     // Pass to persistence store
-                    log::warn!(
+                    tracing::warn!(
                         "Account not found in AccountCache for address {hex_address}, connecting to persistence store."
                     );
                     let acc_key = address.to_full_string();
@@ -255,7 +255,7 @@ impl Actor for AccountCacheActor {
                             .typecast()
                             .log_err(|e| e)
                             .and_then(|AccountValue { account }| {
-                                log::warn!("retrieved account from persistence store for address {hex_address}: {account:?}");
+                                tracing::debug!("retrieved account from persistence store for address {hex_address}: {account:?}");
                                 Some(account)
                             })
                     })
@@ -333,24 +333,24 @@ impl Actor for AccountCacheSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

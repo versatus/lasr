@@ -110,15 +110,15 @@ impl EngineActor {
         };
         if let Some(cache_actor) = ractor::registry::where_is(ActorType::AccountCache.to_string()) {
             if let Err(e) = cache_actor.send_message(message) {
-                log::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
+                tracing::error!("AccountCacheActor Error: failed to send write message for account address: {owner}: {e:?}");
             }
         } else {
-            log::error!("unable to find AccountCacheActor in registry");
+            tracing::error!("unable to find AccountCacheActor in registry");
         }
     }
 
     async fn check_cache(&self, address: &Address) -> Result<Option<Account>, EngineError> {
-        log::info!(
+        tracing::info!(
             "checking account cache for account: {} from engine",
             &address.to_full_string()
         );
@@ -139,7 +139,7 @@ impl EngineActor {
                         return Ok(None)
                     }
                     Err(e) => {
-                        log::error!("{e:?}");
+                        tracing::error!("{e:?}");
                     },
                 }
             }
@@ -151,7 +151,7 @@ impl EngineActor {
         transaction: Transaction,
         outputs: Option<Outputs>,
     ) -> Result<(), EngineError> {
-        log::info!(
+        tracing::info!(
             "acquiring pending transaction actor to set transaction: {}",
             transaction.hash_string()
         );
@@ -196,21 +196,21 @@ impl EngineActor {
     }
 
     async fn handle_call(transaction: Transaction) -> Result<(), EngineError> {
-        log::info!("handling call transaction: {}", transaction.hash_string());
+        tracing::info!("handling call transaction: {}", transaction.hash_string());
         let message = ExecutorMessage::Set { transaction };
         EngineActor::inform_executor(message).await?;
         Ok(())
     }
 
     async fn inform_executor(message: ExecutorMessage) -> Result<(), EngineError> {
-        log::info!("acquiring Executor actor");
+        tracing::info!("acquiring Executor actor");
         let actor: ActorRef<ExecutorMessage> =
             ractor::registry::where_is(ActorType::Executor.to_string())
                 .ok_or(EngineError::Custom(
                     "engine.rs 161: Error: unable to acquire executor".to_string(),
                 ))?
                 .into();
-        log::info!(
+        tracing::info!(
             "acquired Executor Actor, attempting to send message: {:?}",
             &message
         );
@@ -222,12 +222,12 @@ impl EngineActor {
     }
 
     async fn handle_send(transaction: Transaction) -> Result<(), EngineError> {
-        log::info!("scheduler handling send: {}", transaction.hash_string());
+        tracing::info!("scheduler handling send: {}", transaction.hash_string());
         EngineActor::set_pending_transaction(transaction, None).await
     }
 
     async fn handle_register_program(transaction: Transaction) -> Result<(), EngineError> {
-        log::info!("Creating program address");
+        tracing::info!("Creating program address");
         let mut transaction_id = [0u8; 32];
         transaction_id.copy_from_slice(&transaction.hash()[..]);
         let json: serde_json::Map<String, Value> = serde_json::from_str(&transaction.inputs())
@@ -266,7 +266,7 @@ impl EngineActor {
             transaction,
         };
 
-        log::info!("informing executor");
+        tracing::info!("informing executor");
         EngineActor::inform_executor(message).await?;
         Ok(())
     }
@@ -278,7 +278,7 @@ impl EngineActor {
     ) -> Result<(), EngineError> {
         // Parse the outputs into instructions
         // Outputs { inputs, instructions };
-        log::warn!(
+        tracing::warn!(
             "transaction: {} received by engine as success",
             transaction_hash.clone()
         );
@@ -287,12 +287,12 @@ impl EngineActor {
 
         let parsed_outputs: Outputs = match outputs_json {
             Ok(outputs) => {
-                log::info!("Output parsed: {:?}", &outputs);
+                tracing::info!("Output parsed: {:?}", &outputs);
                 outputs
             }
             Err(e) => {
                 let error_string = e.to_string();
-                log::error!("Engine Error: Deserialization of outputs failed: {}", e);
+                tracing::error!("Engine Error: Deserialization of outputs failed: {}", e);
                 EngineActor::respond_with_error(
                     transaction.hash_string(),
                     outputs.to_owned(),
@@ -311,7 +311,7 @@ impl EngineActor {
         };
 
         // Get transaction from pending transactions
-        log::warn!("Forwarding to pending transactions");
+        tracing::warn!("Forwarding to pending transactions");
         let message = PendingTransactionMessage::New {
             transaction,
             outputs: Some(parsed_outputs),
@@ -320,7 +320,7 @@ impl EngineActor {
             .cast(message)
             .map_err(|e| EngineError::Custom(e.to_string()))?;
 
-        log::warn!("Forwarded to pending transactions");
+        tracing::warn!("Forwarded to pending transactions");
         Ok(())
     }
 
@@ -334,7 +334,7 @@ impl EngineActor {
                 //TODO Handle error cases
                 let _ = EngineActor::respond_with_error(transaction_hash, outputs, e.to_string());
             }
-            Ok(()) => log::info!(
+            Ok(()) => tracing::info!(
                 "Successfully parsed outputs from {:?} and sent to pending transactions",
                 transaction_hash
             ),
@@ -372,15 +372,15 @@ impl EngineActor {
     async fn handle_eo_event(event: EoEvent) -> Result<(), EngineError> {
         match event {
             EoEvent::Bridge(log) => {
-                log::info!("Engine Received EO Bridge Event");
+                tracing::info!("Engine Received EO Bridge Event");
                 EngineActor::handle_bridge_event(&log)
                     .await
                     .unwrap_or_else(|e| {
-                        log::error!("{e:?}");
+                        tracing::error!("{e:?}");
                     });
             }
             EoEvent::Settlement(log) => {
-                log::info!("Engine Received EO Settlement Event");
+                tracing::info!("Engine Received EO Settlement Event");
             }
         }
         Ok(())
@@ -427,7 +427,7 @@ impl Actor for EngineActor {
                 guard.push(fut.boxed());
             }
             EngineMessage::RegisterProgram { transaction } => {
-                log::info!(
+                tracing::info!(
                     "Received register program transaction: {}",
                     transaction.hash_string()
                 );
@@ -472,7 +472,7 @@ impl ActorExt for EngineActor {
                 future_handler
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -521,24 +521,24 @@ impl Actor for EngineSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);
