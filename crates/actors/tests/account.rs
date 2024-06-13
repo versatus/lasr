@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! Test events that make changes to `Account`s.
+//! Test coverage for events that make changes to `Account`.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -7,7 +7,8 @@ use std::{
 };
 
 use lasr_actors::{
-    get_actor_ref, AccountCacheActor, AccountCacheError, Batcher, BatcherActor, TaskScheduler,
+    get_actor_ref, AccountCacheActor, AccountCacheError, Batcher, BatcherActor,
+    PendingTransactionActor, TaskScheduler,
 };
 use lasr_messages::{AccountCacheMessage, ActorName, ActorType};
 use lasr_types::{
@@ -29,7 +30,7 @@ pub fn empty_account() -> Account {
 pub fn sender_test_account_pair() -> (Account, Account) {
     const SENDER_ADDRESS: [u8; 20] = [1; 20];
     const SENDER_PROGRAM_NAMESPACE: &str = "SENDER_PROGRAM_NAMESPACE";
-    const SENDER_PROGRAM_ADDRESS: [u8; 20] = [0; 20];
+    const SENDER_PROGRAM_ADDRESS: [u8; 20] = [2; 20];
     const STARTING_TOKEN_BALANCE: u32 = 1000;
     const TOKEN_ID_0: u32 = 100;
 
@@ -86,13 +87,45 @@ async fn bridge_in_event() {
     // Channel is not used, but is necessary to construct a `Batcher` and cannot be zero.
     const CHANNEL_BUFFER: usize = 1;
     let (receivers_thread_tx, _receivers_thread_rx) = tokio::sync::mpsc::channel(CHANNEL_BUFFER);
+    let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
+    let batcher_actor = BatcherActor::new();
+    let (_batcher_ref, _batcher_handle) =
+        Actor::spawn(Some(batcher_actor.name()), batcher_actor, batcher.clone())
+            .await
+            .expect("failed to spawn batcher actor");
 
     let mock_storage = <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::new()
         .await
         .expect("failed to create mock persistence storage");
+    let account_cache_actor = AccountCacheActor::new();
+    let (_account_cache_ref, _account_cache_handle) = Actor::spawn(
+        Some(account_cache_actor.name()),
+        account_cache_actor,
+        mock_storage.clone(),
+    )
+    .await
+    .expect("failed to spawn account cache actor");
 
-    // Insert accounts into storage & account cache
+    let scheduler_actor = TaskScheduler::new();
+    let (_scheduler_ref, _scheduler_handle) =
+        Actor::spawn(Some(scheduler_actor.name()), scheduler_actor, ())
+            .await
+            .expect("failed to spawn scheduler actor");
+
+    let pending_transaction_actor = PendingTransactionActor::new();
+    let (_pending_transaction_ref, _pending_transaction_handle) = Actor::spawn(
+        Some(pending_transaction_actor.name()),
+        pending_transaction_actor,
+        (),
+    )
+    .await
+    .expect("failed to spawn pending transaction actor");
+
+    // Insert from accounts into storage & account cache
     let (from_account, from_program_account) = sender_test_account_pair();
+    let AccountType::Program(from_program_address) = from_program_account.account_type() else {
+        panic!("from_program_account is not a program account.")
+    };
     assert!(
         <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
             &mock_storage,
@@ -111,19 +144,11 @@ async fn bridge_in_event() {
             .await
             .is_ok()
     );
-    let account_cache_actor = AccountCacheActor::new();
-    let (_account_cache_ref, _account_cache_handle) = Actor::spawn(
-        Some(account_cache_actor.name()),
-        account_cache_actor,
-        mock_storage,
-    )
-    .await
-    .expect("failed to spawn account cache actor");
     assert!(
         get_actor_ref::<AccountCacheMessage, AccountCacheError>(ActorType::AccountCache)
             .and_then(|account_cache| account_cache
                 .send_message(AccountCacheMessage::Write {
-                    account: from_account,
+                    account: from_account.clone(),
                     who: ActorType::AccountCache,
                     location: "bridge_in_event test".into(),
                 })
@@ -140,25 +165,28 @@ async fn bridge_in_event() {
             .is_some()
     );
 
-    let scheduler_actor = TaskScheduler::new();
-    let (_scheduler_ref, _scheduler_handle) =
-        Actor::spawn(Some(scheduler_actor.name()), scheduler_actor, ())
-            .await
-            .expect("failed to spawn scheduler actor");
-
-    let batcher_actor = BatcherActor::new();
-    let batcher = Arc::new(Mutex::new(Batcher::new(receivers_thread_tx)));
-    let (_batcher_ref, _batcher_handle) =
-        Actor::spawn(Some(batcher_actor.name()), batcher_actor, batcher.clone())
-            .await
-            .expect("failed to spawn batcher actor");
-
     let to_account = empty_account();
 
     const BRIDGE_IN_AMOUNT: u64 = 1;
-    let bridge_transaction = Transaction::bridge_in(BRIDGE_IN_AMOUNT, to_account.owner_address());
-    let res = Batcher::add_transaction_to_account(batcher, bridge_transaction).await;
-    dbg!(&res);
+    let bridge_in_transaction = Transaction::bridge_in(
+        BRIDGE_IN_AMOUNT,
+        from_account.owner_address(),
+        from_program_address,
+        to_account.owner_address(),
+    );
+    let res = Batcher::add_transaction_to_account(batcher, bridge_in_transaction).await;
 
     assert!(res.is_ok());
+    assert_eq!(from_account.balance(&from_program_address), U256::from(999));
+    assert_eq!(
+        to_account.balance(&Default::default()),
+        U256::from(BRIDGE_IN_AMOUNT)
+    );
+    // drop all actors, not strictly necessary.
+    let (_, _, _, _) = (
+        _batcher_handle,
+        _account_cache_handle,
+        _scheduler_handle,
+        _pending_transaction_handle,
+    );
 }

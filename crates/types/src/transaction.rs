@@ -301,14 +301,12 @@ pub struct Transaction {
 
 impl Transaction {
     /// A test bridge in transaction.
-    pub fn bridge_in(amount: u64, to: Address) -> Self {
-        const SENDER_ADDRESS: [u8; 20] = [1; 20];
-        const SENDER_PROGRAM_ADDRESS: [u8; 20] = [0; 20];
+    pub fn bridge_in(amount: u64, from: Address, program_id: Address, to: Address) -> Self {
         let bridge_value = crate::U256::from(amount);
         Self {
             transaction_type: TransactionType::BridgeIn(bridge_value),
-            from: SENDER_ADDRESS, // this is the default sender for testing
-            program_id: SENDER_PROGRAM_ADDRESS, // this is the default sender program for testing
+            from: from.inner(),
+            program_id: program_id.inner(),
             to: to.inner(),
             value: bridge_value,
             ..Default::default()
