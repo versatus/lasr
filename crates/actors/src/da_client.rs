@@ -47,13 +47,13 @@ impl DaClientActor {
         batch: String,
         tx: OneshotSender<Result<BlobResponse, std::io::Error>>,
     ) {
-        log::info!("DA Client asked to store blob");
+        tracing::info!("DA Client asked to store blob");
         let blob_response = {
             let state = da_client.lock().await;
             state.disperse_blobs(batch).await
         };
         if let Err(err) = tx.send(blob_response) {
-            log::error!("DaClient Error: failed to send blob_response: {err:?}");
+            tracing::error!("DaClient Error: failed to send blob_response: {err:?}");
         }
     }
     async fn validate_blob(
@@ -61,7 +61,7 @@ impl DaClientActor {
         request_id: String,
         tx: OneshotSender<(String, BlobVerificationProof)>,
     ) {
-        log::info!("DA Client asked to validate blob");
+        tracing::info!("DA Client asked to validate blob");
         let client = {
             let state = da_client.lock().await;
             state.client.clone()
@@ -75,7 +75,7 @@ impl DaClientActor {
         blob_index: u128,
         tx: OneshotSender<Option<Account>>,
     ) {
-        log::warn!("Received a RetrieveAccount message");
+        tracing::warn!("Received a RetrieveAccount message");
         let batch_header_hash = base64::encode(batch_header_hash.0);
         let res = {
             let state = da_client.lock().await;
@@ -89,23 +89,23 @@ impl DaClientActor {
                     Batch::decode_batch(&blob.data()).map(|batch| {
                         let account = batch.get_user_account(address);
                         if let Err(Some(account)) = tx.send(account.clone()) {
-                            log::error!(
+                            tracing::error!(
                                 "DaClient Error: failed to send account data for address: {}",
                                 account.owner_address()
                             );
                         }
-                        log::warn!("successfully decoded account blob");
+                        tracing::warn!("successfully decoded account blob");
                         if let Some(acct) = account {
                             if let AccountType::Program(addr) = acct.account_type() {
-                                log::warn!("found account: {}", addr.to_full_string());
+                                tracing::warn!("found account: {}", addr.to_full_string());
                             } else {
-                                log::warn!("found account: {}", acct.owner_address().to_full_string());
+                                tracing::warn!("found account: {}", acct.owner_address().to_full_string());
                             }
                         }
                     });
                 }
             }
-            Err(err) => log::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {err:?}"),
+            Err(err) => tracing::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {err:?}"),
         }
     }
 }
@@ -151,7 +151,7 @@ impl Actor for DaClientActor {
         _myself: ActorRef<Self::Msg>,
         args: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Da Client running prestart routine");
+        tracing::info!("Da Client running prestart routine");
         Ok(args)
     }
 
@@ -226,7 +226,7 @@ async fn get_blob_status(
     client: &EigenDaGrpcClient,
     request_id: &str,
 ) -> Result<BlobStatus, std::io::Error> {
-    log::info!("acquired blob status");
+    tracing::info!("acquired blob status");
     client.clone().get_blob_status(&request_id.to_owned()[..])
 }
 
@@ -242,11 +242,11 @@ async fn poll_blob_status(
             tokio::time::sleep(Duration::from_secs(30)).await;
             return poll_blob_status(client.clone(), request_id.clone(), tx).await;
         } else if let Some(proof) = status.blob_verification_proof() {
-            log::info!("acquired verification proof, sending back to batcher");
+            tracing::info!("acquired verification proof, sending back to batcher");
             let _ = tx.send((request_id, proof.clone()));
         }
     } else {
-        log::error!("{:?}", res);
+        tracing::error!("{:?}", res);
         return Ok(());
     }
 
@@ -258,7 +258,7 @@ async fn validate_blob(
     request_id: String,
     tx: OneshotSender<(String, BlobVerificationProof)>,
 ) -> JoinHandle<Result<(), Box<dyn std::error::Error + Send>>> {
-    log::info!("spawning blob validation task");
+    tracing::info!("spawning blob validation task");
     tokio::task::spawn(async move { poll_blob_status(client, request_id, tx).await })
 }
 
@@ -293,7 +293,7 @@ impl Actor for DaClientSupervisor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Da Client running prestart routine");
+        tracing::info!("Da Client running prestart routine");
         Ok(())
     }
 
@@ -303,24 +303,24 @@ impl Actor for DaClientSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);
