@@ -672,33 +672,31 @@ async fn load_processed_blocks(
     tikv_client: TikvClient,
 ) -> Result<BlocksProcessed, Box<dyn std::error::Error>> {
     tracing::error!("attempting to load processed blocks in eo server setup");
-    let blocks_processed = {
-        std::fs::OpenOptions::new()
-            .read(true)
-            .create(true) // Creates `blocks_processed.dat` ONLY if not found.
-            .open(path)
-            .ok()
-            .and_then(|mut file| {
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf).typecast().log_err(|e| {
-                    format!(
-                        "failed to read blocks_processed.dat, checking from persistence.. {e:?}"
-                    )
-                });
-                let blocks_processed_bytes = if !buf.is_empty() {
-                    tracing::error!("buf found in blocks_processed.dat");
-                    Some(buf)
-                } else {
-                    tracing::error!("buf empty! Looking into persistence...");
-                    get_blocks_processed_from_persistence(tikv_client)
-                        .ok()
-                        .flatten()
-                };
-                bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default())
+    let blocks_processed = std::fs::OpenOptions::new()
+        .read(true)
+        .create(true) // Creates `blocks_processed.dat` ONLY if not found.
+        .open(path)
+        .ok();
+    tracing::error!("FILE OPTION: {blocks_processed:?}");
+    let blocks_processed = blocks_processed
+        .and_then(|mut file| {
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).typecast().log_err(|e| {
+                format!("failed to read blocks_processed.dat, checking from persistence.. {e:?}")
+            });
+            let blocks_processed_bytes = if !buf.is_empty() {
+                tracing::error!("buf found in blocks_processed.dat");
+                Some(buf)
+            } else {
+                tracing::error!("buf empty! Looking into persistence...");
+                get_blocks_processed_from_persistence(tikv_client)
                     .ok()
-            })
-            .unwrap_or_default()
-    };
+                    .flatten()
+            };
+            bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default())
+                .ok()
+        })
+        .unwrap();
     Ok(blocks_processed)
 }
 
