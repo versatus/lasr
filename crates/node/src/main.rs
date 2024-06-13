@@ -558,6 +558,8 @@ async fn setup_eo_server(
         .typecast()
         .log_err(|e| e.to_string())
     {
+        tracing::error!("loaded processed blocks for eo server setup.");
+        tracing::error!("{:?}", blocks_processed);
         let bridge_from_block = blocks_processed.bridge;
         let settle_from_block = blocks_processed.settle;
         let bridge_processed = blocks_processed.bridge_processed;
@@ -684,8 +686,10 @@ async fn load_processed_blocks(
                     )
                 });
                 let blocks_processed_bytes = if !buf.is_empty() {
+                    tracing::error!("buf found in blocks_processed.dat");
                     Some(buf)
                 } else {
+                    tracing::error!("buf empty! Looking into persistence...");
                     get_blocks_processed_from_persistence(tikv_client)
                         .ok()
                         .flatten()
@@ -706,6 +710,7 @@ fn get_blocks_processed_from_persistence(
             "failed to start tokio runtime to get processed blocks from persistence: {e:?}"
         ))
     })?;
+    tracing::error!("tokio rt established");
     let res = rt.block_on(async { tikv_client.get(TIKV_PROCESSED_BLOCKS_KEY.to_string()).await });
 
     Ok(res.typecast().log_err(|e| e.to_string()).flatten())
