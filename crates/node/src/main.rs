@@ -1,5 +1,5 @@
 #![allow(unreachable_code)]
-use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::BTreeSet, io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
 use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
@@ -534,8 +534,123 @@ async fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    //TODO: 1. handle edge case of blocks_processed.dat not being found
-    //      2. abstract methods below into a seperate function for better readability
+    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client)
+        .await
+        .typecast()
+        .log_err(|e| e.to_string())
+    {
+        let bridge_from_block = blocks_processed.0;
+        let settle_from_block = blocks_processed.1;
+        let bridge_processed = blocks_processed.2;
+        let settled_processed = blocks_processed.3;
+
+        let blob_settled_filter = web3::types::FilterBuilder::default()
+            .from_block(BlockNumber::Number(settle_from_block))
+            .to_block(BlockNumber::Latest)
+            .address(vec![contract_address])
+            .topics(blob_settled_topic.clone(), None, None, None)
+            .build();
+
+        let bridge_filter = web3::types::FilterBuilder::default()
+            .from_block(BlockNumber::Number(bridge_from_block))
+            .to_block(BlockNumber::Latest)
+            .address(vec![contract_address])
+            .topics(bridge_topic.clone(), None, None, None)
+            .build();
+
+        let blob_settled_event = contract
+            .abi()
+            .event("BlobIndexSettled")
+            .map_err(|e| EoServerError::Other(e.to_string()))?
+            .clone();
+
+        let bridge_event = contract
+            .abi()
+            .event("Bridge")
+            .map_err(|e| EoServerError::Other(e.to_string()))?
+            .clone();
+
+        // Logging out all the variables being sent to the EoServer
+        log::info!("web3_instance: {:?}", web3_instance);
+        log::info!("eo_address: {:?}", eo_address);
+        log::info!("contract_address: {:?}", contract_address);
+        log::info!("address: {:?}", address);
+        log::info!("contract: {:?}", contract);
+        log::info!("blob_settled_topic: {:?}", blob_settled_topic);
+        log::error!("bridge_topic: {:?}", bridge_topic);
+        log::info!("blob_settled_filter: {:?}", blob_settled_filter);
+        log::error!("bridge_filter: {:?}", bridge_filter);
+        log::info!("blob_settled_event: {:?}", blob_settled_event);
+        log::error!("bridge_event: {:?}", bridge_event);
+        log::info!("path: {:?}", path);
+
+        let eo_server = eo_listener::EoServerBuilder::default()
+            .web3(web3_instance)
+            .eo_address(eo_address)
+            .block_time(std::time::Duration::from_millis(2500))
+            .bridge_processed_blocks(bridge_processed)
+            .settled_processed_blocks(settled_processed)
+            .contract(contract)
+            .bridge_topic(bridge_topic)
+            .blob_settled_topic(blob_settled_topic)
+            .bridge_filter(bridge_filter)
+            .current_bridge_filter_block(bridge_from_block)
+            .current_blob_settlement_filter_block(settle_from_block)
+            .blob_settled_filter(blob_settled_filter)
+            .blob_settled_event(blob_settled_event)
+            .bridge_event(bridge_event)
+            .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
+            .build()?;
+
+        Ok(eo_server)
+    } else {
+        Err(EoServerError::Other(
+            "an error occurred loading processed blocks.".to_string(),
+        ))
+    }
+}
+
+async fn setup_eo_client(
+    web3_instance: web3::Web3<web3::transports::Http>,
+    sk: web3::signing::SecretKey,
+) -> Result<EoClient, Box<dyn std::error::Error>> {
+    // Initialize the ExecutableOracle Address
+    //0x5FbDB2315678afecb367f032d93F642f64180aa3
+    //0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
+    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
+    // Initialize the web3 instance
+    let contract_address = eo_address
+        .parse()
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+    let contract_abi =
+        eo_listener::get_abi().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    let address = web3::types::Address::from(contract_address);
+    let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
+
+    let secp = Secp256k1::new();
+
+    let (_secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
+
+    let user_address: Address = public_key.into();
+
+    // Logging out all the variables being sent to the EoClient
+    log::info!("web3_instance: {:?}", web3_instance);
+    log::info!("contract: {:?}", contract);
+    log::info!("user_address: {:?}", user_address);
+    log::info!("sk: {:?}", sk);
+
+    EoClient::new(web3_instance, contract, user_address, sk)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+}
+
+async fn load_processed_blocks(
+    path: &str,
+    tikv_client: TikvClient,
+) -> Result<(U64, U64, BTreeSet<U64>, BTreeSet<U64>), Box<dyn std::error::Error>> {
+    //TODO: 1. test edge case of `blocks_processed.dat` not being found
     log::error!("attempting to load processed blocks in eo server setup");
     let mut buf = Vec::new();
     let mut file = std::fs::OpenOptions::new()
@@ -547,6 +662,7 @@ async fn setup_eo_server(
     file.read_to_end(&mut buf)
         .map_err(|e| EoServerError::Other(e.to_string()))?;
 
+    // This portion needs to be tested, could potentially fail if BlocksProcessed is empty.
     let blocks_processed: BlocksProcessed =
         bincode::deserialize(&buf).map_err(|e| EoServerError::Other(e.to_string()))?;
 
@@ -616,103 +732,78 @@ async fn setup_eo_server(
     };
     log::error!("settle from block: {:?}", settle_from_block);
 
-    //TODO: add to persistence, similar to methods above
-    let bridge_processed = blocks_processed.bridge_processed;
-    let settled_processed = blocks_processed.settled_processed;
+    // Gets blocks that have been processed and transfered to the `bridge_processed` field of
+    // the `BlocksProcessed` structure. Either through the `blocks_processed.dat` file or TiKV persistence store.
+    let bridge_processed = if let Some(b) = Some(blocks_processed.bridge_processed) {
+        let key = "bridge_processed".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                log::error!("Updated bridge_processed {:?} in persistence store", b)
+            }
+            Some(b)
+        } else {
+            log::error!("failed to serialize `bridge_processed`");
+            Some(b)
+        }
+    } else {
+        let key = "bridge_processed".to_string();
+        tikv_client
+            .get(key)
+            .await
+            .typecast()
+            .log_err(|e| e.to_string())
+            .flatten()
+            .and_then(|returned_data| {
+                bincode::deserialize(&returned_data)
+                    .typecast()
+                    .log_err(|e| e)
+                    .and_then(|b: BTreeSet<U64>| {
+                        log::error!("retrieved `bridge_processed` from persistence store: {b:?}");
+                        Some(b)
+                    })
+            })
+    };
+    log::error!("bridge processed set values: {:?}", bridge_processed);
 
-    let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
-        .to_block(BlockNumber::Latest)
-        .address(vec![contract_address])
-        .topics(blob_settled_topic.clone(), None, None, None)
-        .build();
+    // Gets blocks that have been processed and transfered to the `settled_processed` field of
+    // the `BlocksProcessed` structure. Either through the `blocks_processed.dat` file or TiKV persistence store.
+    let settled_processed = if let Some(b) = Some(blocks_processed.settled_processed) {
+        let key = "settled_processed".to_string();
+        if let Some(value) = bincode::serialize(&b).ok() {
+            if tikv_client.put(key, value).await.is_ok() {
+                log::error!("Updated settled_processed {:?} in persistence store", b)
+            }
+            Some(b)
+        } else {
+            log::error!("failed to serialize `settled_processed`");
+            Some(b)
+        }
+    } else {
+        let key = "settled_processed".to_string();
+        tikv_client
+            .get(key)
+            .await
+            .typecast()
+            .log_err(|e| e.to_string())
+            .flatten()
+            .and_then(|returned_data| {
+                bincode::deserialize(&returned_data)
+                    .typecast()
+                    .log_err(|e| e)
+                    .and_then(|b: BTreeSet<U64>| {
+                        log::error!("retrieved `settled_processed` from persistence store: {b:?}");
+                        Some(b)
+                    })
+            })
+    };
+    log::error!("settled processed set values: {:?}", settled_processed);
 
-    let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
-        .to_block(BlockNumber::Latest)
-        .address(vec![contract_address])
-        .topics(bridge_topic.clone(), None, None, None)
-        .build();
+    let res = (
+        bridge_from_block.unwrap_or_default(),
+        settle_from_block.unwrap_or_default(),
+        bridge_processed.unwrap_or_default(),
+        settled_processed.unwrap_or_default(),
+    );
 
-    let blob_settled_event = contract
-        .abi()
-        .event("BlobIndexSettled")
-        .map_err(|e| EoServerError::Other(e.to_string()))?
-        .clone();
-
-    let bridge_event = contract
-        .abi()
-        .event("Bridge")
-        .map_err(|e| EoServerError::Other(e.to_string()))?
-        .clone();
-
-    // Logging out all the variables being sent to the EoServer
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("eo_address: {:?}", eo_address);
-    log::info!("contract_address: {:?}", contract_address);
-    log::info!("address: {:?}", address);
-    log::info!("contract: {:?}", contract);
-    log::info!("blob_settled_topic: {:?}", blob_settled_topic);
-    log::error!("bridge_topic: {:?}", bridge_topic);
-    log::info!("blob_settled_filter: {:?}", blob_settled_filter);
-    log::error!("bridge_filter: {:?}", bridge_filter);
-    log::info!("blob_settled_event: {:?}", blob_settled_event);
-    log::error!("bridge_event: {:?}", bridge_event);
-    log::info!("path: {:?}", path);
-
-    let eo_server = eo_listener::EoServerBuilder::default()
-        .web3(web3_instance)
-        .eo_address(eo_address)
-        .block_time(std::time::Duration::from_millis(2500))
-        .bridge_processed_blocks(bridge_processed)
-        .settled_processed_blocks(settled_processed)
-        .contract(contract)
-        .bridge_topic(bridge_topic)
-        .blob_settled_topic(blob_settled_topic)
-        .bridge_filter(bridge_filter)
-        .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
-        .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
-        .blob_settled_filter(blob_settled_filter)
-        .blob_settled_event(blob_settled_event)
-        .bridge_event(bridge_event)
-        .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
-        .build()?;
-
-    Ok(eo_server)
-}
-
-async fn setup_eo_client(
-    web3_instance: web3::Web3<web3::transports::Http>,
-    sk: web3::signing::SecretKey,
-) -> Result<EoClient, Box<dyn std::error::Error>> {
-    // Initialize the ExecutableOracle Address
-    //0x5FbDB2315678afecb367f032d93F642f64180aa3
-    //0x5FbDB2315678afecb367f032d93F642f64180aa3
-
-    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
-    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
-    // Initialize the web3 instance
-    let contract_address = eo_address
-        .parse()
-        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
-    let contract_abi =
-        eo_listener::get_abi().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-    let address = web3::types::Address::from(contract_address);
-    let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
-
-    let secp = Secp256k1::new();
-
-    let (_secret_key, public_key) = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
-
-    let user_address: Address = public_key.into();
-
-    // Logging out all the variables being sent to the EoClient
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("contract: {:?}", contract);
-    log::info!("user_address: {:?}", user_address);
-    log::info!("sk: {:?}", sk);
-
-    EoClient::new(web3_instance, contract, user_address, sk)
-        .await
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+    Ok(res)
 }
