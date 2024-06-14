@@ -10,7 +10,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::{ffi::OsStr, fmt::Display};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use web3_pkg::web3_store::Web3Store;
 
@@ -125,7 +125,7 @@ impl OciManager {
     }
 
     pub async fn check_pinned_status(&self, content_id: &str) -> Result<(), std::io::Error> {
-        log::info!(
+        tracing::info!(
             "calling self.store.is_pinned to check if {} is pinned",
             content_id
         );
@@ -147,7 +147,7 @@ impl OciManager {
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        log::info!("Pinned object: {:?}", cids);
+        tracing::info!("Pinned object: {:?}", cids);
         Ok(())
     }
 
@@ -163,7 +163,7 @@ impl OciManager {
             .to_string_lossy()
             .to_string();
 
-        log::info!("Attempting to read DAG for {} from Web3Store...", &cid);
+        tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
         let store = self.try_get_store()?;
         let package_data = store
             .read_dag(&cid)
@@ -172,11 +172,11 @@ impl OciManager {
 
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
-        log::info!("creating all directories in path: {}", &package_dir);
+        tracing::info!("creating all directories in path: {}", &package_dir);
         std::fs::create_dir_all(&package_dir)?;
 
         let package: LasrPackage = serde_json::from_slice(&package_data)?;
-        log::info!(
+        tracing::info!(
             "Package '{}' version {} from '{}' is type {:?}",
             &package.package_payload.package_name,
             &package.package_payload.package_version,
@@ -196,7 +196,7 @@ impl OciManager {
 
         let package_metadata_filepath = format!("{}/metadata.json", &package_dir);
 
-        log::info!(
+        tracing::info!(
             "creating package metadata file: {}",
             &package_metadata_filepath
         );
@@ -208,7 +208,7 @@ impl OciManager {
 
         //TODO(asmith) convert into a parallel iterator
         for obj in package_object_iter {
-            log::info!("getting object: {} from Web3Store", &obj.object_cid());
+            tracing::info!("getting object: {} from Web3Store", &obj.object_cid());
             let object_data = store
                 .read_object(obj.object_cid())
                 .await
@@ -243,12 +243,12 @@ impl OciManager {
                 LasrContentType::Video(_) => (format!("{}/{}", &package_dir, object_path), false),
             };
 
-            log::info!("creating missing directories in: {}", &object_filepath);
+            tracing::info!("creating missing directories in: {}", &object_filepath);
             let object_path = Path::new(&object_filepath);
             if let Some(parent) = object_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            log::info!("writing object to: {}", &object_filepath);
+            tracing::info!("writing object to: {}", &object_filepath);
 
             let mut f = std::fs::OpenOptions::new()
                 .read(true)
@@ -276,11 +276,11 @@ impl OciManager {
             .to_string_lossy()
             .into_owned()
             .to_string();
-        log::info!("attempting to create bundle for {}", cid);
+        tracing::info!("attempting to create bundle for {}", cid);
         let container_metadata = self.create_payload_package(content_id).await?;
         if let Some(metadata) = container_metadata {
-            log::info!("received container metadata: {:?}", &metadata);
-            log::info!("building container bundle");
+            tracing::info!("received container metadata: {:?}", &metadata);
+            tracing::info!("building container bundle");
             self.bundler.bundle(&cid, &metadata).await?;
             self.add_payload(&cid).await?;
             self.base_spec(&cid).await?;
@@ -345,12 +345,29 @@ impl OciManager {
         let container_id = content_id.as_ref().to_string_lossy().into_owned();
 
         let inner_inputs = inputs.clone();
-        log::warn!(
+        tracing::warn!(
             "Calling: runsc --rootless --network=none run -bundle {} {}",
             &container_path,
             &container_id
         );
         Ok(tokio::spawn(async move {
+            // Create temp file for this container to output to
+            let temp_file_path = std::env::temp_dir().join(format!("lasr/{}.out", container_id));
+
+            // Create the temporary file for container output
+            if let Some(parent) = temp_file_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+
+            // Check if the file exists
+            if tokio::fs::metadata(&temp_file_path).await.is_ok() {
+                // If it exists, make sure it is empty
+                tokio::fs::write(&temp_file_path, b"").await?;
+            }
+
+            // Create a standard file for stdout redirection
+            let container_stdout_file = std::fs::File::create(&temp_file_path)?;
+
             let mut child = Command::new("runsc")
                 .arg("--rootless")
                 .arg("--network=none")
@@ -359,7 +376,7 @@ impl OciManager {
                 .arg(&container_path)
                 .arg(&container_id)
                 .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
+                .stdout(Stdio::from(container_stdout_file))
                 .spawn()?;
 
             let mut stdin = child.stdin.take().ok_or({
@@ -369,7 +386,7 @@ impl OciManager {
                 )
             })?;
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
-            log::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
+            tracing::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
             let _ = tokio::task::spawn(async move {
                 stdin.write_all(stdio_inputs.clone().as_bytes()).await?;
 
@@ -377,25 +394,26 @@ impl OciManager {
                 Ok::<_, std::io::Error>(())
             })
             .await?;
-
-            let stdout = child.stdout.take().ok_or(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "stdout returned None",
-            ))?;
-            let mut stdout_reader = BufReader::new(stdout);
-            let buffer_size = 1024;
-            let mut buffer = vec![0; buffer_size];
-
-            let mut outputs: String = String::new();
-            while let Ok(bytes) = stdout_reader.read(&mut buffer).await {
-                if bytes == 0 {
-                    break;
-                }
-                let chunk = String::from_utf8_lossy(&buffer[..bytes]);
-                outputs.push_str(&chunk);
+            let status = child.wait().await?;
+            if !status.success() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "runsc command failed",
+                ));
             }
 
-            log::warn!("result from container: {container_id} = {:#?}", outputs);
+            let mut file = tokio::fs::File::open(&temp_file_path).await?;
+            let mut outputs = String::new();
+            file.read_to_string(&mut outputs).await?;
+
+            if outputs.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "temporary file is empty after container execution",
+                ));
+            }
+
+            tracing::warn!("result from container: {container_id} = {:#?}", outputs);
 
             let actor: ActorRef<ExecutorMessage> =
                 ractor::registry::where_is(ActorType::Executor.to_string())
@@ -405,7 +423,7 @@ impl OciManager {
                     ))?
                     .into();
 
-            log::warn!("results received, informing executor");
+            tracing::warn!("results received, informing executor");
             let message = ExecutorMessage::Results {
                 content_id: content_id.as_ref().to_string_lossy().into_owned(),
                 program_id,
@@ -417,12 +435,15 @@ impl OciManager {
                 .cast(message)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-            log::warn!("casted message to inform executor");
+            tracing::warn!("casted message to inform executor");
+
+            // Clean up the temporary file
+            tokio::fs::remove_file(temp_file_path).await?;
+
             Ok::<_, std::io::Error>(outputs)
         }))
     }
 }
-
 #[derive(Builder, Clone, Debug)]
 pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
     containers: P,
@@ -453,7 +474,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let base_path = self.get_base_path(container_metadata.base_image());
         let container_path = self.get_container_path(&content_id);
         if !container_path.as_ref().exists() {
-            log::info!(
+            tracing::info!(
                 "container path: {} doesn't exist, creating...",
                 container_path.as_ref().to_string_lossy().to_string()
             );
@@ -461,7 +482,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
-            log::info!(
+            tracing::info!(
                 "container root path: {} doesn't exist, creating...",
                 container_root_path.as_ref().to_string_lossy().to_string()
             );
@@ -479,13 +500,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_path = self.get_container_path(&content_id);
         let container_root = self.container_root_path(&container_path);
         let payload_path = self.get_payload_path(&content_id);
-        log::info!(
+        tracing::info!(
             "Attempting to copy {:?} to {:?}",
             &payload_path.as_ref().canonicalize(),
             &container_root.as_ref().canonicalize()
         );
         if let Err(e) = copy_dir(payload_path, container_root).await {
-            log::error!("Error adding payload: {e}");
+            tracing::error!("Error adding payload: {e}");
         };
 
         Ok(())
@@ -616,7 +637,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         &self,
         content_id: impl AsRef<Path>,
     ) -> std::io::Result<ProgramSchema> {
-        log::info!("ContentId: {:?}", content_id.as_ref().to_string_lossy());
+        tracing::info!("ContentId: {:?}", content_id.as_ref().to_string_lossy());
         let payload_path = self.get_payload_path(&content_id);
         let schema_path = self
             .get_schema_path(payload_path)
@@ -645,7 +666,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
     }
 
     fn get_schema_path(&self, payload_path: impl AsRef<Path>) -> Option<String> {
-        log::info!(
+        tracing::info!(
             "search for entries in {:?}",
             payload_path.as_ref().canonicalize()
         );
@@ -678,10 +699,10 @@ async fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Resu
 }
 
 async fn link_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-    log::info!("src: {}", src.as_ref().display());
-    log::info!("dst: {}", src.as_ref().display());
+    tracing::info!("src: {}", src.as_ref().display());
+    tracing::info!("dst: {}", src.as_ref().display());
     let link_path = src.as_ref().canonicalize()?;
-    log::info!("canonicalized src path: {}", &link_path.display());
+    tracing::info!("canonicalized src path: {}", &link_path.display());
     std::os::unix::fs::symlink(link_path, dst)?;
 
     Ok(())

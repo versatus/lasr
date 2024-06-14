@@ -24,3 +24,4 @@ bip39 = "2.0.0"
 rand = { version = "0.8.5", features = ["std", "std_rng"] }
 lasr_types = { path = "../types" }
 lasr_rpc = { path = "../rpc" }
+tracing = "0.1.40"

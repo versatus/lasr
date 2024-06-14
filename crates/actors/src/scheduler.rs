@@ -65,7 +65,7 @@ impl TaskScheduler {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), SchedulerError> {
-        log::info!("Checking for account cache for account: {address:?} from scheduler");
+        tracing::info!("Checking for account cache for account: {address:?} from scheduler");
         if let Some(account) = get_account(address, ActorType::Scheduler).await {
             rpc_reply
                 .send(RpcMessage::Response {
@@ -74,7 +74,7 @@ impl TaskScheduler {
                 })
                 .map_err(|e| SchedulerError::Custom(e.to_string()))?;
         } else {
-            log::warn!("unable to find account for {address:?} in cache or persistence store");
+            tracing::warn!("unable to find account for {address:?} in cache or persistence store");
             rpc_reply
                 .send(RpcMessage::Response {
                     response: Err(RpcResponseError {
@@ -91,7 +91,7 @@ impl TaskScheduler {
     }
 
     fn handle_send(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("scheduler handling send: {}", transaction.hash_string());
+        tracing::info!("scheduler handling send: {}", transaction.hash_string());
         let engine_actor: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
                 .ok_or(Box::new(SchedulerError::Custom(
@@ -107,7 +107,7 @@ impl TaskScheduler {
     }
 
     fn handle_call(&self, transaction: Transaction) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("scheduler handling call: {}", transaction.hash_string());
+        tracing::info!("scheduler handling call: {}", transaction.hash_string());
         let engine_actor: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
                 .ok_or(Box::new(SchedulerError::Custom(
@@ -165,7 +165,7 @@ impl Actor for TaskScheduler {
                 transaction,
                 rpc_reply,
             } => {
-                log::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
+                tracing::info!("Scheduler received RPC `call` method. Prepping to send to Engine");
                 // Convert handle_call to async, store future in Arc<Mutex<FuturesUnordered>> in `Self::State`
                 // handle futures in separate thread.
                 self.handle_call(transaction.clone());
@@ -175,7 +175,7 @@ impl Actor for TaskScheduler {
                 transaction,
                 rpc_reply,
             } => {
-                log::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
+                tracing::info!("Scheduler received RPC `send` method. Prepping to send to Pending Transactions");
                 self.handle_send(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
             }
@@ -183,12 +183,12 @@ impl Actor for TaskScheduler {
                 transaction,
                 rpc_reply,
             } => {
-                log::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
+                tracing::info!("Scheduler received RPC `registerProgram` method. Prepping to send to Validator & Engine");
                 self.handle_register_program(transaction.clone());
                 state.insert(transaction.hash_string(), rpc_reply);
             }
             SchedulerMessage::GetAccount { address, rpc_reply } => {
-                log::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
+                tracing::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
                 // Check cache
                 self.handle_get_account_request(address, rpc_reply).await;
                 // if not in cache check DA
@@ -198,7 +198,7 @@ impl Actor for TaskScheduler {
                 transaction_hash,
                 token,
             } => {
-                log::warn!("Received TransactionApplied message, checking for RPCReplyPort");
+                tracing::warn!("Received TransactionApplied message, checking for RPCReplyPort");
                 if let Some(reply_port) = state.remove(&transaction_hash) {
                     let response = Ok(TransactionResponse::SendResponse(token));
                     let message = RpcMessage::Response {
@@ -331,24 +331,24 @@ impl Actor for TaskSchedulerSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);
