@@ -670,7 +670,7 @@ fn load_processed_blocks(
     tracing::error!("attempting to load processed blocks in eo server setup");
     let blocks_processed = std::fs::OpenOptions::new()
         .read(true)
-        .create(true) // Creates `blocks_processed.dat` ONLY if not found.
+        //.create(true) // Creates `blocks_processed.dat` ONLY if not found.
         .open(path);
     tracing::error!("FILE OPTION: {blocks_processed:?}");
     let blocks_processed = blocks_processed
