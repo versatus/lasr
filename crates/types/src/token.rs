@@ -299,7 +299,7 @@ impl Token {
 
     pub(crate) fn remove_token_ids(
         &mut self,
-        token_ids: &Vec<U256>,
+        token_ids: &[U256],
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         let positions: Vec<usize> = {
             token_ids
