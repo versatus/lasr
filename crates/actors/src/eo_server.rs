@@ -77,10 +77,10 @@ impl EoServerWrapper {
                                 .log_err(|e| EoServerError::Custom(e.to_string()));
 
                             self.server.save_blocks_processed();
-                            update_blocks_processed_in_persistence(tikv_client.clone())
-                                .await
-                                .typecast()
-                                .log_err(|e| e);
+                            // update_blocks_processed_in_persistence(tikv_client.clone())
+                            //     .await
+                            //     .typecast()
+                            //     .log_err(|e| e);
                         }
                     }
                     Err(e) => {
@@ -102,26 +102,26 @@ impl EoServerWrapper {
     }
 }
 
-pub async fn update_blocks_processed_in_persistence(
-    tikv_client: TikvClient,
-) -> Result<(), EoServerError> {
-    // retrieve BlocksProcessed after update to relay to Persistence store
-    let (_, block_processed_path) = std::env::vars()
-        .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
-        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
-    let mut buf = Vec::new();
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .open(block_processed_path)
-        .map_err(|e| EoServerError::Custom(e.to_string()))?;
-    file.read_to_end(&mut buf)
-        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+// pub async fn update_blocks_processed_in_persistence(
+//     tikv_client: TikvClient,
+// ) -> Result<(), EoServerError> {
+//     // retrieve BlocksProcessed after update to relay to Persistence store
+//     let (_, block_processed_path) = std::env::vars()
+//         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
+//         .expect("missing BLOCKS_PROCESSED_PATH environment variable");
+//     let mut buf = Vec::new();
+//     let mut file = std::fs::OpenOptions::new()
+//         .read(true)
+//         .open(block_processed_path)
+//         .map_err(|e| EoServerError::Custom(e.to_string()))?;
+//     file.read_to_end(&mut buf)
+//         .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-    let key = TIKV_PROCESSED_BLOCKS_KEY.to_string();
-    tikv_client.put(key, buf).await.typecast().log_err(|e| e);
+//     let key = TIKV_PROCESSED_BLOCKS_KEY.to_string();
+//     tikv_client.put(key, buf).await.typecast().log_err(|e| e);
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[derive(Clone, Debug, Error)]
 pub enum EoServerError {
