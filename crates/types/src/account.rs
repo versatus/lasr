@@ -402,8 +402,11 @@ impl Account {
         program_account: Option<&Account>,
     ) -> AccountResult<Token> {
         if transaction.transaction_type().is_bridge_in() {
-            let token: Token = transaction.clone().into();
-            self.insert_program(&token.program_id(), token.clone());
+            if !self.programs.contains_key(&transaction.program_id()) {
+                let token: Token = transaction.into();
+                self.insert_program(&token.program_id(), token.clone());
+                return Ok(token);
+            }
             let mut programs = self.programs.clone();
             if let Some(token) = programs.get_mut(&transaction.program_id()) {
                 let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
