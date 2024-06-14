@@ -661,10 +661,14 @@ impl DependencyGraphs {
 }
 
 #[derive(Debug, Clone)]
-pub struct PendingTransactionActor;
+pub struct PendingTransactionActor {
+    bridge_in_transactions: Vec<Transaction>,
+}
 impl PendingTransactionActor {
     pub fn new() -> Self {
-        Self
+        Self {
+            bridge_in_transactions: Vec::new(),
+        }
     }
 }
 impl ActorName for PendingTransactionActor {
@@ -714,6 +718,12 @@ impl Actor for PendingTransactionActor {
                 outputs,
             } => {
                 tracing::warn!("received new transction {}", transaction.hash_string());
+                if transaction.transaction_type().is_bridge_in()
+                    && self.bridge_in_transactions.contains(&transaction)
+                {
+                    tracing::warn!("found duplicate bridge in transaction, skipping..");
+                    return Ok(());
+                }
                 state.add_transaction(transaction.clone(), outputs);
                 tracing::warn!(
                     "added transaction: {} to dependency graph",
