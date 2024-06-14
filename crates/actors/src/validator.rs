@@ -1074,7 +1074,7 @@ impl ValidatorActor {
                 let state = validator_core.lock().await;
                 let op = state.validate_bridge_in();
                 state.pool.spawn_fifo(move || {
-                    let _ = op(transaction.clone());
+                    let _ = op(transaction);
                 });
                 // get account
                 // check bridged balance in EO

@@ -396,8 +396,7 @@ impl Account {
 
         crate::U256::from(0)
     }
-
-    pub fn apply_bridge_transaction(
+    pub fn apply_send_transaction(
         &mut self,
         transaction: Transaction,
         program_account: Option<&Account>,
@@ -407,7 +406,7 @@ impl Account {
             if let Some(token) = programs.get_mut(&transaction.program_id()) {
                 let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
                 if let Some(account) = program_account {
-                    tracing::warn!("found bridge in program account");
+                    tracing::warn!("found program account");
                     let program_account_metadata = account.program_account_metadata();
                     tracing::warn!("found program metadata: {:?}", &program_account_metadata);
                     let program_account_data = account.program_account_data();
@@ -438,38 +437,23 @@ impl Account {
                     return Ok(token.clone());
                 }
             }
-            Err(Box::new(ToTokenError::Custom(
-                "unable to convert transaction into token".to_string(),
-            )))
-        } else {
-            Err(Box::new(ToTokenError::Custom(
-                "send transaction's are handled by apply_send_transaction().".to_string(),
-            )))
         }
-    }
 
-    pub fn apply_send_transaction(
-        &mut self,
-        transaction: Transaction,
-        program_account: Option<&Account>,
-    ) -> AccountResult<Token> {
-        if !transaction.transaction_type().is_bridge_in() {
-            if transaction.to() == transaction.from() {
-                if let Some(token) = self.programs.get(&transaction.program_id()) {
-                    return Ok(token.clone());
-                } else {
-                    return Err(Box::new(ToTokenError::Custom(
-                        "user attempting to send to self, token that does not yet exist"
-                            .to_string(),
-                    )));
-                }
+        if transaction.to() == transaction.from() {
+            if let Some(token) = self.programs.get(&transaction.program_id()) {
+                return Ok(token.clone());
+            } else {
+                return Err(Box::new(ToTokenError::Custom(
+                    "user attempting to send to self, token that does not yet exist".to_string(),
+                )));
             }
-
+        }
+        if !transaction.transaction_type().is_bridge_in() {
             let mut programs = self.programs.clone();
             if let Some(token) = programs.get_mut(&transaction.program_id()) {
                 let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
                 if let Some(account) = program_account {
-                    tracing::warn!("found send program account");
+                    tracing::warn!("found program account");
                     let program_account_metadata = account.program_account_metadata();
                     tracing::warn!("found program metadata: {:?}", &program_account_metadata);
                     let program_account_data = account.program_account_data();
@@ -574,15 +558,11 @@ impl Account {
                     }
                 }
             }
-
-            Err(Box::new(ToTokenError::Custom(
-                "unable to convert transaction into token".to_string(),
-            )))
-        } else {
-            Err(Box::new(ToTokenError::Custom(
-                "bridge in transaction's are handled by apply_bridge_transaction().".to_string(),
-            )))
         }
+
+        Err(Box::new(ToTokenError::Custom(
+            "unable to convert transaction into token".to_string(),
+        )))
     }
 
     pub fn apply_transfer_to_instruction(
