@@ -70,7 +70,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_, block_processed_path) = std::env::vars()
         .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
         .expect("missing BLOCKS_PROCESSED_PATH environment variable");
-    tracing::error!("BLOCKS PROCESSED PATH: {block_processed_path}");
 
     let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
@@ -97,7 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tikv_client.clone(),
     )
     .map_err(Box::new)?;
-    tracing::error!("inner_eo_server established with blocks processed path");
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -454,8 +452,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run(tikv_client.clone()));
-    tracing::error!("eo_server_wrapper running");
+    tokio::spawn(eo_server_wrapper.run(block_processed_path.to_string(), tikv_client.clone()));
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
 
@@ -553,78 +550,71 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client).ok() {
-        tracing::error!("loaded processed blocks for eo server setup.");
-        tracing::error!("{:?}", blocks_processed);
-        let bridge_from_block = blocks_processed.bridge;
-        let settle_from_block = blocks_processed.settle;
-        let bridge_processed = blocks_processed.bridge_processed;
-        let settled_processed = blocks_processed.settled_processed;
+    let blocks_processed = load_processed_blocks(path, tikv_client).unwrap_or_default();
+    let bridge_from_block = blocks_processed.bridge;
+    let settle_from_block = blocks_processed.settle;
+    let bridge_processed = blocks_processed.bridge_processed;
+    let settled_processed = blocks_processed.settled_processed;
 
-        let blob_settled_filter = web3::types::FilterBuilder::default()
-            .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
-            .to_block(BlockNumber::Latest)
-            .address(vec![contract_address])
-            .topics(blob_settled_topic.clone(), None, None, None)
-            .build();
+    let blob_settled_filter = web3::types::FilterBuilder::default()
+        .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
+        .to_block(BlockNumber::Latest)
+        .address(vec![contract_address])
+        .topics(blob_settled_topic.clone(), None, None, None)
+        .build();
 
-        let bridge_filter = web3::types::FilterBuilder::default()
-            .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
-            .to_block(BlockNumber::Latest)
-            .address(vec![contract_address])
-            .topics(bridge_topic.clone(), None, None, None)
-            .build();
+    let bridge_filter = web3::types::FilterBuilder::default()
+        .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
+        .to_block(BlockNumber::Latest)
+        .address(vec![contract_address])
+        .topics(bridge_topic.clone(), None, None, None)
+        .build();
 
-        let blob_settled_event = contract
-            .abi()
-            .event("BlobIndexSettled")
-            .map_err(|e| EoServerError::Other(e.to_string()))?
-            .clone();
+    let blob_settled_event = contract
+        .abi()
+        .event("BlobIndexSettled")
+        .map_err(|e| EoServerError::Other(e.to_string()))?
+        .clone();
 
-        let bridge_event = contract
-            .abi()
-            .event("Bridge")
-            .map_err(|e| EoServerError::Other(e.to_string()))?
-            .clone();
+    let bridge_event = contract
+        .abi()
+        .event("Bridge")
+        .map_err(|e| EoServerError::Other(e.to_string()))?
+        .clone();
 
-        // Logging out all the variables being sent to the EoServer
-        tracing::info!("web3_instance: {:?}", web3_instance);
-        tracing::info!("eo_address: {:?}", eo_address);
-        tracing::info!("contract_address: {:?}", contract_address);
-        tracing::info!("address: {:?}", address);
-        tracing::info!("contract: {:?}", contract);
-        tracing::info!("blob_settled_topic: {:?}", blob_settled_topic);
-        tracing::error!("bridge_topic: {:?}", bridge_topic);
-        tracing::info!("blob_settled_filter: {:?}", blob_settled_filter);
-        tracing::error!("bridge_filter: {:?}", bridge_filter);
-        tracing::info!("blob_settled_event: {:?}", blob_settled_event);
-        tracing::error!("bridge_event: {:?}", bridge_event);
-        tracing::info!("path: {:?}", path);
+    // Logging out all the variables being sent to the EoServer
+    tracing::info!("web3_instance: {:?}", web3_instance);
+    tracing::info!("eo_address: {:?}", eo_address);
+    tracing::info!("contract_address: {:?}", contract_address);
+    tracing::info!("address: {:?}", address);
+    tracing::info!("contract: {:?}", contract);
+    tracing::info!("blob_settled_topic: {:?}", blob_settled_topic);
+    tracing::info!("bridge_topic: {:?}", bridge_topic);
+    tracing::info!("blob_settled_filter: {:?}", blob_settled_filter);
+    tracing::info!("bridge_filter: {:?}", bridge_filter);
+    tracing::info!("blob_settled_event: {:?}", blob_settled_event);
+    tracing::info!("bridge_event: {:?}", bridge_event);
+    tracing::info!("path: {:?}", path);
 
-        let eo_server = eo_listener::EoServerBuilder::default()
-            .web3(web3_instance)
-            .eo_address(eo_address)
-            .block_time(std::time::Duration::from_millis(2500))
-            .bridge_processed_blocks(bridge_processed)
-            .settled_processed_blocks(settled_processed)
-            .contract(contract)
-            .bridge_topic(bridge_topic)
-            .blob_settled_topic(blob_settled_topic)
-            .bridge_filter(bridge_filter)
-            .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
-            .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
-            .blob_settled_filter(blob_settled_filter)
-            .blob_settled_event(blob_settled_event)
-            .bridge_event(bridge_event)
-            .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
-            .build()?;
+    let eo_server = eo_listener::EoServerBuilder::default()
+        .web3(web3_instance)
+        .eo_address(eo_address)
+        .block_time(std::time::Duration::from_millis(2500))
+        .bridge_processed_blocks(bridge_processed)
+        .settled_processed_blocks(settled_processed)
+        .contract(contract)
+        .bridge_topic(bridge_topic)
+        .blob_settled_topic(blob_settled_topic)
+        .bridge_filter(bridge_filter)
+        .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
+        .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
+        .blob_settled_filter(blob_settled_filter)
+        .blob_settled_event(blob_settled_event)
+        .bridge_event(bridge_event)
+        .path(PathBuf::from_str(path).map_err(|e| EoServerError::Other(e.to_string()))?)
+        .build()?;
 
-        Ok(eo_server)
-    } else {
-        Err(EoServerError::Other(
-            "an error occurred loading processed blocks.".to_string(),
-        ))
-    }
+    Ok(eo_server)
 }
 
 async fn setup_eo_client(
@@ -663,47 +653,36 @@ async fn setup_eo_client(
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-fn load_processed_blocks(
-    path: &str,
-    tikv_client: TikvClient,
-) -> Result<BlocksProcessed, Box<dyn std::error::Error>> {
-    tracing::error!("attempting to load processed blocks in eo server setup");
-    let blocks_processed = std::fs::OpenOptions::new()
+fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<BlocksProcessed> {
+    tracing::info!("attempting to load processed blocks in eo server setup");
+    std::fs::OpenOptions::new()
         .read(true)
-        //.create(true) // Creates `blocks_processed.dat` ONLY if not found.
-        .open(path);
-    tracing::error!("FILE OPTION: {blocks_processed:?}");
-    let blocks_processed = blocks_processed
+        .write(true)
+        .create(true)
+        .open(path)
         .ok()
         .and_then(|mut file| {
             let mut buf = Vec::new();
-
             let blocks_processed_bytes = if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
-                tracing::error!("buf found in blocks_processed.dat");
+                tracing::info!("found non-empty processed blocks file");
                 Some(buf)
             } else {
-                tracing::error!("buf empty! Looking into persistence...");
+                tracing::warn!("checking persistence storage for processed blocks");
                 get_blocks_processed_from_persistence(tikv_client)
-                    .ok()
-                    .flatten()
             };
             bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default())
                 .ok()
         })
-        .unwrap();
-    Ok(blocks_processed)
 }
 
-fn get_blocks_processed_from_persistence(
-    tikv_client: TikvClient,
-) -> Result<Option<Vec<u8>>, EoServerError> {
-    let rt = tokio::runtime::Runtime::new().map_err(|e| {
+fn get_blocks_processed_from_persistence(tikv_client: TikvClient) -> Option<Vec<u8>> {
+    let rt = tokio::runtime::Runtime::new().typecast().log_err(|e| {
         EoServerError::Other(format!(
             "failed to start tokio runtime to get processed blocks from persistence: {e:?}"
         ))
     })?;
-    tracing::error!("tokio rt established");
-    let res = rt.block_on(async { tikv_client.get(TIKV_PROCESSED_BLOCKS_KEY.to_string()).await });
-
-    Ok(res.typecast().log_err(|e| e.to_string()).flatten())
+    rt.block_on(async { tikv_client.get(TIKV_PROCESSED_BLOCKS_KEY.to_string()).await })
+        .typecast()
+        .log_err(|e| e.to_string())
+        .flatten()
 }
