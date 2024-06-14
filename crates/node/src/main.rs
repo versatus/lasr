@@ -96,7 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &block_processed_path,
         tikv_client.clone(),
     )
-    .await
     .map_err(Box::new)?;
     tracing::error!("inner_eo_server established with blocks processed path");
 
@@ -535,7 +534,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn setup_eo_server(
+fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
     tikv_client: TikvClient,
@@ -554,7 +553,7 @@ async fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client).await.ok() {
+    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client).ok() {
         tracing::error!("loaded processed blocks for eo server setup.");
         tracing::error!("{:?}", blocks_processed);
         let bridge_from_block = blocks_processed.bridge;
@@ -664,7 +663,7 @@ async fn setup_eo_client(
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-async fn load_processed_blocks(
+fn load_processed_blocks(
     path: &str,
     tikv_client: TikvClient,
 ) -> Result<BlocksProcessed, Box<dyn std::error::Error>> {
