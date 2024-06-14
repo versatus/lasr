@@ -676,10 +676,9 @@ async fn load_processed_blocks(
     let blocks_processed = std::fs::OpenOptions::new()
         .read(true)
         .create(true) // Creates `blocks_processed.dat` ONLY if not found.
-        .open(path)
-        .ok();
+        .open(path)?;
     tracing::error!("FILE OPTION: {blocks_processed:?}");
-    let blocks_processed = blocks_processed
+    let blocks_processed = Some(blocks_processed)
         .and_then(|mut file| {
             let mut buf = Vec::new();
 
