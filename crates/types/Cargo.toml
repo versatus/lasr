@@ -25,4 +25,3 @@ sha3 = "0.10.8"
 thiserror = "1.0.50"
 tracing = "0.1.40"
 uint = "0.9.5"
-
