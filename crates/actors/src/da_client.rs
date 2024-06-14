@@ -86,7 +86,7 @@ impl DaClientActor {
         match res {
             Ok(blob) => {
                 if let Ok(blob) = EncodedBlob::from_str(&blob) {
-                    Batch::decode_batch(&blob.data()).map(|batch| {
+                    if let Some(batch) = Batch::decode_batch(&blob.data()) {
                         let account = batch.get_user_account(address);
                         if let Err(Some(account)) = tx.send(account.clone()) {
                             tracing::error!(
@@ -102,7 +102,7 @@ impl DaClientActor {
                                 tracing::warn!("found account: {}", acct.owner_address().to_full_string());
                             }
                         }
-                    });
+                    };
                 }
             }
             Err(err) => tracing::error!("Error attempting to retreive account for batcher_header_hash {batch_header_hash} and blob_index {blob_index}: {err:?}"),
@@ -115,19 +115,14 @@ pub struct DaClient {
     client: EigenDaGrpcClient,
 }
 
-#[derive(Clone, Debug, Error)]
+#[derive(Clone, Debug, Error, Default)]
 pub enum DaClientError {
+    #[default]
     #[error("failed to acquire DaClientActor from registry")]
     RactorRegistryError,
 
     #[error("{0}")]
     Custom(String),
-}
-
-impl Default for DaClientError {
-    fn default() -> Self {
-        DaClientError::RactorRegistryError
-    }
 }
 
 impl DaClient {
