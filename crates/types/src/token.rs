@@ -332,7 +332,7 @@ impl Token {
         &mut self,
         token_update_value: &TokenFieldValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying TokenFieldValue: {:?}", token_update_value);
+        tracing::warn!("applying TokenFieldValue: {:?}", token_update_value);
         match token_update_value {
             TokenFieldValue::Data(data_update) => {
                 self.apply_data_update(data_update)?;
@@ -378,7 +378,7 @@ impl Token {
         &mut self,
         data_update: &DataValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying data update: {:?}", data_update);
+        tracing::warn!("applying data update: {:?}", data_update);
         match data_update {
             DataValue::Insert(key, value) => {
                 self.data.insert(key.clone(), value.clone());
@@ -398,13 +398,13 @@ impl Token {
         &mut self,
         metadata_update: &MetadataValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying metadata update: {:?}", metadata_update);
+        tracing::warn!("applying metadata update: {:?}", metadata_update);
         match metadata_update {
             MetadataValue::Insert(key, value) => {
                 self.metadata.inner_mut().insert(key.clone(), value.clone());
             }
             MetadataValue::Extend(iter) => {
-                log::info!("found metadata_extend update, {:?} applying", &iter);
+                tracing::info!("found metadata_extend update, {:?} applying", &iter);
                 self.metadata.inner_mut().extend(iter.clone());
             }
             MetadataValue::Remove(key) => {
@@ -419,7 +419,7 @@ impl Token {
         &mut self,
         approvals_update: &ApprovalsValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying approvals update: {:?}", approvals_update);
+        tracing::warn!("applying approvals update: {:?}", approvals_update);
         match approvals_update {
             ApprovalsValue::Insert(key, value) => {
                 if let Some(entry) = self.approvals.get_mut(key) {
@@ -452,7 +452,7 @@ impl Token {
         &mut self,
         allowance_update: &AllowanceValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying approvals update: {:?}", allowance_update);
+        tracing::warn!("applying approvals update: {:?}", allowance_update);
         match allowance_update {
             AllowanceValue::Insert(key, value) => {
                 if let Some(entry) = self.allowance.get_mut(key) {
@@ -485,7 +485,7 @@ impl Token {
         &mut self,
         status_update: &StatusValue,
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
-        log::warn!("applying status update: {:?}", status_update);
+        tracing::warn!("applying status update: {:?}", status_update);
         match status_update {
             StatusValue::Lock => {
                 self.status = Status::Locked;

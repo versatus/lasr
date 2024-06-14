@@ -127,7 +127,7 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
                     .clone()
                     .cast(message)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                log::info!("attempt number {} polling job status", attempts + 1);
+                tracing::info!("attempt number {} polling job status", attempts + 1);
                 attempts += 1;
             }
 
@@ -178,7 +178,7 @@ impl<C: ClientT> ExecutionEngine<C> {
                 Some(transaction_hash.to_owned()),
             )
             .await?;
-        log::warn!("returning handle to executor");
+        tracing::warn!("returning handle to executor");
         Ok(handle)
     }
 
@@ -355,12 +355,12 @@ impl ExecutorActor {
             transaction: transaction.clone(),
         };
 
-        log::warn!("call was sucessful, forwarding to pending transaction");
+        tracing::warn!("call was sucessful, forwarding to pending transaction");
         pending_transactions_actor
             .cast(message)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        log::warn!("call was successful, forwarding to engine");
+        tracing::warn!("call was successful, forwarding to engine");
         let engine_actor: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
                 .ok_or(std::io::Error::new(
@@ -379,7 +379,7 @@ impl ExecutorActor {
             .cast(message)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        log::warn!("informed both pending transactions and engine actors of successful call");
+        tracing::warn!("informed both pending transactions and engine actors of successful call");
         Ok(())
     }
 
@@ -433,19 +433,19 @@ impl ExecutorActor {
         transaction: Transaction,
         content_id: String,
     ) {
-        log::info!("Received create program bundle request");
+        tracing::info!("Received create program bundle request");
         // Build the container spec and create the container image
-        log::info!("attempting to pin object from IPFS");
+        tracing::info!("attempting to pin object from IPFS");
         let manager = {
             let state = engine.lock().await;
             let manager = state.manager.clone();
             if let Err(_) = manager.check_pinned_status(&content_id).await {
                 match state.pin_object(&content_id.clone(), true).await {
                     Ok(()) => {
-                        log::info!("Successfully pinned objects");
+                        tracing::info!("Successfully pinned objects");
                     }
                     Err(e) => {
-                        log::error!("Error pinning objects: {e:?}");
+                        tracing::error!("Error pinning objects: {e:?}");
                         let _ = ExecutorActor::registration_error(
                             transaction.hash_string(),
                             e.to_string(),
@@ -461,26 +461,28 @@ impl ExecutorActor {
             Ok(()) => match create_program_id(content_id, &transaction) {
                 Ok(_program_id) => {
                     if let Err(e) = ExecutorActor::registration_success(transaction.clone()) {
-                        log::error!("Executor Error: Registration failed: {e:?}");
+                        tracing::error!("Executor Error: Registration failed: {e:?}");
                     }
                 }
                 Err(e) => {
-                    log::error!("Executor Error: Registration failed: {e:?}");
+                    tracing::error!("Executor Error: Registration failed: {e:?}");
                     if let Err(e) =
                         ExecutorActor::registration_error(transaction.hash_string(), e.to_string())
                     {
-                        log::error!(
+                        tracing::error!(
                             "Executor Error: Failure while handling registration error: {e:?}"
                         );
                     }
                 }
             },
             Err(e) => {
-                log::error!("Executor Error: Registration failed: {e:?}");
+                tracing::error!("Executor Error: Registration failed: {e:?}");
                 if let Err(e) =
                     ExecutorActor::registration_error(transaction.hash_string(), e.to_string())
                 {
-                    log::error!("Executor Error: Failure while handling registration error: {e:?}");
+                    tracing::error!(
+                        "Executor Error: Failure while handling registration error: {e:?}"
+                    );
                 }
             }
         }
@@ -514,7 +516,7 @@ impl ExecutorActor {
                                 // return error to user
                                 let error_string =
                                     format!("unable to set transaction in pending: {e:?}");
-                                log::error!("{}", error_string);
+                                tracing::error!("{}", error_string);
                                 let _ = ExecutorActor::execution_error(
                                     &transaction_hash,
                                     std::io::Error::new(std::io::ErrorKind::Other, error_string),
@@ -524,7 +526,7 @@ impl ExecutorActor {
                     }
                     Err(e) => {
                         let error_string = format!("unable to set transaction in pending: {e:?}");
-                        log::error!("{}", error_string);
+                        tracing::error!("{}", error_string);
                         let _ = ExecutorActor::execution_error(
                             &transaction_hash,
                             std::io::Error::new(std::io::ErrorKind::Other, error_string),
@@ -534,7 +536,7 @@ impl ExecutorActor {
             }
             None => {
                 let error_string = "program account does not exist, unable to execute";
-                log::error!("{}", &error_string);
+                tracing::error!("{}", &error_string);
                 let _ = ExecutorActor::execution_error(
                     &transaction_hash,
                     std::io::Error::new(std::io::ErrorKind::Other, error_string),
@@ -573,7 +575,7 @@ impl ExecutorActor {
                             .await
                         {
                             Ok(handle) => {
-                                log::warn!("result successful, placing handle in handles");
+                                tracing::warn!("result successful, placing handle in handles");
                                 state.handles.insert(
                                     (program_id.to_full_string(), transaction_hash),
                                     handle,
@@ -583,21 +585,21 @@ impl ExecutorActor {
                                 let error_string = format!(
                                     "Executor Error: Error while attempting to run container: {e:?}"
                                 );
-                                log::error!("{}", &error_string);
+                                tracing::error!("{}", &error_string);
                                 let _ = ExecutorActor::execution_error(&transaction_hash, e);
                             }
                         }
                     }
                     Err(e) => {
                         let error_string = format!("Executor Error: Error parsing inputs: {e:?}");
-                        log::error!("{}", &error_string);
+                        tracing::error!("{}", &error_string);
                         let _ = ExecutorActor::execution_error(&transaction_hash, e);
                     }
                 }
             }
             None => {
                 let error_string = "program account does not exist, unable to execute";
-                log::error!("{}", &error_string);
+                tracing::error!("{}", &error_string);
                 let _ = ExecutorActor::execution_error(
                     &transaction_hash,
                     std::io::Error::new(std::io::ErrorKind::Other, error_string),
@@ -613,7 +615,7 @@ impl ExecutorActor {
         transaction_hash: Option<String>,
     ) {
         // Handle the results of an execution
-        log::warn!(
+        tracing::warn!(
             "content_id: {:?}, transaction_id: {:?}",
             content_id,
             transaction_hash
@@ -626,50 +628,50 @@ impl ExecutorActor {
                 };
                 match handle_res {
                     Some(handle) => {
-                        log::warn!("discovered handle");
+                        tracing::warn!("discovered handle");
                         match handle.await {
                             Ok(Ok(output)) => {
-                                log::warn!("Outputs: {:#?}", &output);
+                                tracing::warn!("Outputs: {:#?}", &output);
                                 match transaction {
                                     Some(tx) => {
                                         match ExecutorActor::execution_success(&tx, &output) {
                                             Ok(_) => {
-                                                log::info!(
+                                                tracing::info!(
                                                     "Forwarded output and transaction hash to Engine"
                                                 );
                                             }
                                             Err(e) => {
-                                                log::error!(
+                                                tracing::error!(
                                                     "Execution Error: Execution process failed: {e:?}"
                                                 );
                                             }
                                         }
                                     }
                                     None => {
-                                        log::error!("transaction not provided to the executor");
+                                        tracing::error!("transaction not provided to the executor");
                                     }
                                 }
                             }
                             Ok(Err(e)) => {
-                                log::error!(
+                                tracing::error!(
                                     "Error returned from `call` transaction: {}, program: {}: {:?}",
                                     &hash,
                                     &content_id,
                                     e
                                 );
                                 if let Err(e) = ExecutorActor::execution_error(&hash, e) {
-                                    log::error!(
+                                    tracing::error!(
                                         "Executor Error: Error while handling execution error: {e:?}"
                                     );
                                 }
                             }
                             Err(e) => {
-                                log::error!(
+                                tracing::error!(
                                             "Error inside program call thread: {:?}: transaction: {}, program: {}",
                                             e, &hash, &content_id
                                         );
                                 if let Err(e) = ExecutorActor::execution_error(&hash, e) {
-                                    log::error!(
+                                    tracing::error!(
                                         "Executor Error: Error while handling execution error: {e:?}"
                                     );
                                 }
@@ -677,7 +679,7 @@ impl ExecutorActor {
                         }
                     }
                     None => {
-                        log::error!(
+                        tracing::error!(
                             "Error: Handle does not exist for transaction: {}, program: {}",
                             &hash,
                             &content_id
@@ -686,7 +688,7 @@ impl ExecutorActor {
                 }
             }
             None => {
-                log::error!("Error: No transaction hash provided");
+                tracing::error!("Error: No transaction hash provided");
             }
         }
     }
@@ -792,23 +794,23 @@ impl Actor for ExecutorActor {
                 //    #[method(name = "pin_object")]
                 match state.storage_rpc_client.pinned_status(&content_id).await {
                     Ok(()) => {
-                        log::info!("Item: {content_id} is already pinned, inform requestor");
+                        tracing::info!("Item: {content_id} is already pinned, inform requestor");
                         // check if the program account exists
                         if let Err(e) = self.registration_success(transaction) {
-                            log::error!("Error in in self.registration_success: {e}");
+                            tracing::error!("Error in in self.registration_success: {e}");
                         }
                     }
                     Err(e) => {
-                        log::error!("Error in state.storage_rpc_client.is_pinned: {e}");
+                        tracing::error!("Error in state.storage_rpc_client.is_pinned: {e}");
                         match state.storage_rpc_client.pin_object(&content_id, true).await {
                             Ok(results) => {
                                 if let Err(e) = self.registration_success(transaction) {
-                                    log::error!("Error in self.registration_success: {e}");
+                                    tracing::error!("Error in self.registration_success: {e}");
                                 }
-                                log::info!("Pinned Object to Storage Agent: {:?}", results);
+                                tracing::info!("Pinned Object to Storage Agent: {:?}", results);
                             }
                             Err(e) => {
-                                log::error!("Error pinning object to storage agent: {e}");
+                                tracing::error!("Error pinning object to storage agent: {e}");
                             }
                         }
                     }
@@ -827,9 +829,9 @@ impl Actor for ExecutorActor {
                 if let Some(account) = get_account(transaction.to(), ActorType::Executor).await {
                     let metadata = account.program_account_metadata();
                     if let Some(cid) = metadata.inner().get("content_id") {
-                        log::info!("found cid, converting inputs to json");
+                        tracing::info!("found cid, converting inputs to json");
                         if let Ok(json_inputs) = serde_json::to_string(&inputs) {
-                            log::info!("successfully converted inputs to json, queueing job");
+                            tracing::info!("successfully converted inputs to json, queueing job");
                             match state
                                 .compute_rpc_client
                                 .queue_job(
@@ -841,7 +843,7 @@ impl Actor for ExecutorActor {
                             {
                                 // Spin a thread to periodically poll for the result
                                 Ok(job_id) => {
-                                    log::info!(
+                                    tracing::info!(
                                         "successfully queued job, spawning thread to poll status"
                                     );
                                     let (tx, rx) = tokio::sync::mpsc::channel(1);
@@ -849,7 +851,9 @@ impl Actor for ExecutorActor {
                                     match poll_spawn_result {
                                         Ok(handle) => {
                                             // Stash the job_id
-                                            log::info!("Received handle, stashing in PendingJob");
+                                            tracing::info!(
+                                                "Received handle, stashing in PendingJob"
+                                            );
                                             let pending_job =
                                                 PendingJob::new(handle, tx, transaction);
                                             state.pending.insert(job_id.clone(), pending_job);
@@ -860,11 +864,11 @@ impl Actor for ExecutorActor {
                                 Err(_e) => {}
                             }
                         } else {
-                            log::error!("Unable to serialize JSON inputs")
+                            tracing::error!("Unable to serialize JSON inputs")
                         }
                     }
                 } else {
-                    log::error!("Program account does not exist, not a valid call");
+                    tracing::error!("Program account does not exist, not a valid call");
                     let _ = self.execution_error(
                         &transaction.hash_string(),
                         std::io::Error::new(
@@ -873,36 +877,36 @@ impl Actor for ExecutorActor {
                         ),
                     );
 
-                    log::error!("Returning error to scheduler to propagate to RPC");
+                    tracing::error!("Returning error to scheduler to propagate to RPC");
                 }
             }
             ExecutorMessage::PollJobStatus { job_id } => {
                 match state.compute_rpc_client.job_status(job_id.clone()).await {
                     Ok(Some(status_response)) => match status_response.status() {
                         ServiceJobState::Complete(outputs) => {
-                            log::info!("Received service job status response: {:?}", outputs);
+                            tracing::info!("Received service job status response: {:?}", outputs);
                             if let Some(pending_job) = state.pending.remove(&job_id) {
                                 let transaction = pending_job.transaction();
                                 if let Err(e) = pending_job.kill_thread().await {
-                                    log::error!("Error trying to kill job polling thread: {e}")
+                                    tracing::error!("Error trying to kill job polling thread: {e}")
                                 }
                                 if let Err(e) = self.execution_success(transaction, outputs) {
-                                    log::error!("Error attempting to handle a successful execution result: {e}");
+                                    tracing::error!("Error attempting to handle a successful execution result: {e}");
                                 }
                             }
                         }
                         ServiceJobState::Failed(err) => {
-                            log::error!("Execution of job {job_id} failed: {err}");
+                            tracing::error!("Execution of job {job_id} failed: {err}");
                             if let Some(pending_job) = state.pending.remove(&job_id) {
                                 let transaction = pending_job.transaction();
                                 if let Err(e) = pending_job.kill_thread().await {
-                                    log::error!("Error trying to kill job polling thread: {e}")
+                                    tracing::error!("Error trying to kill job polling thread: {e}")
                                 }
                                 if let Err(e) = self.execution_error(
                                     &transaction.hash_string(),
                                     std::io::Error::new(std::io::ErrorKind::Other, err.to_string()),
                                 ) {
-                                    log::error!(
+                                    tracing::error!(
                                         "Unable to inform RPC client of execution failure: {e}"
                                     );
                                 }
@@ -911,16 +915,16 @@ impl Actor for ExecutorActor {
                         _ => {}
                     },
                     Ok(None) => {
-                        log::error!("Unable to acquire status response from compute agent");
+                        tracing::error!("Unable to acquire status response from compute agent");
                     }
                     Err(e) => {
                         if let Some(pending_job) = state.pending.remove(&job_id) {
                             let transaction = pending_job.transaction();
                             if let Err(e) = pending_job.kill_thread().await {
-                                log::error!("Error trying to kill job polling thread: {e}")
+                                tracing::error!("Error trying to kill job polling thread: {e}")
                             }
                             if let Err(e) = self.execution_error(&transaction.hash_string(), e) {
-                                log::error!(
+                                tracing::error!(
                                     "Unable to inform RPC client of execution failure: {e}"
                                 );
                             }
@@ -990,7 +994,7 @@ impl Actor for ExecutorSupervisor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        log::info!("Executor Supervisor running prestart routine");
+        tracing::info!("Executor Supervisor running prestart routine");
         Ok(())
     }
 
@@ -1000,24 +1004,24 @@ impl Actor for ExecutorSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

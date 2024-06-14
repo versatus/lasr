@@ -50,10 +50,10 @@ impl RecoverableSignature {
     pub fn recover(&self, message_bytes: &[u8]) -> Result<Address, secp256k1::Error> {
         let r_hex = hex::encode(self.get_r());
         let s_hex = hex::encode(self.get_s());
-        log::error!("attempting to recover from r: {}, s: {}", r_hex, s_hex);
-        log::error!("MessageBytes: {}", hex::encode(message_bytes));
+        tracing::warn!("attempting to recover from r: {}, s: {}", r_hex, s_hex);
+        tracing::warn!("MessageBytes: {}", hex::encode(message_bytes));
         if self.v >= 27 && self.v <= 28 {
-            log::warn!("v is >= 27, <= 28, using electrum signature");
+            tracing::warn!("v is >= 27, <= 28, using electrum signature");
             let esig = ElectrumSignature {
                 r: ethers_core::abi::ethereum_types::U256::from(self.get_r()),
                 s: ethers_core::abi::ethereum_types::U256::from(self.get_s()),
@@ -63,7 +63,7 @@ impl RecoverableSignature {
             let eaddr = esig
                 .recover(message_bytes)
                 .map_err(|_| secp256k1::Error::InvalidSignature)?;
-            log::warn!("{:?}", eaddr);
+            tracing::warn!("{:?}", eaddr);
 
             Ok(Address::from(eaddr))
         } else {
@@ -76,11 +76,11 @@ impl RecoverableSignature {
     }
 
     pub fn verify(&self, message: &[u8], pk: PublicKey) -> Result<(), secp256k1::Error> {
-        log::info!("attemting to recover signature");
+        tracing::info!("attemting to recover signature");
         let sig = Signature::try_from(self)?.to_standard();
-        log::info!("reconstructing message: {}", hex::encode(message));
+        tracing::info!("reconstructing message: {}", hex::encode(message));
         let msg = Message::from_digest_slice(message)?;
-        log::info!(
+        tracing::info!(
             "verifying message: {} with pubkey: {}",
             hex::encode(message),
             pk.to_string()
@@ -148,24 +148,24 @@ impl TryFrom<RecoverableSignature> for Signature {
         let mut data = Vec::new();
         let mut recovery_id = value.get_v();
         if (0..=3).contains(&recovery_id) {
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if (27..=30).contains(&recovery_id) {
             recovery_id -= 27;
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if (35..=38).contains(&recovery_id) {
             recovery_id -= 35;
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else {
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
@@ -179,24 +179,24 @@ impl TryFrom<&RecoverableSignature> for Signature {
         let mut data = Vec::new();
         let mut recovery_id = value.get_v();
         if (0..=3).contains(&recovery_id) {
-            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if (27..=30).contains(&recovery_id) {
             recovery_id -= 27;
-            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else if (35..=38).contains(&recovery_id) {
             recovery_id -= 35;
-            log::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::warn!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)
         } else {
-            log::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
+            tracing::info!("using r: {:?} and s: {:?} with recovery_id: {:?} to convert to secp256k1 signature", &value.get_r(), value.get_s(), value.get_v());
             data.extend_from_slice(&value.get_r());
             data.extend_from_slice(&value.get_s());
             Signature::from_compact(&data, RecoveryId::from_i32(recovery_id)?)

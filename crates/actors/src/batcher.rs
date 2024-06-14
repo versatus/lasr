@@ -226,7 +226,7 @@ impl Batch {
         if let Some(compressed_batch) = &self.compress_batch() {
             let encoded =
                 base64::encode(kzgpad_rs::convert_by_padding_empty_byte(compressed_batch));
-            log::info!("encoded batch: {:?}", &encoded);
+            tracing::info!("encoded batch: {:?}", &encoded);
             return Some(encoded);
         }
         None
@@ -290,7 +290,7 @@ impl Batch {
             .account_would_exceed_capacity(account.clone())
             .is_some_and(|at_cap| !at_cap)
         {
-            log::info!("inserting account into batch");
+            tracing::info!("inserting account into batch");
             match account.account_type() {
                 AccountType::Program(address) => {
                     self.accounts
@@ -301,7 +301,6 @@ impl Batch {
                         .insert(account.owner_address().to_full_string(), account.clone());
                 }
             }
-            log::info!("{:?}", &self);
             return Ok(());
         }
 
@@ -330,18 +329,18 @@ impl Batcher {
     ) -> Result<(), BatcherError> {
         let mut pending_receivers: PendingReceivers = FuturesUnordered::new();
         println!("in run receivers");
-        log::info!("starting batch receivers");
+        tracing::info!("starting batch receivers");
         loop {
             tokio::select! {
                 new_pending = receiver.recv() => {
                     if let Some(pending_rx) = new_pending {
-                        log::info!("batcher received a new receiver for a pending blob");
+                        tracing::info!("batcher received a new receiver for a pending blob");
                         pending_receivers.push(pending_rx);
                     }
                 },
                 next_proof = pending_receivers.next() => {
                     if let Some(Ok((request_id, proof))) = next_proof {
-                        log::info!("batcher received blob verification proof");
+                        tracing::info!("batcher received blob verification proof");
                         if let Some(batcher) = get_actor_ref::<BatcherMessage, BatcherError>(ActorType::Batcher) {
                             let message = BatcherMessage::BlobVerificationProof {
                                 request_id,
@@ -370,12 +369,12 @@ impl Batcher {
     }
 
     pub(super) async fn cache_account(account: &Account, location: String) {
-        log::info!("Attempting to acquire account cache actor");
+        tracing::info!("Attempting to acquire account cache actor");
         if let Some(account_cache) =
             get_actor_ref::<AccountCacheMessage, AccountCacheError>(ActorType::AccountCache)
         {
             if let AccountType::Program(program_address) = account.account_type() {
-                log::warn!("caching account: {}", program_address.to_full_string());
+                tracing::warn!("caching account: {}", program_address.to_full_string());
             }
             let message = AccountCacheMessage::Write {
                 account: account.clone(),
@@ -383,7 +382,7 @@ impl Batcher {
                 location,
             };
             if let Err(err) = account_cache.cast(message) {
-                log::error!("failed to cast write message to account cache: {err:?}");
+                tracing::error!("failed to cast write message to account cache: {err:?}");
             }
         }
     }
@@ -397,7 +396,7 @@ impl Batcher {
         let mut res = guard.parent.insert_transaction(transaction.clone());
         let mut iter = guard.children.iter_mut();
         while let Err(ref mut e) = res {
-            log::error!("{e}");
+            tracing::error!("{e}");
             if let Some(mut child) = iter.next() {
                 res = child.insert_transaction(transaction.clone());
             } else {
@@ -426,7 +425,7 @@ impl Batcher {
         let mut res = guard.parent.insert_account(account.clone());
         let mut iter = guard.children.iter_mut();
         while let Err(ref mut e) = res {
-            log::error!("{e}");
+            tracing::error!("{e}");
             if let Some(mut child) = iter.next() {
                 res = child.insert_account(account.clone());
             } else {
@@ -448,14 +447,14 @@ impl Batcher {
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
         let mut batch_buffer = HashMap::new();
-        log::error!(
+        tracing::warn!(
             "checking account cache for account associated with address {:?} to add transaction: {:?}",
             transaction.from(),
             transaction
         );
         let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
-            log::error!("found account, token pair");
+            tracing::warn!("found account, token pair");
             account.increment_nonce();
             if transaction.transaction_type().is_bridge_in() {
                 let token = account
@@ -484,7 +483,7 @@ impl Batcher {
                 });
             }
 
-            log::error!(
+            tracing::warn!(
                 "transaction is first for account {:?} bridge_in, building account",
                 transaction.from()
             );
@@ -528,43 +527,43 @@ impl Batcher {
             }
         };
 
-        log::info!(
+        tracing::info!(
             "applied transaction {} to account {:x}, informing scheduler",
             transaction.clone().hash_string(),
             from_account.owner_address()
         );
 
         if transaction.to() != transaction.from() {
-            log::error!(
+            tracing::warn!(
                 "checking account cache for account: {}",
                 transaction.to().to_full_string()
             );
             let mut to_account = get_account(transaction.to(), ActorType::Batcher).await;
             let to_account = if let Some(mut account) = to_account {
-                log::error!("found `to` account: {}", transaction.to().to_full_string());
+                tracing::warn!("found `to` account: {}", transaction.to().to_full_string());
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::error!(
-                        "1 applied send transaction, account {} now has new token",
+                    tracing::warn!(
+                        "applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::error!(
+                    tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
                     account
                 } else if transaction.program_id() == ETH_ADDR {
-                    log::warn!(
+                    tracing::warn!(
                         "applying ETH to account {}",
                         transaction.to().to_full_string()
                     );
                     let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else if transaction.program_id() == VERSE_ADDR {
-                    log::warn!(
+                    tracing::warn!(
                         "applying VERSE to account {}",
                         transaction.to().to_full_string()
                     );
@@ -580,7 +579,7 @@ impl Batcher {
                     });
                 }
             } else {
-                log::error!(
+                tracing::warn!(
                     "first transaction send to account {} building account",
                     transaction.to().to_full_string()
                 );
@@ -599,17 +598,17 @@ impl Batcher {
                         txn: Box::new(transaction.clone()),
                     })?;
 
-                log::error!("applying transaction to `to` account");
+                tracing::warn!("applying transaction to `to` account");
                 if let Some(program_account) =
                     get_account(transaction.program_id(), ActorType::Batcher).await
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::error!(
-                        "2 applied send transaction, account {} now has new token",
+                    tracing::warn!(
+                        "applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::error!(
+                    tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -641,11 +640,11 @@ impl Batcher {
                 {
                     // let _ = account
                     //     .apply_bridge_transaction(transaction.clone(), Some(&program_account));
-                    // log::error!(
+                    // tracing::error!(
                     //     "applied bridge in transaction, account {} now has new token",
                     //     account.owner_address().to_full_string()
                     // );
-                    log::error!(
+                    tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -673,11 +672,11 @@ impl Batcher {
                 {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
-                    log::error!(
-                        "4 applied send transaction, account {} now has new token",
+                    tracing::warn!(
+                        "applied send transaction, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
-                    log::error!(
+                    tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
@@ -708,7 +707,7 @@ impl Batcher {
         }
 
         for (_, account) in batch_buffer {
-            log::error!("adding account to batch");
+            tracing::info!("adding account to batch");
             Batcher::add_account_to_batch(
                 &batcher,
                 account,
@@ -721,7 +720,7 @@ impl Batcher {
             })?;
         }
 
-        log::error!("adding transaction to batch");
+        tracing::info!("adding transaction to batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
         if let Some(scheduler) =
@@ -780,7 +779,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(&account_address) {
                     Ok(account.clone())
                 } else {
-                    log::info!(
+                    tracing::info!(
                         "requesting account: {:?}",
                         &account_address.to_full_string()
                     );
@@ -795,7 +794,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(address) {
                     Ok(account.clone())
                 } else {
-                    log::info!("requesting account: {:?}", &address.to_full_string());
+                    tracing::info!("requesting account: {:?}", &address.to_full_string());
                     get_account(*address, ActorType::Batcher)
                         .await
                         .ok_or(BatcherError::Custom(
@@ -821,7 +820,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(&account_address) {
                     Some(account.clone())
                 } else {
-                    log::info!(
+                    tracing::info!(
                         "requesting account: {:?}",
                         &account_address.to_full_string()
                     );
@@ -832,7 +831,7 @@ impl Batcher {
                 if let Some(account) = batch_buffer.get(address) {
                     Some(account.clone())
                 } else {
-                    log::info!("requesting account: {:?}", &address.to_full_string());
+                    tracing::info!("requesting account: {:?}", &address.to_full_string());
                     get_account(*address, ActorType::Batcher).await
                 }
             }
@@ -846,7 +845,7 @@ impl Batcher {
         batch_buffer: &mut HashMap<Address, Account>,
     ) -> Result<Account, BatcherError> {
         let from = transfer.from().clone();
-        log::warn!("instruction indicates a transfer from {:?}", &from);
+        tracing::warn!("instruction indicates a transfer from {:?}", &from);
         let mut account =
             Batcher::get_transfer_from_account(transaction, &from, batch_buffer).await?;
         account
@@ -861,7 +860,7 @@ impl Batcher {
         batch_buffer: &mut HashMap<Address, Account>,
     ) -> Result<Account, BatcherError> {
         let to = transfer.to().clone();
-        log::warn!("instruction indicates a transfer from {:?}", &to);
+        tracing::warn!("instruction indicates a transfer from {:?}", &to);
         if let Some(mut account) =
             Batcher::get_transfer_to_account(transaction, &to, batch_buffer).await
         {
@@ -949,7 +948,7 @@ impl Batcher {
     ) -> Result<(Account, Account), BatcherError> {
         let to = transfer.to().clone();
         let from = transfer.from().clone();
-        log::warn!(
+        tracing::warn!(
             "tranferring {:?} in {} from {:?} to {:?}",
             &transfer.amount(),
             &transfer.token().to_full_string(),
@@ -992,7 +991,7 @@ impl Batcher {
         };
         match distribution.to() {
             AddressOrNamespace::This => {
-                log::warn!("Distribution going to {:?}", transaction.to());
+                tracing::warn!("Distribution going to {:?}", transaction.to());
                 let addr = transaction.to();
                 if let Some(mut acct) = Batcher::get_transfer_to_account(
                     transaction,
@@ -1000,7 +999,7 @@ impl Batcher {
                     batch_buffer
                 ).await {
                     if let AccountType::Program(program_addr) = acct.account_type() {
-                        log::warn!("applying token distribution to {}", program_addr.to_full_string());
+                        tracing::warn!("applying token distribution to {}", program_addr.to_full_string());
                     }
                     if let Some(program_account) = get_account(program_id, ActorType::Batcher).await {
                         acct.apply_token_distribution(
@@ -1050,14 +1049,14 @@ impl Batcher {
                 }
             }
             AddressOrNamespace::Address(to_addr) => {
-                log::warn!("distribution going to {}", to_addr.to_full_string());
+                tracing::warn!("distribution going to {}", to_addr.to_full_string());
                 if let Some(mut account) = Batcher::get_transfer_to_account(
                     transaction,
                     &AddressOrNamespace::Address(*to_addr),
                     batch_buffer
                 ).await {
                     if let AccountType::Program(program_addr) = account.account_type() {
-                        log::warn!("distribution going to program account: {}", program_addr.to_full_string());
+                        tracing::warn!("distribution going to program account: {}", program_addr.to_full_string());
                     }
                     if let Some(program_account) = get_account(program_id,ActorType::Batcher).await {
                         account.apply_token_distribution(
@@ -1153,7 +1152,7 @@ impl Batcher {
                     }
                 }
 
-                log::warn!(
+                tracing::warn!(
                     "attempting to get account: {} from cache in batcher",
                     &transaction.to()
                 );
@@ -1269,7 +1268,7 @@ impl Batcher {
                     return Ok(account.clone());
                 }
 
-                log::warn!(
+                tracing::warn!(
                     "attempting to get account {} from cache in batcher.rs 832",
                     transaction.to()
                 );
@@ -1292,7 +1291,7 @@ impl Batcher {
                         .map_err(|e| BatcherError::Custom(e.to_string()))?;
                     return Ok(account.clone());
                 }
-                log::warn!(
+                tracing::warn!(
                     "attempting to get account {} from cache in batcher.rs 852",
                     &address
                 );
@@ -1333,11 +1332,11 @@ impl Batcher {
     ) -> Result<Account, BatcherError> {
         match update {
             TokenOrProgramUpdate::TokenUpdate(token_update) => {
-                log::warn!("received token update: {:?}", token_update);
+                tracing::warn!("received token update: {:?}", token_update);
                 Batcher::apply_token_update(transaction, token_update, batch_buffer).await
             }
             TokenOrProgramUpdate::ProgramUpdate(program_update) => {
-                log::warn!("received program update: {:?}", &program_update);
+                tracing::warn!("received program update: {:?}", &program_update);
                 Batcher::apply_program_update(transaction, program_update, batch_buffer).await
             }
         }
@@ -1537,7 +1536,7 @@ impl Batcher {
         for instruction in outputs.instructions().iter().cloned() {
             match instruction {
                 Instruction::Transfer(mut transfer) => {
-                    log::warn!("Applying transfer instruction: {:?}", transfer);
+                    tracing::warn!("Applying transfer instruction: {:?}", transfer);
                     let (from_account, to_account) = Batcher::apply_transfer_instruction(
                         &batcher,
                         &transaction,
@@ -1553,7 +1552,7 @@ impl Batcher {
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, to_account);
                 }
                 Instruction::Burn(burn) => {
-                    log::info!("Applying burn instruction: {:?}", burn);
+                    tracing::info!("Applying burn instruction: {:?}", burn);
                     let account =
                         Batcher::apply_burn_instruction(&transaction, &burn, &mut batch_buffer)
                             .await
@@ -1564,13 +1563,13 @@ impl Batcher {
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, account);
                 }
                 Instruction::Create(create) => {
-                    log::info!("Applying create instruction: {:?}", create);
-                    log::info!(
+                    tracing::info!("Applying create instruction: {:?}", create);
+                    tracing::info!(
                         "Create instruction has {} distributions",
                         &create.distribution().len()
                     );
                     for dist in create.distribution() {
-                        log::warn!("Applying distribution: {:?}", create);
+                        tracing::warn!("Applying distribution: {:?}", create);
                         let account =
                             Batcher::apply_distribution(&transaction, dist, &mut batch_buffer)
                                 .await
@@ -1591,10 +1590,10 @@ impl Batcher {
                     Batcher::add_account_to_batch_buffer(&mut batch_buffer, program_account);
                 }
                 Instruction::Update(update) => {
-                    log::info!("Applying update instruction: {:?}", update);
-                    log::info!("Update instruction has {} updates", &update.updates().len());
+                    tracing::info!("Applying update instruction: {:?}", update);
+                    tracing::info!("Update instruction has {} updates", &update.updates().len());
                     for token_or_program_update in update.updates() {
-                        log::info!("Applying update: {:?}", &token_or_program_update);
+                        tracing::info!("Applying update: {:?}", &token_or_program_update);
                         let account = Batcher::apply_update(
                             &transaction,
                             token_or_program_update,
@@ -1609,10 +1608,10 @@ impl Batcher {
                     }
                 }
                 Instruction::Log(log) => match &log.0 {
-                    ContractLogType::Info(log_str) => log::info!("{}", log_str),
-                    ContractLogType::Warn(log_str) => log::warn!("{}", log_str),
-                    ContractLogType::Error(log_str) => log::error!("{}", log_str),
-                    ContractLogType::Debug(log_str) => log::debug!("{}", log_str),
+                    ContractLogType::Info(log_str) => tracing::info!("{}", log_str),
+                    ContractLogType::Warn(log_str) => tracing::warn!("{}", log_str),
+                    ContractLogType::Error(log_str) => tracing::error!("{}", log_str),
+                    ContractLogType::Debug(log_str) => tracing::debug!("{}", log_str),
                 },
             }
         }
@@ -1630,7 +1629,7 @@ impl Batcher {
             })?;
         }
 
-        log::warn!("Adding transaction to a batch");
+        tracing::warn!("Adding transaction to a batch");
         Batcher::add_transaction_to_batch(batcher, transaction.clone()).await;
 
         if let Some(scheduler_actor) =
@@ -1647,16 +1646,16 @@ impl Batcher {
                     cert: None,
                 };
 
-                log::info!(
+                tracing::info!(
                     "Informing pending transactions that the transaction has been applied successfully"
                 );
                 if let Err(err) = pending_transactions.cast(message) {
-                    log::error!(
+                    tracing::error!(
                         "failed to cast valid call message to pending transactions actor: {err:?}"
                     );
                 }
 
-                log::warn!(
+                tracing::warn!(
                     "Batcher: attempting to get account: {:?}",
                     transaction.from()
                 );
@@ -1673,9 +1672,9 @@ impl Batcher {
                     account,
                 };
 
-                log::warn!("Informing scheduler that the call transaction was applied");
+                tracing::warn!("Informing scheduler that the call transaction was applied");
                 if let Err(err) = scheduler_actor.cast(message) {
-                    log::error!(
+                    tracing::error!(
                         "failed to cast call transaction applied message to scheduler actor for account address {owner}: {err:?}"
                     );
                 }
@@ -1718,11 +1717,11 @@ impl Batcher {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
             if !guard.parent.empty() {
-                log::info!("found next batch: {:?}", guard.parent);
+                tracing::info!("found next batch: {:?}", guard.parent);
 
                 if let Some(batch) = guard.parent.to_owned().into() {
                     let account_map = &guard.parent.accounts;
-                    log::info!("{account_map:?}");
+                    tracing::info!("{account_map:?}");
                     // let transaction_map = &guard.parent.transactions;
 
                     for (addr, account) in account_map.iter() {
@@ -1733,21 +1732,21 @@ impl Batcher {
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
                             if tikv_client.put(addr.clone(), val).await.is_ok() {
-                                log::error!(
+                                tracing::warn!(
                                     "Inserted Account with address of {addr:?} to persistence layer",
                                 )
                             } else {
-                                log::error!("failed to push Account data to persistence store")
+                                tracing::error!("failed to push Account data to persistence store")
                             }
                         } else {
-                            log::error!("failed to serialize account data")
+                            tracing::error!("failed to serialize account data")
                         }
                     }
 
                     // while let Some(transaction) = transaction_map.iter().next() {
                     //     let data = transaction.1.clone();
                     //     if let Some(txn_sig) = data.sig().ok() {
-                    //         log::info!("Recoverable signature obtained.");
+                    //         tracing::info!("Recoverable signature obtained.");
 
                     //         // note: this can be serialized as well need be
                     //         let txn_key = txn_sig.to_vec();
@@ -1757,15 +1756,15 @@ impl Batcher {
                     //         // Serialize `Transaction` data to be stored.
                     //         if let Some(val) = bincode::serialize(&txn_val).ok() {
                     //             if let Ok(txn_key) = client.put(txn_key, val).await {
-                    //                 log::info!("Inserted Txn with signature: {:?}", txn_key)
+                    //                 tracing::info!("Inserted Txn with signature: {:?}", txn_key)
                     //             } else {
-                    //                 log::error!("failed to push Txn data to persistence store.")
+                    //                 tracing::error!("failed to push Txn data to persistence store.")
                     //             }
                     //         } else {
-                    //             log::error!("failed to serialize txn data")
+                    //             tracing::error!("failed to serialize txn data")
                     //         }
                     //     } else {
-                    //         log::error!("failed to obtain recoverable signature")
+                    //         tracing::error!("failed to obtain recoverable signature")
                     //     }
                     // }
                 }
@@ -1774,7 +1773,7 @@ impl Batcher {
                     get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
                 {
                     let (tx, rx) = oneshot();
-                    log::info!("Sending message to DA Client to store batch");
+                    tracing::info!("Sending message to DA Client to store batch");
                     let message = DaClientMessage::StoreBatch {
                         batch: guard
                             .parent
@@ -1795,7 +1794,7 @@ impl Batcher {
                         .await
                         .map_err(|e| BatcherError::Custom(e.to_string()))?;
 
-                    log::info!(
+                    tracing::info!(
                         "Batcher received blob response: RequestId: {}",
                         &blob_response.request_id()
                     );
@@ -1821,7 +1820,7 @@ impl Batcher {
             return Ok(());
         }
 
-        log::warn!("batch is currently empty, skipping");
+        tracing::warn!("batch is currently empty, skipping");
 
         Ok(())
     }
@@ -1835,7 +1834,9 @@ impl Batcher {
         if let Some(da_actor) = get_actor_ref::<DaClientMessage, DaClientError>(ActorType::DaClient)
         {
             if let Err(err) = da_actor.cast(DaClientMessage::ValidateBlob { request_id, tx }) {
-                log::error!("failed to cast blob validation message for DaClientActor: {err:?}");
+                tracing::error!(
+                    "failed to cast blob validation message for DaClientActor: {err:?}"
+                );
             }
         }
     }
@@ -1845,7 +1846,7 @@ impl Batcher {
         request_id: String,
         proof: BlobVerificationProof,
     ) -> Result<(), BatcherError> {
-        log::info!("received blob verification proof");
+        tracing::info!("received blob verification proof");
 
         if let Some(eo_client) = get_actor_ref::<EoMessage, EoClientError>(ActorType::EoClient) {
             let accounts: HashSet<String> = {
@@ -1922,17 +1923,17 @@ impl Actor for BatcherActor {
                 transaction,
                 outputs,
             } => {
-                log::error!("appending transaction to batch");
+                tracing::warn!("appending transaction to batch");
                 match transaction.transaction_type() {
                     TransactionType::Send(_) => {
-                        log::error!("send transaction");
+                        tracing::warn!("send transaction");
                         let fut =
                             Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
                         let mut guard = self.future_pool.lock().await;
                         guard.push(fut.boxed());
                     }
                     TransactionType::BridgeIn(_) => {
-                        log::error!("bridge in transaction");
+                        tracing::warn!("bridge in transaction");
                         let fut =
                             Batcher::add_transaction_to_account(batcher_ptr, transaction.clone());
                         let mut guard = self.future_pool.lock().await;
@@ -1948,7 +1949,7 @@ impl Actor for BatcherActor {
                             let mut guard = self.future_pool.lock().await;
                             guard.push(fut.boxed());
                         } else {
-                            log::error!("Call transaction result did not contain outputs")
+                            tracing::error!("Call transaction result did not contain outputs")
                         }
                     }
                     TransactionType::RegisterProgram(_) => {
@@ -1960,7 +1961,7 @@ impl Actor for BatcherActor {
                 }
             }
             BatcherMessage::BlobVerificationProof { request_id, proof } => {
-                log::info!("received blob verification proof");
+                tracing::info!("received blob verification proof");
                 let fut = Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
                 let mut guard = self.future_pool.lock().await;
                 guard.push(fut.boxed());
@@ -1989,7 +1990,7 @@ impl ActorExt for BatcherActor {
                 future_handler
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
                                 Batcher::handle_transaction_error(msg, *txn)
                             }
@@ -2041,24 +2042,24 @@ impl Actor for BatcherSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);
@@ -2079,23 +2080,23 @@ pub async fn batch_requestor(
             .parse::<u64>()
             .unwrap_or(180);
         loop {
-            log::info!("SLEEPING THEN REQUESTING NEXT BATCH");
+            tracing::info!("SLEEPING THEN REQUESTING NEXT BATCH");
             tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
             let message = BatcherMessage::GetNextBatch {
                 tikv_client: tikv_client.clone(),
             };
-            log::error!("requesting next batch");
+            tracing::warn!("requesting next batch");
             if let Err(err) = batcher.cast(message) {
-                log::error!("Batcher Error: failed to cast GetNextBatch message to the BatcherActor during batch_requestor routine: {err:?}");
+                tracing::error!("Batcher Error: failed to cast GetNextBatch message to the BatcherActor during batch_requestor routine: {err:?}");
             }
 
             if let Ok(1) = &stopper.try_recv() {
-                log::error!("breaking the batch requestor loop");
+                tracing::error!("breaking the batch requestor loop");
                 break;
             }
         }
     } else {
-        log::error!("unable to acquire BatcherActor during batch_requestor routine");
+        tracing::error!("unable to acquire BatcherActor during batch_requestor routine");
     }
 }
 
@@ -2133,10 +2134,10 @@ mod batcher_tests {
                     transaction,
                     outputs,
                 } => {
-                    log::warn!("appending transaction to batch");
+                    tracing::warn!("appending transaction to batch");
                     match transaction.transaction_type() {
                         TransactionType::Send(_) => {
-                            log::warn!("send transaction");
+                            tracing::warn!("send transaction");
                             let fut = Batcher::add_transaction_to_account(
                                 batcher_ptr,
                                 transaction.clone(),
@@ -2145,7 +2146,7 @@ mod batcher_tests {
                             guard.push(fut.boxed());
                         }
                         TransactionType::BridgeIn(_) => {
-                            log::warn!("bridge in transaction");
+                            tracing::warn!("bridge in transaction");
                             let fut = Batcher::add_transaction_to_account(
                                 batcher_ptr,
                                 transaction.clone(),
@@ -2163,7 +2164,7 @@ mod batcher_tests {
                                 let mut guard = self.future_pool.lock().await;
                                 guard.push(fut.boxed());
                             } else {
-                                log::error!("Call transaction result did not contain outputs")
+                                tracing::error!("Call transaction result did not contain outputs")
                             }
                         }
                         TransactionType::RegisterProgram(_) => {
@@ -2175,7 +2176,7 @@ mod batcher_tests {
                     }
                 }
                 BatcherMessage::BlobVerificationProof { request_id, proof } => {
-                    log::info!("received blob verification proof");
+                    tracing::info!("received blob verification proof");
                     let fut =
                         Batcher::handle_blob_verification_proof(batcher_ptr, request_id, proof);
                     let mut guard = self.future_pool.lock().await;
