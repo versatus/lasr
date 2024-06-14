@@ -554,11 +554,7 @@ async fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client)
-        .await
-        .typecast()
-        .log_err(|e| e.to_string())
-    {
+    if let Some(blocks_processed) = load_processed_blocks(path, tikv_client).await.ok() {
         tracing::error!("loaded processed blocks for eo server setup.");
         tracing::error!("{:?}", blocks_processed);
         let bridge_from_block = blocks_processed.bridge;
