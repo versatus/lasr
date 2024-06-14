@@ -95,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &block_processed_path,
         tikv_client.clone(),
     )
+    .await
     .map_err(Box::new)?;
 
     #[cfg(feature = "local")]
@@ -531,7 +532,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn setup_eo_server(
+async fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
     tikv_client: TikvClient,
@@ -550,7 +551,9 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    let blocks_processed = load_processed_blocks(path, tikv_client).unwrap_or_default();
+    let blocks_processed = load_processed_blocks(path, tikv_client)
+        .await
+        .unwrap_or_default();
     let bridge_from_block = blocks_processed.bridge;
     let settle_from_block = blocks_processed.settle;
     let bridge_processed = blocks_processed.bridge_processed;
@@ -653,35 +656,32 @@ async fn setup_eo_client(
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<BlocksProcessed> {
+async fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<BlocksProcessed> {
     tracing::info!("attempting to load processed blocks in eo server setup");
-    std::fs::OpenOptions::new()
+    let blocks_processed_bytes = if let Ok(mut file) = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .open(path)
-        .ok()
-        .and_then(|mut file| {
-            let mut buf = Vec::new();
-            let blocks_processed_bytes = if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
-                tracing::info!("found non-empty processed blocks file");
-                Some(buf)
-            } else {
-                tracing::warn!("checking persistence storage for processed blocks");
-                get_blocks_processed_from_persistence(tikv_client)
-            };
-            bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default())
-                .ok()
-        })
+    {
+        let mut buf = Vec::new();
+        if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            tracing::info!("found non-empty processed blocks file");
+            Some(buf)
+        } else {
+            tracing::warn!("checking persistence storage for processed blocks");
+            get_blocks_processed_from_persistence(tikv_client).await
+        }
+    } else {
+        None
+    };
+    bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default()).ok()
 }
 
-fn get_blocks_processed_from_persistence(tikv_client: TikvClient) -> Option<Vec<u8>> {
-    let rt = tokio::runtime::Runtime::new().typecast().log_err(|e| {
-        EoServerError::Other(format!(
-            "failed to start tokio runtime to get processed blocks from persistence: {e:?}"
-        ))
-    })?;
-    rt.block_on(async { tikv_client.get(TIKV_PROCESSED_BLOCKS_KEY.to_string()).await })
+async fn get_blocks_processed_from_persistence(tikv_client: TikvClient) -> Option<Vec<u8>> {
+    tikv_client
+        .get(TIKV_PROCESSED_BLOCKS_KEY.to_string())
+        .await
         .typecast()
         .log_err(|e| e.to_string())
         .flatten()
