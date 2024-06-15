@@ -28,7 +28,7 @@ use std::{
 /// with either JSON helper functions and/or custom JSON parsing. The developer
 /// has the flexibility to do with the `Inputs`, represented by JSON as they
 /// choose.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(
     rename(serialize = "computeInputs", deserialize = "computeInputs"),
     rename_all = "camelCase"

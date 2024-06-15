@@ -299,27 +299,73 @@ pub struct Transaction {
     s: [u8; 32],
 }
 
+/// TEST TRANSACTIONS
 impl Transaction {
     /// A test bridge in transaction.
-    pub fn test_bridge_in(amount: u64, program_id: Address, to: Address) -> Self {
-        let bridge_value = crate::U256::from(amount);
+    pub fn test_bridge_in(
+        amount: u64,
+        nonce: crate::U256,
+        program_id: Address,
+        to: Address,
+    ) -> Self {
         Self {
-            transaction_type: TransactionType::BridgeIn(bridge_value),
+            transaction_type: TransactionType::BridgeIn(nonce),
             from: to.inner(),
             program_id: program_id.inner(),
             to: to.inner(),
-            value: bridge_value,
+            value: crate::U256::from(amount),
             ..Default::default()
         }
     }
-    pub fn test_send(amount: u64, from: Address, program_id: Address, to: Address) -> Self {
-        let bridge_value = crate::U256::from(amount);
+    /// A test send transaction.
+    pub fn test_send(
+        amount: u64,
+        from: Address,
+        nonce: crate::U256,
+        program_id: Address,
+        to: Address,
+    ) -> Self {
         Self {
-            transaction_type: TransactionType::Send(bridge_value),
+            transaction_type: TransactionType::Send(nonce),
             from: from.inner(),
             program_id: program_id.inner(),
             to: to.inner(),
-            value: bridge_value,
+            value: crate::U256::from(amount),
+            r: [0u8; 32],
+            s: [0u8; 32],
+            ..Default::default()
+        }
+    }
+    pub fn test_register_program(nonce: crate::U256, from: Address, program_id: Address) -> Self {
+        let payload = PayloadBuilder::default()
+            .transaction_type(TransactionType::RegisterProgram(nonce))
+            .from(from.into())
+            .to(from.into())
+            .program_id(program_id.into())
+            .inputs(String::from("{ \"contentId\": \"test\"}"))
+            .op(String::new())
+            .value(crate::U256::from(0))
+            .nonce(nonce)
+            .build()
+            .expect("failed to build payload");
+
+        let msg = secp256k1::Message::from_digest_slice(&payload.hash())
+            .expect("failed to create Message from payload");
+
+        let secp = secp256k1::Secp256k1::new();
+        let keypair = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
+
+        let sig: RecoverableSignature = secp.sign_ecdsa_recoverable(&msg, &keypair.0).into();
+
+        (payload, sig.clone()).into()
+    }
+    pub fn test_create(nonce: crate::U256, from: Address, program_id: Address) -> Self {
+        Self {
+            transaction_type: TransactionType::Call(nonce),
+            from: from.inner(),
+            to: from.inner(),
+            program_id: program_id.inner(),
+            nonce,
             ..Default::default()
         }
     }

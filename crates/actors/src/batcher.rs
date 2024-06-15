@@ -1333,7 +1333,7 @@ impl Batcher {
         }
     }
 
-    async fn apply_program_registration(
+    pub async fn apply_program_registration(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
@@ -1498,7 +1498,7 @@ impl Batcher {
         }
     }
 
-    async fn apply_instructions_to_accounts(
+    pub async fn apply_instructions_to_accounts(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
         outputs: Outputs,
