@@ -19,8 +19,9 @@ use lasr_messages::{
 };
 use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
-    CreateInstructionBuilder, Inputs, Metadata, MockPersistenceStore, Namespace, OutputsBuilder,
-    PersistenceStore, Status, TokenBuilder, TokenDistributionBuilder, Transaction, U256,
+    BurnInstructionBuilder, CreateInstructionBuilder, Inputs, Metadata, MockPersistenceStore,
+    Namespace, OutputsBuilder, PersistenceStore, Status, TokenBuilder, TokenDistributionBuilder,
+    Transaction, U256,
 };
 
 use ractor::{
@@ -482,7 +483,6 @@ async fn call_create_event() {
                                 .program_id(program_address)
                                 .to(AddressOrNamespace::Address(from_account.owner_address()))
                                 .amount(U256::from(TOKEN_AMOUNT))
-                                .add_token_id(U256::from(100))
                                 .build()
                                 .expect("failed to create distribution"),
                         )
@@ -538,14 +538,92 @@ async fn call_transfer_event() {
 async fn call_burn_event() {
     MinimalNode::new()
         .and_then(|node| async move {
-            // pub struct BurnInstructionBuilder {
-            //     pub caller: Option<Address>,
-            //     pub program_id: Option<AddressOrNamespace>,
-            //     pub token: Option<Address>,
-            //     pub from: Option<AddressOrNamespace>,
-            //     pub amount: Option<crate::U256>,
-            //     pub token_ids: Vec<crate::U256>,
-            // }
+            // Insert accounts into storage & account cache.
+            // This simulates an already registered program.
+            let (from_account, from_program_account) = sender_test_account_pair();
+            let from_account_address = from_account.owner_address();
+            let AccountType::Program(from_program_address) = from_program_account.account_type()
+            else {
+                panic!("from_program_account is not a program account.")
+            };
+            assert!(
+                <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                    &node.mock_storage,
+                    from_account_address.to_full_string(),
+                    bincode::serialize(&from_account).expect("failed serialization of to account")
+                )
+                .await
+                .is_ok()
+                    && <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                        &node.mock_storage,
+                        from_program_address.to_full_string(),
+                        bincode::serialize(&from_program_account)
+                            .expect("failed serialization of from program account")
+                    )
+                    .await
+                    .is_ok()
+            );
+            assert!(get_actor_ref::<AccountCacheMessage, AccountCacheError>(
+                ActorType::AccountCache
+            )
+            .and_then(|account_cache| account_cache
+                .send_message(AccountCacheMessage::Write {
+                    account: from_account.clone(),
+                    who: ActorType::AccountCache,
+                    location: "call_create_event test".into()
+                })
+                .ok()
+                .zip(
+                    account_cache
+                        .send_message(AccountCacheMessage::Write {
+                            account: from_program_account,
+                            who: ActorType::AccountCache,
+                            location: "call_create_event test".into()
+                        })
+                        .ok()
+                ))
+            .is_some());
+
+            const TOKEN_AMOUNT: u64 = 1;
+            let burn_transaction = Transaction::test_create(
+                from_account.nonce(),
+                from_account_address,
+                from_program_address,
+            );
+            let program_address = AddressOrNamespace::Address(from_program_address);
+            let outputs = OutputsBuilder::new()
+                .add_instruction(lasr_types::Instruction::Burn(
+                    BurnInstructionBuilder::new()
+                        .caller(from_account_address)
+                        .program_id(program_address.clone())
+                        .token(from_program_address)
+                        .from(AddressOrNamespace::Address(from_account_address))
+                        .amount(U256::from(TOKEN_AMOUNT))
+                        .build()
+                        .expect("failed to build create instruction"),
+                ))
+                .inputs(Inputs::default())
+                .build()
+                .expect("failed to build outputs");
+
+            let res = Batcher::apply_instructions_to_accounts(
+                node.batcher.clone(),
+                burn_transaction,
+                outputs,
+            )
+            .await;
+
+            let from_account_with_updates =
+                get_account(from_account.owner_address(), ActorType::AccountCache)
+                    .await
+                    .unwrap();
+
+            assert!(res.is_ok());
+            // TODO: assert other expectations of token burn
+            assert_eq!(
+                from_account_with_updates.balance(&from_program_address),
+                from_account.balance(&from_program_address) - TOKEN_AMOUNT
+            );
 
             MinimalNode::shutdown_and_wait(node).await
         })
