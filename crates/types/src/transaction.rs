@@ -359,11 +359,11 @@ impl Transaction {
 
         (payload, sig.clone()).into()
     }
-    pub fn test_create(nonce: crate::U256, from: Address, program_id: Address) -> Self {
+    pub fn test_call(nonce: crate::U256, from: Address, to: Address, program_id: Address) -> Self {
         Self {
             transaction_type: TransactionType::Call(nonce),
             from: from.inner(),
-            to: from.inner(),
+            to: to.inner(),
             program_id: program_id.inner(),
             nonce,
             ..Default::default()

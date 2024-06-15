@@ -464,8 +464,9 @@ async fn call_create_event() {
             .is_some());
 
             const TOKEN_AMOUNT: u64 = 1;
-            let create_transaction = Transaction::test_create(
+            let create_transaction = Transaction::test_call(
                 from_account.nonce(),
+                from_account_address,
                 from_account_address,
                 from_program_address,
             );
@@ -585,8 +586,9 @@ async fn call_burn_event() {
             .is_some());
 
             const TOKEN_AMOUNT: u64 = 1;
-            let burn_transaction = Transaction::test_create(
+            let burn_transaction = Transaction::test_call(
                 from_account.nonce(),
+                from_account_address,
                 from_account_address,
                 from_program_address,
             );
