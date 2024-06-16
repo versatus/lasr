@@ -208,6 +208,10 @@ impl Metadata {
         Self(BTreeMap::new())
     }
 
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.0.get(key)
+    }
+
     pub fn extend(&mut self, iter: BTreeMap<String, String>) {
         self.0.extend(iter);
     }

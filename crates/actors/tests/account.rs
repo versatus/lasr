@@ -21,7 +21,7 @@ use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstructionBuilder, CreateInstructionBuilder, Inputs, Metadata, MockPersistenceStore,
     Namespace, OutputsBuilder, PersistenceStore, Status, TokenBuilder, TokenDistributionBuilder,
-    Transaction, U256,
+    TokenUpdateBuilder, TokenUpdateField, Transaction, UpdateInstructionBuilder, U256,
 };
 
 use ractor::{
@@ -504,7 +504,7 @@ async fn call_create_event() {
             let from_account_with_updates =
                 get_account(from_account.owner_address(), ActorType::AccountCache)
                     .await
-                    .unwrap();
+                    .expect("could not find from account");
 
             assert!(res.is_ok());
             // TODO: assert other expectations of token creation
@@ -522,7 +522,101 @@ async fn call_create_event() {
 #[tokio::test]
 async fn call_update_event() {
     MinimalNode::new()
-        .and_then(|node| async move { MinimalNode::shutdown_and_wait(node).await })
+        .and_then(|node| async move {
+            // Insert accounts into storage & account cache.
+            // This simulates an already registered program.
+            let (from_account, from_program_account) = sender_test_account_pair();
+            let from_account_address = from_account.owner_address();
+            let AccountType::Program(from_program_address) = from_program_account.account_type()
+            else {
+                panic!("from_program_account is not a program account.")
+            };
+            assert!(
+                <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                    &node.mock_storage,
+                    from_account_address.to_full_string(),
+                    bincode::serialize(&from_account).expect("failed serialization of to account")
+                )
+                .await
+                .is_ok()
+                    && <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                        &node.mock_storage,
+                        from_program_address.to_full_string(),
+                        bincode::serialize(&from_program_account)
+                            .expect("failed serialization of from program account")
+                    )
+                    .await
+                    .is_ok()
+            );
+            assert!(get_actor_ref::<AccountCacheMessage, AccountCacheError>(
+                ActorType::AccountCache
+            )
+            .and_then(|account_cache| account_cache
+                .send_message(AccountCacheMessage::Write {
+                    account: from_account.clone(),
+                    who: ActorType::AccountCache,
+                    location: "call_create_event test".into()
+                })
+                .ok()
+                .zip(
+                    account_cache
+                        .send_message(AccountCacheMessage::Write {
+                            account: from_program_account,
+                            who: ActorType::AccountCache,
+                            location: "call_create_event test".into()
+                        })
+                        .ok()
+                ))
+            .is_some());
+
+            let update_transaction = Transaction::test_call(
+                from_account.nonce(),
+                from_account_address,
+                from_account_address,
+                from_program_address,
+            );
+            let program_address = AddressOrNamespace::Address(from_program_address);
+            let outputs = OutputsBuilder::new()
+                .add_instruction(lasr_types::Instruction::Update(
+                    UpdateInstructionBuilder::new()
+                        .add_update(lasr_types::TokenOrProgramUpdate::TokenUpdate(
+                            TokenUpdateBuilder::new()
+                                .account(AddressOrNamespace::Address(from_account_address))
+                                .token(program_address)
+                                .add_update(TokenUpdateField::default())
+                                .build()
+                                .expect("failed to build token update"),
+                        ))
+                        .build(),
+                ))
+                .inputs(Inputs::default())
+                .build()
+                .expect("failed to build outputs");
+
+            let res = Batcher::apply_instructions_to_accounts(
+                node.batcher.clone(),
+                update_transaction,
+                outputs,
+            )
+            .await;
+
+            let from_account_with_updates =
+                get_account(from_account.owner_address(), ActorType::AccountCache)
+                    .await
+                    .expect("could not find from account");
+
+            assert!(res.is_ok());
+            // TODO: assert other expectations of token & program updates
+            assert!(from_account_with_updates
+                .programs()
+                .get(&from_program_address)
+                .unwrap()
+                .metadata()
+                .get("some") // TODO: create macro for producing test types
+                .is_some());
+
+            MinimalNode::shutdown_and_wait(node).await
+        })
         .await
         .unwrap();
 }
@@ -618,7 +712,7 @@ async fn call_burn_event() {
             let from_account_with_updates =
                 get_account(from_account.owner_address(), ActorType::AccountCache)
                     .await
-                    .unwrap();
+                    .expect("could not find from account");
 
             assert!(res.is_ok());
             // TODO: assert other expectations of token burn
