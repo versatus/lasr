@@ -21,7 +21,8 @@ use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstructionBuilder, CreateInstructionBuilder, Inputs, Metadata, MockPersistenceStore,
     Namespace, OutputsBuilder, PersistenceStore, Status, TokenBuilder, TokenDistributionBuilder,
-    TokenUpdateBuilder, TokenUpdateField, Transaction, UpdateInstructionBuilder, U256,
+    TokenUpdateBuilder, TokenUpdateField, Transaction, TransferInstructionBuilder,
+    UpdateInstructionBuilder, U256,
 };
 
 use ractor::{
@@ -518,6 +519,7 @@ async fn call_create_event() {
         .await
         .unwrap();
 }
+
 #[serial]
 #[tokio::test]
 async fn call_update_event() {
@@ -555,7 +557,7 @@ async fn call_update_event() {
                 .send_message(AccountCacheMessage::Write {
                     account: from_account.clone(),
                     who: ActorType::AccountCache,
-                    location: "call_create_event test".into()
+                    location: "call_update_event test".into()
                 })
                 .ok()
                 .zip(
@@ -563,7 +565,7 @@ async fn call_update_event() {
                         .send_message(AccountCacheMessage::Write {
                             account: from_program_account,
                             who: ActorType::AccountCache,
-                            location: "call_create_event test".into()
+                            location: "call_update_event test".into()
                         })
                         .ok()
                 ))
@@ -620,14 +622,129 @@ async fn call_update_event() {
         .await
         .unwrap();
 }
+
 #[serial]
 #[tokio::test]
 async fn call_transfer_event() {
     MinimalNode::new()
-        .and_then(|node| async move { MinimalNode::shutdown_and_wait(node).await })
+        .and_then(|node| async move {
+            // Insert accounts into storage & account cache.
+            // This simulates an already registered program.
+            let (from_account, from_program_account) = sender_test_account_pair();
+            let from_account_address = from_account.owner_address();
+            let AccountType::Program(from_program_address) = from_program_account.account_type()
+            else {
+                panic!("from_program_account is not a program account.")
+            };
+            let to_account = receiver_test_account();
+            let to_account_address = to_account.owner_address();
+            assert!(
+                <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                    &node.mock_storage,
+                    from_account_address.to_full_string(),
+                    bincode::serialize(&from_account).expect("failed serialization of to account")
+                )
+                .await
+                .is_ok()
+                    && <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                        &node.mock_storage,
+                        from_program_address.to_full_string(),
+                        bincode::serialize(&from_program_account)
+                            .expect("failed serialization of from program account")
+                    )
+                    .await
+                    .is_ok()
+                    && <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
+                        &node.mock_storage,
+                        to_account_address.to_full_string(),
+                        bincode::serialize(&to_account)
+                            .expect("failed serialization of to account")
+                    )
+                    .await
+                    .is_ok()
+            );
+            assert!(get_actor_ref::<AccountCacheMessage, AccountCacheError>(
+                ActorType::AccountCache
+            )
+            .and_then(|account_cache| account_cache
+                .send_message(AccountCacheMessage::Write {
+                    account: from_account.clone(),
+                    who: ActorType::AccountCache,
+                    location: "call_transfer_event test".into()
+                })
+                .ok()
+                .zip(
+                    account_cache
+                        .send_message(AccountCacheMessage::Write {
+                            account: from_program_account,
+                            who: ActorType::AccountCache,
+                            location: "call_transfer_event test".into()
+                        })
+                        .ok()
+                )
+                .zip(
+                    account_cache
+                        .send_message(AccountCacheMessage::Write {
+                            account: to_account.clone(),
+                            who: ActorType::AccountCache,
+                            location: "call_transfer_event".into()
+                        })
+                        .ok()
+                ))
+            .is_some());
+
+            const TRANSFER_AMOUNT: u64 = 1;
+            let update_transaction = Transaction::test_call(
+                from_account.nonce(),
+                from_account_address,
+                to_account_address,
+                from_program_address,
+            );
+            let outputs = OutputsBuilder::new()
+                .add_instruction(lasr_types::Instruction::Transfer(
+                    TransferInstructionBuilder::new()
+                        .token(from_program_address)
+                        .from(AddressOrNamespace::Address(from_account_address))
+                        .to(AddressOrNamespace::Address(to_account_address))
+                        .amount(U256::from(TRANSFER_AMOUNT))
+                        .build()
+                        .expect("failed to build transfer instruction"),
+                ))
+                .inputs(Inputs::default())
+                .build()
+                .expect("failed to build outputs");
+
+            let res = Batcher::apply_instructions_to_accounts(
+                node.batcher.clone(),
+                update_transaction,
+                outputs,
+            )
+            .await;
+
+            let from_account_with_updates =
+                get_account(from_account_address, ActorType::AccountCache)
+                    .await
+                    .expect("could not find from account");
+            let to_account_with_updates = get_account(to_account_address, ActorType::AccountCache)
+                .await
+                .expect("could not find to account");
+
+            assert!(res.is_ok());
+            assert_eq!(
+                from_account_with_updates.balance(&from_program_address),
+                U256::from(from_account.balance(&from_program_address) - TRANSFER_AMOUNT)
+            );
+            assert_eq!(
+                to_account_with_updates.balance(&from_program_address),
+                U256::from(TRANSFER_AMOUNT)
+            );
+
+            MinimalNode::shutdown_and_wait(node).await
+        })
         .await
         .unwrap();
 }
+
 #[serial]
 #[tokio::test]
 async fn call_burn_event() {
@@ -665,7 +782,7 @@ async fn call_burn_event() {
                 .send_message(AccountCacheMessage::Write {
                     account: from_account.clone(),
                     who: ActorType::AccountCache,
-                    location: "call_create_event test".into()
+                    location: "call_burn_event test".into()
                 })
                 .ok()
                 .zip(
@@ -673,7 +790,7 @@ async fn call_burn_event() {
                         .send_message(AccountCacheMessage::Write {
                             account: from_program_account,
                             who: ActorType::AccountCache,
-                            location: "call_create_event test".into()
+                            location: "call_burn_event test".into()
                         })
                         .ok()
                 ))
