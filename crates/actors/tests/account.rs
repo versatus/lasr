@@ -20,9 +20,9 @@ use lasr_messages::{
 use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstructionBuilder, CreateInstructionBuilder, Inputs, Metadata, MockPersistenceStore,
-    Namespace, OutputsBuilder, PersistenceStore, Status, TokenBuilder, TokenDistributionBuilder,
-    TokenUpdateBuilder, TokenUpdateField, Transaction, TransferInstructionBuilder,
-    UpdateInstructionBuilder, U256,
+    Namespace, OutputsBuilder, PayloadBuilder, PersistenceStore, RecoverableSignature, Status,
+    TokenBuilder, TokenDistributionBuilder, TokenUpdateBuilder, TokenUpdateField, Transaction,
+    TransactionType, TransferInstructionBuilder, UpdateInstructionBuilder, U256,
 };
 
 use ractor::{
@@ -33,8 +33,18 @@ use serial_test::serial;
 use tokio::sync::{mpsc, Mutex};
 
 /// This is an account with nothing in it, with `Address([1; 20])`.
+pub fn test_default_user_account() -> Account {
+    const RECEIVER_ADDRESS: [u8; 20] = [1; 20];
+    Account::new(
+        AccountType::User,
+        None,
+        Address::new(RECEIVER_ADDRESS),
+        None,
+    )
+}
+
 pub fn receiver_test_account() -> Account {
-    Account::test_default_user_account()
+    test_default_user_account()
 }
 
 /// The canonical `from` user account for testing purposes, and its program account.
@@ -90,6 +100,86 @@ pub fn sender_test_account_pair() -> (Account, Account) {
             .build()
             .expect("failed to build test program account"),
     )
+}
+
+// TEST TRANSACTIONS
+/// A test bridge in transaction.
+fn test_bridge_in(
+    amount: u64,
+    nonce: crate::U256,
+    program_id: Address,
+    to: Address,
+) -> Transaction {
+    PayloadBuilder::default()
+        .transaction_type(TransactionType::BridgeIn(nonce))
+        .from(to.into())
+        .to(to.into())
+        .program_id(program_id.into())
+        .inputs(String::new())
+        .op(String::new())
+        .value(crate::U256::from(amount))
+        .nonce(nonce)
+        .build()
+        .expect("failed to build payload")
+        .into()
+}
+/// A test send transaction.
+fn test_send(
+    amount: u64,
+    from: Address,
+    nonce: crate::U256,
+    program_id: Address,
+    to: Address,
+) -> Transaction {
+    PayloadBuilder::default()
+        .transaction_type(TransactionType::Send(nonce))
+        .from(from.into())
+        .to(to.into())
+        .program_id(program_id.into())
+        .inputs(String::new())
+        .op(String::new())
+        .value(crate::U256::from(amount))
+        .nonce(nonce)
+        .build()
+        .expect("failed to build payload")
+        .into()
+}
+fn test_register_program(nonce: crate::U256, from: Address, program_id: Address) -> Transaction {
+    let payload = PayloadBuilder::default()
+        .transaction_type(TransactionType::RegisterProgram(nonce))
+        .from(from.into())
+        .to(from.into())
+        .program_id(program_id.into())
+        .inputs(String::from("{ \"contentId\": \"test\"}"))
+        .op(String::new())
+        .value(crate::U256::from(0))
+        .nonce(nonce)
+        .build()
+        .expect("failed to build payload");
+
+    let msg = secp256k1::Message::from_digest_slice(&payload.hash())
+        .expect("failed to create Message from payload");
+
+    let secp = secp256k1::Secp256k1::new();
+    let keypair = secp.generate_keypair(&mut secp256k1::rand::rngs::OsRng);
+
+    let sig: RecoverableSignature = secp.sign_ecdsa_recoverable(&msg, &keypair.0).into();
+
+    (payload, sig.clone()).into()
+}
+fn test_call(nonce: crate::U256, from: Address, to: Address, program_id: Address) -> Transaction {
+    PayloadBuilder::default()
+        .transaction_type(TransactionType::Call(nonce))
+        .from(from.into())
+        .to(to.into())
+        .program_id(program_id.into())
+        .inputs(String::new())
+        .op(String::new())
+        .value(crate::U256::from(0))
+        .nonce(nonce)
+        .build()
+        .expect("failed to build payload")
+        .into()
 }
 
 /// Everything needed to run minimal tests for a node. This excludes most things
@@ -217,7 +307,7 @@ async fn bridge_in_event() {
 
             const BRIDGE_IN_AMOUNT: u64 = 1;
             let program_id = ETH_ADDR;
-            let bridge_in_transaction = Transaction::test_bridge_in(
+            let bridge_in_transaction = test_bridge_in(
                 BRIDGE_IN_AMOUNT,
                 to_account.nonce(),
                 program_id,
@@ -315,7 +405,7 @@ async fn send_event() {
             .is_some());
 
             const TRANSFER_AMOUNT: u64 = 1;
-            let send_transaction = Transaction::test_send(
+            let send_transaction = test_send(
                 TRANSFER_AMOUNT,
                 from_account_address,
                 from_account.nonce(),
@@ -355,7 +445,7 @@ async fn register_program_event() {
     MinimalNode::new()
         .and_then(|node| async move {
             // Insert account into storage & account cache.
-            let from_account = Account::test_default_user_account();
+            let from_account = test_default_user_account();
             let from_account_address = from_account.owner_address();
             assert!(
                 <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::put(
@@ -381,11 +471,8 @@ async fn register_program_event() {
             const PROGRAM_ID: [u8; 20] = [2; 20];
             const CONTENT_ID: &str = "test";
             let program_id = Address::new(PROGRAM_ID);
-            let register_program_transaction = Transaction::test_register_program(
-                from_account.nonce(),
-                from_account_address,
-                program_id,
-            );
+            let register_program_transaction =
+                test_register_program(from_account.nonce(), from_account_address, program_id);
             // The initial program_id is hashed with the transaction before being added to the cache
             // so here we re-create that bit so we have the correct address to the check the cache.
             let finalized_program_id = lasr_contract::create_program_id(
@@ -465,7 +552,7 @@ async fn call_create_event() {
             .is_some());
 
             const TOKEN_AMOUNT: u64 = 1;
-            let create_transaction = Transaction::test_call(
+            let create_transaction = test_call(
                 from_account.nonce(),
                 from_account_address,
                 from_account_address,
@@ -571,7 +658,7 @@ async fn call_update_event() {
                 ))
             .is_some());
 
-            let update_transaction = Transaction::test_call(
+            let update_transaction = test_call(
                 from_account.nonce(),
                 from_account_address,
                 from_account_address,
@@ -694,7 +781,7 @@ async fn call_transfer_event() {
             .is_some());
 
             const TRANSFER_AMOUNT: u64 = 1;
-            let update_transaction = Transaction::test_call(
+            let update_transaction = test_call(
                 from_account.nonce(),
                 from_account_address,
                 to_account_address,
@@ -797,7 +884,7 @@ async fn call_burn_event() {
             .is_some());
 
             const TOKEN_AMOUNT: u64 = 1;
-            let burn_transaction = Transaction::test_call(
+            let burn_transaction = test_call(
                 from_account.nonce(),
                 from_account_address,
                 from_account_address,

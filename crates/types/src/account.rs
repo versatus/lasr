@@ -1053,16 +1053,6 @@ impl Account {
     }
 }
 
-impl Account {
-    pub fn test_default_user_account() -> Self {
-        Self {
-            account_type: AccountType::User,
-            owner_address: Address::new([1; 20]),
-            ..Default::default()
-        }
-    }
-}
-
 impl Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex_str: String = self.encode_hex();
