@@ -1,7 +1,7 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::{EoServer as EoListener, EoServerError};
+use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
@@ -11,8 +11,8 @@ use lasr_actors::{
     EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
     LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
-    PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
-    ValidatorCore, ValidatorSupervisor,
+    PendingTransactionSupervisor, StorageRef, TaskScheduler, TaskSchedulerSupervisor,
+    ValidatorActor, ValidatorCore, ValidatorSupervisor, STORAGE_PROCESSED_BLOCKS_KEY,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
@@ -28,16 +28,35 @@ use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 use web3::types::BlockNumber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Error)
-        .map_err(|e| EoServerError::Other(e.to_string()))?;
+    let file_appender = tracing_appender::rolling::daily("./logs", "lasr.log");
 
-    log::info!("Current Working Directory: {:?}", std::env::current_dir());
+    // Create a file layer with a lower log level (e.g., below ERROR).
+    let file_layer = tracing_subscriber::fmt::Layer::new()
+        .with_writer(file_appender)
+        .with_filter(LevelFilter::INFO);
 
-    log::warn!(
+    // Create a stdout layer with ERROR log level.
+    let stdout_layer = tracing_subscriber::fmt::Layer::new()
+        .with_writer(std::io::stdout)
+        .with_filter(LevelFilter::ERROR);
+
+    // Set up the subscriber with both layers.
+    tracing_subscriber::registry()
+        .with(file_layer)
+        .with(stdout_layer)
+        .init();
+
+    tracing::info!("Current Working Directory: {:?}", std::env::current_dir());
+
+    tracing::warn!(
         "Version, branch and hash: {} {}",
         env!("CARGO_PKG_VERSION"),
         option_env!("GIT_REV").unwrap_or("N/A")
@@ -64,20 +83,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
-    log::warn!("Ethereum RPC URL: {}", eth_rpc_url);
+    tracing::warn!("Ethereum RPC URL: {}", eth_rpc_url);
     let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = Arc::new(Mutex::new(
         setup_eo_client(web3_instance.clone(), sk).await?,
     ));
-    let inner_eo_server =
-        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     #[cfg(not(feature = "mock_storage"))]
     let persistence_storage = <TikvClient as PersistenceStore>::new().await?;
     #[cfg(feature = "mock_storage")]
     let persistence_storage =
         <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::new().await?;
+
+    let inner_eo_server = setup_eo_server(
+        web3_instance.clone(),
+        &block_processed_path,
+        persistence_storage.clone(),
+    )
+    .await
+    .map_err(Box::new)?;
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -100,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]
-    log::info!("Attempting to connect compute agent");
+    tracing::info!("Attempting to connect compute agent");
     #[cfg(feature = "remote")]
     let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
@@ -110,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     #[cfg(feature = "remote")]
-    log::info!("Attempting to connect strorage agent");
+    tracing::info!("Attempting to connect strorage agent");
     #[cfg(feature = "remote")]
     let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
@@ -434,7 +459,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run());
+    tokio::spawn(eo_server_wrapper.run(
+        block_processed_path.to_string(),
+        persistence_storage.clone(),
+    ));
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(
         stop_rx,
@@ -452,7 +480,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                             if let BatcherError::FailedTransaction { msg, txn } = err {
                                 Batcher::handle_transaction_error(msg, *txn)
                             }
@@ -473,7 +501,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -491,7 +519,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 future_thread_pool
                     .install(|| async move {
                         if let Some(Err(err)) = guard.next().await {
-                            log::error!("{err:?}");
+                            tracing::error!("{err:?}");
                         }
                     })
                     .await;
@@ -516,9 +544,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn setup_eo_server(
+async fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
+    storage: StorageRef,
 ) -> Result<EoListener, EoServerError> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
@@ -534,15 +563,23 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
+    let blocks_processed = load_processed_blocks(path, storage)
+        .await
+        .unwrap_or_default();
+    let bridge_from_block = blocks_processed.bridge;
+    let settle_from_block = blocks_processed.settle;
+    let bridge_processed = blocks_processed.bridge_processed;
+    let settled_processed = blocks_processed.settled_processed;
+
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
@@ -561,31 +598,31 @@ fn setup_eo_server(
         .clone();
 
     // Logging out all the variables being sent to the EoServer
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("eo_address: {:?}", eo_address);
-    log::info!("contract_address: {:?}", contract_address);
-    log::info!("address: {:?}", address);
-    log::info!("contract: {:?}", contract);
-    log::info!("blob_settled_topic: {:?}", blob_settled_topic);
-    log::info!("bridge_topic: {:?}", bridge_topic);
-    log::info!("blob_settled_filter: {:?}", blob_settled_filter);
-    log::info!("bridge_filter: {:?}", bridge_filter);
-    log::info!("blob_settled_event: {:?}", blob_settled_event);
-    log::info!("bridge_event: {:?}", bridge_event);
-    log::info!("path: {:?}", path);
+    tracing::info!("web3_instance: {:?}", web3_instance);
+    tracing::info!("eo_address: {:?}", eo_address);
+    tracing::info!("contract_address: {:?}", contract_address);
+    tracing::info!("address: {:?}", address);
+    tracing::info!("contract: {:?}", contract);
+    tracing::info!("blob_settled_topic: {:?}", blob_settled_topic);
+    tracing::info!("bridge_topic: {:?}", bridge_topic);
+    tracing::info!("blob_settled_filter: {:?}", blob_settled_filter);
+    tracing::info!("bridge_filter: {:?}", bridge_filter);
+    tracing::info!("blob_settled_event: {:?}", blob_settled_event);
+    tracing::info!("bridge_event: {:?}", bridge_event);
+    tracing::info!("path: {:?}", path);
 
     let eo_server = eo_listener::EoServerBuilder::default()
         .web3(web3_instance)
         .eo_address(eo_address)
         .block_time(std::time::Duration::from_millis(2500))
-        .bridge_processed_blocks(BTreeSet::new())
-        .settled_processed_blocks(BTreeSet::new())
+        .bridge_processed_blocks(bridge_processed)
+        .settled_processed_blocks(settled_processed)
         .contract(contract)
         .bridge_topic(bridge_topic)
         .blob_settled_topic(blob_settled_topic)
         .bridge_filter(bridge_filter)
-        .current_bridge_filter_block(0.into())
-        .current_blob_settlement_filter_block(0.into())
+        .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
+        .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
         .blob_settled_filter(blob_settled_filter)
         .blob_settled_event(blob_settled_event)
         .bridge_event(bridge_event)
@@ -621,12 +658,45 @@ async fn setup_eo_client(
     let user_address: Address = public_key.into();
 
     // Logging out all the variables being sent to the EoClient
-    log::info!("web3_instance: {:?}", web3_instance);
-    log::info!("contract: {:?}", contract);
-    log::info!("user_address: {:?}", user_address);
-    log::info!("sk: {:?}", sk);
+    tracing::info!("web3_instance: {:?}", web3_instance);
+    tracing::info!("contract: {:?}", contract);
+    tracing::info!("user_address: {:?}", user_address);
+    tracing::info!("sk: {:?}", sk);
 
     EoClient::new(web3_instance, contract, user_address, sk)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+}
+
+async fn load_processed_blocks(path: &str, storage: StorageRef) -> Option<BlocksProcessed> {
+    tracing::info!("attempting to load processed blocks in eo server setup");
+    let blocks_processed_bytes = if let Ok(mut file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+    {
+        let mut buf = Vec::new();
+        if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            tracing::info!("found non-empty processed blocks file");
+            Some(buf)
+        } else {
+            tracing::warn!("checking persistence storage for processed blocks");
+            get_blocks_processed_from_persistence(storage).await
+        }
+    } else {
+        None
+    };
+    bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default()).ok()
+}
+
+async fn get_blocks_processed_from_persistence(storage: StorageRef) -> Option<Vec<u8>> {
+    PersistenceStore::get(
+        &storage,
+        <StorageRef as PersistenceStore>::Key::from(STORAGE_PROCESSED_BLOCKS_KEY.to_string()),
+    )
+    .await
+    .typecast()
+    .log_err(|e| e.to_string())
+    .flatten()
 }

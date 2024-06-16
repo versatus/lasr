@@ -12,6 +12,7 @@ use ractor::concurrency::{oneshot, OneshotReceiver};
 use ractor::pg::GroupChangeMessage;
 use ractor::ActorRef;
 use tokio::sync::Mutex;
+use tracing;
 
 /// A thread-safe, non-blocking & mutatable `FuturesUnordered`.
 pub type UnorderedFuturePool<F> = Arc<Mutex<FuturesUnordered<F>>>;
@@ -115,7 +116,7 @@ impl<T, E: Debug> ActorResult<T, E> {
         match self.into() {
             Ok(t) => Some(t),
             Err(e) => {
-                log::error!("{:?}", op(e));
+                tracing::error!("{:?}", op(e));
                 None
             }
         }
@@ -156,10 +157,10 @@ impl<T, E: Debug> From<ActorResult<T, E>> for Result<T, E> {
 pub fn process_group_changed(group_change_message: GroupChangeMessage) {
     match group_change_message {
         GroupChangeMessage::Join(scope, group, actors) => {
-            log::warn!("actor(s) {actors:?} have joined group {group:?} with scope {scope:?}")
+            tracing::warn!("actor(s) {actors:?} have joined group {group:?} with scope {scope:?}")
         }
         GroupChangeMessage::Leave(scope, group, actors) => {
-            log::warn!("actor(s) {actors:?} have left group {group:?} with scope {scope:?}")
+            tracing::warn!("actor(s) {actors:?} have left group {group:?} with scope {scope:?}")
         }
     }
 }
@@ -371,7 +372,7 @@ pub async fn check_account_cache(address: Address, who: ActorType) -> Option<Acc
 }
 
 pub async fn get_account(address: Address, who: ActorType) -> Option<Account> {
-    log::info!(
+    tracing::info!(
         "Attempting to get account information from AccountCache for address: {}",
         address.to_full_string()
     );

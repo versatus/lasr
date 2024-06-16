@@ -140,7 +140,7 @@ impl Payload {
         let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
-        log::info!("transaction hash: 0x{:x}", res);
+        tracing::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
@@ -157,7 +157,7 @@ impl Payload {
         })
         .to_string();
 
-        log::info!("converted payload to json: {}", &transaction_json);
+        tracing::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
     }
 }
@@ -462,7 +462,7 @@ impl Transaction {
                 s: ethers_core::abi::ethereum_types::U256::from(s),
                 v: v as u64,
             };
-            log::warn!("attempting to recover from {}", sig.to_string());
+            tracing::warn!("attempting to recover from {}", sig.to_string());
             let addr = sig.recover(self.hash())?;
             return Ok(addr.into());
         }
@@ -485,7 +485,7 @@ impl Transaction {
         let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
-        log::info!("transaction hash: 0x{:x}", res);
+        tracing::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
@@ -502,7 +502,7 @@ impl Transaction {
         })
         .to_string();
 
-        log::info!("converted payload to json: {}", &transaction_json);
+        tracing::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
     }
 
@@ -512,7 +512,7 @@ impl Transaction {
             .map_err(|_| secp256k1::Error::InvalidMessage)?
             .recover(&self.hash())?;
         if self.from() != addr {
-            log::error!(
+            tracing::error!(
                 "self.from() {} != addr {}",
                 self.from().to_full_string(),
                 addr.to_full_string()

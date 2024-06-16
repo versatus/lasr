@@ -77,11 +77,11 @@ impl EoClientActor {
                 });
 
                 if let Err(e) = res {
-                    log::error!("{:?}", e);
+                    tracing::error!("{:?}", e);
                 }
             }
         } else {
-            log::info!("unable to find blob index for address: 0x{:x}", address);
+            tracing::info!("unable to find blob index for address: 0x{:x}", address);
             let _res = sender.send(EoMessage::AccountBlobIndexNotFound { address });
         }
     }
@@ -105,7 +105,7 @@ impl EoClientActor {
                 balance,
             });
             if let Err(e) = res {
-                log::error!("{:?}", e);
+                tracing::error!("{:?}", e);
             }
         } else if token_type == 1 {
             let balance = {
@@ -121,7 +121,7 @@ impl EoClientActor {
                 balance,
             });
             if let Err(e) = res {
-                log::error!("{:?}", e);
+                tracing::error!("{:?}", e);
             }
         } else if token_type == 2 {
             let holdings = {
@@ -144,7 +144,7 @@ impl EoClientActor {
                 holdings,
             });
             if let Err(e) = res {
-                log::error!("{:?}", e);
+                tracing::error!("{:?}", e);
             }
         }
     }
@@ -162,7 +162,7 @@ impl EoClientActor {
         if let Ok(handle) = res {
             state.insert_pending((batch_header_hash, blob_index), handle);
         } else {
-            log::error!("encountered error attempting to settle batch");
+            tracing::error!("encountered error attempting to settle batch");
         }
     }
 
@@ -180,7 +180,7 @@ impl EoClientActor {
         };
         if let Some(handle) = handle_opt {
             if let Err(e) = handle.await {
-                log::error!("JoinHandle after SettleSuccess message returned an error: {e:?}");
+                tracing::error!("JoinHandle after SettleSuccess message returned an error: {e:?}");
             }
         }
     }
@@ -330,7 +330,7 @@ impl EoClient {
         let mut web3 = self.web3.clone();
 
         Ok(tokio::task::spawn(async move {
-            log::info!("attempting to settle batch");
+            tracing::info!("attempting to settle batch");
             let eth_addresses: Vec<EthereumAddress> = accounts
                 .clone()
                 .iter()
@@ -343,7 +343,7 @@ impl EoClient {
                 })
                 .collect();
 
-            log::info!("parsed addresses for batch settlement");
+            tracing::info!("parsed addresses for batch settlement");
             let addresses: Vec<EthAbiToken> = eth_addresses
                 .iter()
                 .map(|a| EthAbiToken::Address(*a))
@@ -360,13 +360,13 @@ impl EoClient {
 
             let gas = ethereum_types::U256::from(50000 * n_accounts)
                 + ethereum_types::U256::from(100_000);
-            log::info!("providing {} gas for transaction", gas);
+            tracing::info!("providing {} gas for transaction", gas);
             let mut options = Options {
                 gas: Some(gas),
                 ..Options::default()
             };
 
-            log::info!("sending transaction");
+            tracing::info!("sending transaction");
             let res = tokio::time::timeout(
                 tokio::time::Duration::new(15, 0),
                 contract.signed_call(
@@ -380,13 +380,13 @@ impl EoClient {
 
             match res {
                 Ok(Ok(hash)) => {
-                    log::info!("received transaction hash for settlement transaction");
-                    log::info!(
+                    tracing::info!("received transaction hash for settlement transaction");
+                    tracing::info!(
                         "for batch_header_hash: {:?}, blob_index: {:?}",
                         &batch_header_hash,
                         &blob_index
                     );
-                    log::info!("transaction_hash: {:?}", &hash);
+                    tracing::info!("transaction_hash: {:?}", &hash);
                     let mut receipt = None;
 
                     while receipt.is_none() {
@@ -396,7 +396,7 @@ impl EoClient {
                             .transaction_receipt(hash)
                             .await
                             .unwrap_or_else(|e| {
-                                log::error!("{}", e);
+                                tracing::error!("{}", e);
                                 None
                             });
                     }
@@ -422,11 +422,11 @@ impl EoClient {
 
                     let res = eo_client.cast(message);
                     if let Err(e) = res {
-                        log::error!("{}", e)
+                        tracing::error!("{}", e)
                     }
                 }
                 Ok(Err(e)) => {
-                    log::info!("encountered error attempting to settle batch: {}", e);
+                    tracing::info!("encountered error attempting to settle batch: {}", e);
                     let message = EoMessage::SettleFailure {
                         batch_header_hash,
                         blob_index,
@@ -436,11 +436,11 @@ impl EoClient {
                     };
                     let res = eo_client.cast(message);
                     if let Err(e) = res {
-                        log::error!("{}", e)
+                        tracing::error!("{}", e)
                     }
                 }
                 Err(timeout) => {
-                    log::info!("settlement transaction timed out, try again: {}", timeout);
+                    tracing::info!("settlement transaction timed out, try again: {}", timeout);
                     let message = EoMessage::SettleTimedOut {
                         batch_header_hash,
                         blob_index,
@@ -449,7 +449,7 @@ impl EoClient {
                     };
                     let res = eo_client.cast(message);
                     if let Err(e) = res {
-                        log::error!("{}", e)
+                        tracing::error!("{}", e)
                     }
                 }
             }
@@ -483,7 +483,7 @@ impl Actor for EoClientActor {
                 program_id: _,
                 sender: _,
             } => {
-                log::info!("Received request for contract blob index");
+                tracing::info!("Received request for contract blob index");
             }
             EoMessage::Settle {
                 accounts,
@@ -520,12 +520,12 @@ impl Actor for EoClientActor {
                 hash,
                 receipt,
             } => {
-                log::error!(
+                tracing::error!(
                     "settlement of batch_header_hash: {:?}, blob_index: {:?} failed",
                     &batch_header_hash,
                     &blob_index
                 );
-                log::error!("transaction receipt: {:?}", receipt);
+                tracing::error!("transaction receipt: {:?}", receipt);
             }
             EoMessage::SettleTimedOut {
                 batch_header_hash,
@@ -533,12 +533,12 @@ impl Actor for EoClientActor {
                 accounts,
                 elapsed,
             } => {
-                log::error!(
+                tracing::error!(
                     "settlement of batch_header_hash: {:?}, blob_index: {:?} timed out",
                     &batch_header_hash,
                     &blob_index
                 );
-                log::error!("time elapsed: {:?}", elapsed);
+                tracing::error!("time elapsed: {:?}", elapsed);
                 let message = EoMessage::Settle {
                     accounts,
                     batch_header_hash,
@@ -546,7 +546,7 @@ impl Actor for EoClientActor {
                 };
                 let res = myself.cast(message);
                 if let Err(e) = res {
-                    log::error!("{e:?}");
+                    tracing::error!("{e:?}");
                 }
             }
             _ => {}
@@ -619,24 +619,24 @@ impl Actor for EoClientSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

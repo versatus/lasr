@@ -434,26 +434,26 @@ impl Account {
         if let Some(token) = programs.get_mut(&transaction.program_id()) {
             let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
             if let Some(account) = program_account {
-                log::warn!("found program account");
+                tracing::warn!("found program account");
                 let program_account_metadata = account.program_account_metadata();
-                log::warn!("found program metadata: {:?}", &program_account_metadata);
+                tracing::warn!("found program metadata: {:?}", &program_account_metadata);
                 let program_account_data = account.program_account_data();
-                log::warn!("found program data: {:?}", &program_account_data);
+                tracing::warn!("found program data: {:?}", &program_account_data);
                 new_token
                     .metadata_mut()
                     .extend(program_account_metadata.inner().clone());
-                log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                tracing::warn!("applied metadata to token: {:?}", &new_token.metadata());
                 new_token
                     .data_mut()
                     .extend(program_account_data.inner().clone());
-                log::warn!("applied data to token: {:?}", &new_token.data());
+                tracing::warn!("applied data to token: {:?}", &new_token.data());
                 *token = new_token;
-                log::warn!(
+                tracing::warn!(
                     "replaced token with new token: token_metadata: {:?}",
                     &token.metadata()
                 );
-                log::warn!("new token balance: {:?}", &token.balance());
-                log::warn!(
+                tracing::warn!("new token balance: {:?}", &token.balance());
+                tracing::warn!(
                     "replaced token with new token: token_data: {:?}",
                     &token.data()
                 );
@@ -486,26 +486,26 @@ impl Account {
                 if let Some(token) = programs.get_mut(&transaction.program_id()) {
                     let mut new_token: Token = (token.clone(), transaction.clone()).try_into()?;
                     if let Some(account) = program_account {
-                        log::warn!("found program account");
+                        tracing::warn!("found program account");
                         let program_account_metadata = account.program_account_metadata();
-                        log::warn!("found program metadata: {:?}", &program_account_metadata);
+                        tracing::warn!("found program metadata: {:?}", &program_account_metadata);
                         let program_account_data = account.program_account_data();
-                        log::warn!("found program data: {:?}", &program_account_data);
+                        tracing::warn!("found program data: {:?}", &program_account_data);
                         new_token
                             .metadata_mut()
                             .extend(program_account_metadata.inner().clone());
-                        log::warn!("applied metadata to token: {:?}", &new_token.metadata());
+                        tracing::warn!("applied metadata to token: {:?}", &new_token.metadata());
                         new_token
                             .data_mut()
                             .extend(program_account_data.inner().clone());
-                        log::warn!("applied data to token: {:?}", &new_token.data());
+                        tracing::warn!("applied data to token: {:?}", &new_token.data());
                         *token = new_token;
-                        log::warn!(
+                        tracing::warn!(
                             "replaced token with new token: token_metadata: {:?}",
                             &token.metadata()
                         );
-                        log::warn!("new token balance: {:?}", &token.balance());
-                        log::warn!(
+                        tracing::warn!("new token balance: {:?}", &token.balance());
+                        tracing::warn!(
                             "replaced token with new token: token_data: {:?}",
                             &token.data()
                         );
@@ -604,14 +604,14 @@ impl Account {
         if let Some(entry) = self.programs.get_mut(token_address) {
             if let Some(amt) = amount {
                 if let AccountType::Program(program_address) = account_type {
-                    log::warn!(
+                    tracing::warn!(
                         "debiting {} {} from {}",
                         &amt,
                         &token_address.to_full_string(),
                         program_address.to_full_string()
                     );
                 } else {
-                    log::warn!(
+                    tracing::warn!(
                         "debiting {} {} from {}",
                         &amt,
                         &token_address.to_full_string(),
@@ -668,7 +668,7 @@ impl Account {
     ) -> AccountResult<Token> {
         let token_owner = {
             if let AccountType::Program(program_account_address) = self.account_type() {
-                log::warn!(
+                tracing::warn!(
                     "applying distribution to program acocunt: {}",
                     &program_account_address.to_full_string()
                 );
@@ -680,7 +680,7 @@ impl Account {
 
         if let Some(token) = self.programs.get_mut(program_id) {
             if let Some(amt) = amount {
-                log::warn!("applying {} to {}", &amt, &token_owner);
+                tracing::warn!("applying {} to {}", &amt, &token_owner);
                 token.credit(amt)?;
             }
 
@@ -689,13 +689,13 @@ impl Account {
             }
 
             for update in token_updates {
-                log::info!("Applying token update: {:?}", &update);
+                tracing::info!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
             Ok(token.clone())
         } else {
-            log::info!("creating token for token distribution");
+            tracing::info!("creating token for token distribution");
             let token_owner = {
                 if let AccountType::Program(program_account_address) = self.account_type() {
                     program_account_address
@@ -720,27 +720,27 @@ impl Account {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
             if let Some(amt) = amount {
-                log::warn!("applying {} to {}", &amt, &token_owner);
-                log::warn!("applying credits to token: {:?}", &token);
+                tracing::warn!("applying {} to {}", &amt, &token_owner);
+                tracing::warn!("applying credits to token: {:?}", &token);
                 token.credit(amt)?;
-                log::warn!("applied credits from token distribution");
+                tracing::warn!("applied credits from token distribution");
             }
 
             if !token_ids.is_empty() {
                 token.add_token_ids(token_ids)?;
-                log::warn!("applied token ids from token distribution");
+                tracing::warn!("applied token ids from token distribution");
             }
 
-            log::warn!(
+            tracing::warn!(
                 "token distribution includes token updates: {:?}",
                 &token_updates
             );
             for update in token_updates {
-                log::warn!("Applying token update: {:?}", &update);
+                tracing::warn!("Applying token update: {:?}", &update);
                 token.apply_token_update_field_values(update.value())?;
             }
 
-            log::warn!(
+            tracing::warn!(
                 "inserting token: {} into account {}",
                 token.program_id(),
                 token_owner
@@ -767,9 +767,9 @@ impl Account {
 
         if let Some(token) = self.programs.get_mut(program_id) {
             for update in updates {
-                log::warn!("token data before update {:?}", token.data());
+                tracing::warn!("token data before update {:?}", token.data());
                 token.apply_token_update_field_values(update.value())?;
-                log::warn!("token data after update {:?}", token.data());
+                tracing::warn!("token data after update {:?}", token.data());
             }
             Ok(token.clone())
         } else {
@@ -789,13 +789,13 @@ impl Account {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
             for update in updates {
-                log::warn!(
+                tracing::warn!(
                     "applying {:?} to account: {}",
                     &update,
                     &owner_address.to_full_string()
                 );
                 token.apply_token_update_field_values(update.value())?;
-                log::warn!("token data after applying update: {:?}", token.data());
+                tracing::warn!("token data after applying update: {:?}", token.data());
             }
 
             self.programs.insert(*program_id, token.clone());
@@ -807,7 +807,7 @@ impl Account {
         &mut self,
         update_field_value: &ProgramFieldValue,
     ) -> AccountResult<()> {
-        log::warn!("applying program update field value");
+        tracing::warn!("applying program update field value");
         match update_field_value {
             ProgramFieldValue::LinkedPrograms(linked_programs_value) => match linked_programs_value
             {
@@ -834,10 +834,10 @@ impl Account {
                         .insert(key.clone(), value.clone());
                 }
                 MetadataValue::Extend(iter) => {
-                    log::warn!("extending metdata");
-                    log::warn!("current metadata: {:?}", self.program_account_metadata);
+                    tracing::warn!("extending metdata");
+                    tracing::warn!("current metadata: {:?}", self.program_account_metadata);
                     self.program_account_metadata.extend(iter.clone());
-                    log::warn!("metadata after update: {:?}", self.program_account_metadata);
+                    tracing::warn!("metadata after update: {:?}", self.program_account_metadata);
                 }
                 MetadataValue::Remove(key) => {
                     self.program_account_metadata.remove(key);
@@ -848,7 +848,7 @@ impl Account {
                     self.program_account_data.insert(key.clone(), value.clone());
                 }
                 DataValue::Extend(iter) => {
-                    log::warn!("program metdata");
+                    tracing::warn!("program metdata");
                     self.program_account_data.extend(iter.clone())
                 }
                 DataValue::Remove(key) => {
@@ -881,7 +881,7 @@ impl Account {
     }
 
     pub fn validate_program_id(&self, program_id: &Address) -> AccountResult<()> {
-        log::warn!("attempting to validate program_id");
+        tracing::warn!("attempting to validate program_id");
         if let Some(_token) = self.programs.get(program_id) {
             return Ok(());
         }
@@ -896,9 +896,9 @@ impl Account {
     }
 
     pub fn validate_balance(&self, program_id: &Address, amount: crate::U256) -> AccountResult<()> {
-        log::warn!("attempting to validate balance");
+        tracing::warn!("attempting to validate balance");
         if let Some(token) = self.programs.get(program_id) {
-            log::warn!("token.balance() {} >= {} amount", &token.balance(), &amount);
+            tracing::warn!("token.balance() {} >= {} amount", &token.balance(), &amount);
             if token.balance() >= amount {
                 return Ok(());
             } else {
@@ -950,9 +950,9 @@ impl Account {
         spender: &Address,
         amount: &crate::U256,
     ) -> AccountResult<()> {
-        log::warn!("attempting to validate an approved spend");
+        tracing::warn!("attempting to validate an approved spend");
         if let Some(token) = self.programs.get(program_id) {
-            log::warn!("found token: {}", &program_id);
+            tracing::warn!("found token: {}", &program_id);
             if let Some(entry) = token.allowance().get(spender) {
                 if entry > amount {
                     return Ok(());
@@ -1034,7 +1034,7 @@ impl Account {
     }
 
     pub fn validate_nonce(&self, nonce: crate::U256) -> AccountResult<()> {
-        log::info!("checking nonce: {nonce} > {}", self.nonce);
+        tracing::info!("checking nonce: {nonce} > {}", self.nonce);
         if self.nonce == crate::U256::from(0) && nonce == crate::U256::from(0) {
             return Ok(());
         }
@@ -1162,7 +1162,7 @@ impl From<PublicKey> for Address {
     /// hashing to derive the Ethereum address. It returns the last 20 bytes of the hash
     /// as the address.
     fn from(value: PublicKey) -> Self {
-        log::warn!("attempting to recover address from public key");
+        tracing::warn!("attempting to recover address from public key");
         let serialized_pk = value.serialize_uncompressed();
 
         let mut hasher = Keccak256::new();

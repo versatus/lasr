@@ -4,7 +4,7 @@ version = "0.9.0"
 edition = "2021"
 
 [features]
-default = ["mock_storage"]
+default = []
 mock_storage = []
 
 [dependencies]

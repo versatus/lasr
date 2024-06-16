@@ -1,22 +1,24 @@
 #![allow(unused)]
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, io::Read, sync::Arc};
 
 use crate::{
-    create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+    create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, StorageRef,
+    UnorderedFuturePool,
 };
 use async_trait::async_trait;
-use eo_listener::{EoServer as InnerEoServer, EventType};
+use eo_listener::{BlocksProcessed, EoServer as InnerEoServer, EventType};
 use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
 };
 use jsonrpsee::types::ErrorObjectOwned as RpcError;
-use lasr_types::{Account, Address, Token};
+use lasr_types::{Account, Address, PersistenceStore, Token};
 use ractor::{
     concurrency::{oneshot, OneshotSender},
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,
     SupervisionEvent,
 };
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex};
 use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
@@ -28,6 +30,8 @@ use lasr_messages::{
     EoMessage, SchedulerMessage, SettlementEvent, SettlementEventBuilder, SupervisorType,
     ValidatorMessage,
 };
+
+pub const STORAGE_PROCESSED_BLOCKS_KEY: &str = "blocks_processed";
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
@@ -47,7 +51,7 @@ impl EoServerWrapper {
         Self { server }
     }
 
-    pub async fn run(mut self) -> Result<(), EoServerError> {
+    pub async fn run(mut self, path: String, storage: StorageRef) -> Result<(), EoServerError> {
         // loop to reacquire the eo_server actor if it stops
         loop {
             let eo_actor: ActorRef<EoMessage> =
@@ -57,33 +61,38 @@ impl EoServerWrapper {
                     ))?
                     .into();
 
-            log::info!("attempting to load processed blocks");
-            if let Err(e) = self.server.load_processed_blocks().await {
-                log::error!("unable to load processed blocks from file: {}", e);
-            }
-
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
             loop {
                 let logs = self.server.next().await;
                 match &logs.log_result {
                     Ok(log) => {
                         if !log.is_empty() {
-                            log::info!("non-empty log found: {:?}", log);
+                            tracing::info!("non-empty log found: {:?}", log);
                             eo_actor
                                 .cast(EoMessage::Log {
                                     log_type: logs.event_type,
                                     log: log.to_vec(),
                                 })
-                                .map_err(|e| EoServerError::Custom(e.to_string()))?;
+                                .typecast()
+                                .log_err(|e| EoServerError::Custom(e.to_string()));
 
                             self.server.save_blocks_processed();
+                            update_blocks_processed_in_persistence(path.clone(), storage.clone())
+                                .await
+                                .typecast()
+                                .log_err(|e| e);
+                            tracing::info!(
+                                "BlocksProcessed has been saved, and updated in persistence."
+                            );
                         }
                     }
-                    Err(e) => log::error!("EoServer Error: server log returned an error: {e:?}"),
+                    Err(e) => {
+                        tracing::error!("EoServer Error: server log returned an error: {e:?}")
+                    }
                 }
 
                 if let ActorStatus::Stopped = eo_actor.get_status() {
-                    log::error!(
+                    tracing::error!(
                         "EoServerActor stopped! Waiting 15s, then attempting to reacquire EoServerActor..."
                     );
                     break;
@@ -94,6 +103,31 @@ impl EoServerWrapper {
 
         Ok(())
     }
+}
+
+pub async fn update_blocks_processed_in_persistence(
+    path: String,
+    storage: StorageRef,
+) -> Result<(), EoServerError> {
+    tracing::info!("Updating blocks_processed in persistence store");
+    // retrieve BlocksProcessed after update to relay to Persistence store
+    let mut buf = Vec::new();
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+    file.read_to_end(&mut buf)
+        .map_err(|e| EoServerError::Custom(e.to_string()))?;
+
+    PersistenceStore::get(
+        &storage,
+        <StorageRef as PersistenceStore>::Key::from(STORAGE_PROCESSED_BLOCKS_KEY.to_string()),
+    )
+    .await
+    .typecast()
+    .log_err(|e| e);
+
+    Ok(())
 }
 
 #[derive(Clone, Debug, Error)]
@@ -119,7 +153,7 @@ impl EoServerActor {
     }
 
     fn handle_eo_event(events: EoEvent) -> Result<(), EoServerError> {
-        log::warn!("discovered EO event: {:?}", events);
+        tracing::warn!("discovered EO event: {:?}", events);
         let message = EngineMessage::EoEvent { event: events };
         let engine: ActorRef<EngineMessage> =
             ractor::registry::where_is(ActorType::Engine.to_string())
@@ -136,7 +170,7 @@ impl EoServerActor {
     fn parse_bridge_log(
         mut logs: Vec<Log>,
     ) -> Result<Vec<BridgeEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        log::warn!("Parsing bridge event: {:?}", logs);
+        tracing::warn!("Parsing bridge event: {:?}", logs);
         let mut events = Vec::new();
         let mut bridge_event = BridgeEventBuilder::default();
         logs.sort_unstable_by(|a, b| {
@@ -287,38 +321,38 @@ impl EoServerActor {
     fn handle_log(log: Vec<web3::ethabi::Log>, log_type: EventType) {
         match log_type {
             EventType::Bridge(_) => {
-                log::warn!("received bridge event");
+                tracing::warn!("received bridge event");
                 let parsed_bridge_log_res = EoServerActor::parse_bridge_log(log);
                 match parsed_bridge_log_res {
                     Ok(parsed_bridge_log) => {
                         let res = EoServerActor::handle_eo_event(parsed_bridge_log.into());
 
                         if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {e:?}");
+                            tracing::error!("eo_server encountered an error: {e:?}");
                         } else {
-                            log::info!("{:?}", res);
+                            tracing::info!("{:?}", res);
                         }
                     }
                     Err(e) => {
-                        log::error!("Error parsing bridge log: {e:?}");
+                        tracing::error!("Error parsing bridge log: {e:?}");
                     }
                 }
             }
             EventType::Settlement(_) => {
-                log::info!("eo_server discovered Settlement event");
+                tracing::info!("eo_server discovered Settlement event");
                 let parsed_settlement_log_res = EoServerActor::parse_settlement_log(log);
                 match parsed_settlement_log_res {
                     Ok(parsed_settlement_log) => {
                         let res = EoServerActor::handle_eo_event(parsed_settlement_log.into());
 
                         if let Err(e) = &res {
-                            log::error!("eo_server encountered an error: {e:?}");
+                            tracing::error!("eo_server encountered an error: {e:?}");
                         } else {
-                            log::info!("{:?}", res);
+                            tracing::info!("{:?}", res);
                         }
                     }
                     Err(e) => {
-                        log::error!("Error parsing settlement log: {e:?}");
+                        tracing::error!("Error parsing settlement log: {e:?}");
                     }
                 }
             }
@@ -356,10 +390,10 @@ impl Actor for EoServerActor {
                 amount,
                 content,
             } => {
-                log::info!("Eo Server ready to bridge assets to EO contract");
+                tracing::info!("Eo Server ready to bridge assets to EO contract");
             }
             _ => {
-                log::info!("Eo Server received unhandled message");
+                tracing::info!("Eo Server received unhandled message");
             }
         }
         Ok(())
@@ -406,24 +440,24 @@ impl Actor for EoServerSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);
