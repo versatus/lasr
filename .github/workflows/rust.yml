@@ -9,25 +9,11 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - name: Install dev-dependencies
-        run: sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev
-      - name: Checkout sources
-        uses: actions/checkout@v3
-        with:
-          submodules: true
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: cargo clippy
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --all-targets -- -D warnings
+      - uses: actions/checkout@v3
+      - name: Install toolchain
+        uses: dsherret/rust-toolchain-file@v1
+      - name: Clippy Check
+        run: cargo clippy --all-features --all-targets -- -D warnings
           
   # check if workspace is formatted, and treat unformatted code as errors.
   fmt-check:
