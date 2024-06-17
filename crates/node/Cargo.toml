@@ -9,6 +9,7 @@ edition = "2021"
 default = ["local"]
 local = []
 remote = []
+mock_storage = []
 
 [[bin]]
 name = "lasr_node"

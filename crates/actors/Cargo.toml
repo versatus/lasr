@@ -9,6 +9,7 @@ edition = "2021"
 default = ["local"]
 local = []
 remote = []
+mock_storage = []
 
 [dependencies]
 async-recursion = "1.0.5"
@@ -69,3 +70,4 @@ web3 = { version = "0.19.0" }
 
 [dev-dependencies]
 anyhow = "1"
+serial_test = "3.1.1"
