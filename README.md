@@ -9,6 +9,10 @@
 | `ETH_RPC_URL`          | URL for Ethereum RPC endpoint.                        |
 | `EO_CONTRACT_ADDRESS`  | Address of the Executable Oracle contract.            |
 | `COMPUTE_RPC_URL`      | URL for the compute RPC endpoint.                     |
+| `STORAGE_RPC_URL`      | URL for the compute RPC endpoint.                     |
+| `PORT`      | Optionally specify a port, defaults to 9292 |
+| `BATCH_INTERVAL`      |     |
+| `VIPFS_ADDRESS`      |   Optional. Used by the OciManager.  |
 
 ## CLI Environment Variables
 
@@ -23,7 +27,7 @@ docker export $(docker create busybox) | sudo tar -xf - -C rootfs --same-owner -
 
 https://taskfile.dev/
 
-### Handy commands 
+### Handy commands
 
 `cli wallet register-program --from-file --inputs '{"contentId": "0x742d35cc6634c0532925a3b844bc454e4438f44e"}'`
 

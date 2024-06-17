@@ -58,6 +58,7 @@ lasr_compute = { path = "../compute", features = ["local"] }
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
 lasr_rpc = { path = "../rpc" }
+lazy_static = "1.4.0"
 tracing-subscriber = "0.3.18"
 tracing-appender = "0.2.3"
 
