@@ -65,14 +65,14 @@ impl TransactionType {
     }
 }
 
-impl ToString for TransactionType {
-    fn to_string(&self) -> String {
+impl Display for TransactionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransactionType::BridgeIn(n) => format!("bridgeIn{n}"),
-            TransactionType::Send(n) => format!("send{n}"),
-            TransactionType::Call(n) => format!("call{n}"),
-            TransactionType::BridgeOut(n) => format!("bridgeOut{n}"),
-            TransactionType::RegisterProgram(n) => format!("deploy{n}"),
+            TransactionType::BridgeIn(n) => write!(f, "bridgeIn{n}"),
+            TransactionType::Send(n) => write!(f, "send{n}"),
+            TransactionType::Call(n) => write!(f, "call{n}"),
+            TransactionType::BridgeOut(n) => write!(f, "bridgeOut{n}"),
+            TransactionType::RegisterProgram(n) => write!(f, "deploy{n}"),
         }
     }
 }

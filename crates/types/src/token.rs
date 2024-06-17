@@ -1,3 +1,4 @@
+#![allow(clippy::assign_op_pattern)]
 use derive_builder::Builder;
 use ethereum_types::U256 as EthU256;
 use hex::FromHexError;

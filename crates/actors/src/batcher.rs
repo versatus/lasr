@@ -1714,7 +1714,7 @@ impl Batcher {
                         //TiKV will accept any key if of type String, OR Vec<u8>
                         let acc_val = AccountValue { account: data };
                         // Serialize `Account` data to be stored.
-                        if let Some(val) = bincode::serialize(&acc_val).ok() {
+                        if let Ok(val) = bincode::serialize(&acc_val) {
                             if PersistenceStore::put(&storage_ref, addr.clone().into(), val)
                                 .await
                                 .is_ok()
