@@ -489,11 +489,12 @@ impl Token {
 pub enum TokenField {
     ProgramId,
     OwnerId,
+    Balance,
     Metadata,
+    TokenIds,
     Allowance,
     Approvals,
     Data,
-    Status,
 }
 
 #[derive(
