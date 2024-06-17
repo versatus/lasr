@@ -2,7 +2,8 @@
 use std::{fmt::Display, io::Read, sync::Arc};
 
 use crate::{
-    create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, UnorderedFuturePool,
+    create_handler, process_group_changed, ActorExt, Coerce, StaticFuture, StorageRef,
+    UnorderedFuturePool,
 };
 use async_trait::async_trait;
 use eo_listener::{BlocksProcessed, EoServer as InnerEoServer, EventType};
@@ -11,7 +12,7 @@ use futures::{
     FutureExt,
 };
 use jsonrpsee::types::ErrorObjectOwned as RpcError;
-use lasr_types::{Account, Address, Token};
+use lasr_types::{Account, Address, PersistenceStore, Token};
 use ractor::{
     concurrency::{oneshot, OneshotSender},
     Actor, ActorCell, ActorProcessingErr, ActorRef, ActorStatus, Message, RpcReplyPort,
@@ -19,7 +20,6 @@ use ractor::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tikv_client::RawClient as TikvClient;
 use tokio::sync::{mpsc::Sender, Mutex};
 use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 
@@ -31,7 +31,7 @@ use lasr_messages::{
     ValidatorMessage,
 };
 
-pub const TIKV_PROCESSED_BLOCKS_KEY: &str = "blocks_processed";
+pub const STORAGE_PROCESSED_BLOCKS_KEY: &str = "blocks_processed";
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
@@ -51,7 +51,7 @@ impl EoServerWrapper {
         Self { server }
     }
 
-    pub async fn run(mut self, path: String, tikv_client: TikvClient) -> Result<(), EoServerError> {
+    pub async fn run(mut self, path: String, storage: StorageRef) -> Result<(), EoServerError> {
         // loop to reacquire the eo_server actor if it stops
         loop {
             let eo_actor: ActorRef<EoMessage> =
@@ -77,13 +77,10 @@ impl EoServerWrapper {
                                 .log_err(|e| EoServerError::Custom(e.to_string()));
 
                             self.server.save_blocks_processed();
-                            update_blocks_processed_in_persistence(
-                                path.clone(),
-                                tikv_client.clone(),
-                            )
-                            .await
-                            .typecast()
-                            .log_err(|e| e);
+                            update_blocks_processed_in_persistence(path.clone(), storage.clone())
+                                .await
+                                .typecast()
+                                .log_err(|e| e);
                             tracing::info!(
                                 "BlocksProcessed has been saved, and updated in persistence."
                             );
@@ -110,7 +107,7 @@ impl EoServerWrapper {
 
 pub async fn update_blocks_processed_in_persistence(
     path: String,
-    tikv_client: TikvClient,
+    storage: StorageRef,
 ) -> Result<(), EoServerError> {
     tracing::info!("Updating blocks_processed in persistence store");
     // retrieve BlocksProcessed after update to relay to Persistence store
@@ -122,8 +119,10 @@ pub async fn update_blocks_processed_in_persistence(
     file.read_to_end(&mut buf)
         .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-    let key = TIKV_PROCESSED_BLOCKS_KEY.to_string();
-    tikv_client.put(key, buf).await.typecast().log_err(|e| e);
+    PersistenceStore::get(&storage, STORAGE_PROCESSED_BLOCKS_KEY.to_string().into())
+        .await
+        .typecast()
+        .log_err(|e| e);
 
     Ok(())
 }

@@ -11,15 +11,18 @@ use lasr_actors::{
     EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
     LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
-    PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
-    ValidatorCore, ValidatorSupervisor, TIKV_PROCESSED_BLOCKS_KEY,
+    PendingTransactionSupervisor, StorageRef, TaskScheduler, TaskSchedulerSupervisor,
+    ValidatorActor, ValidatorCore, ValidatorSupervisor, STORAGE_PROCESSED_BLOCKS_KEY,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
-use lasr_types::Address;
+#[cfg(feature = "mock_storage")]
+use lasr_types::MockPersistenceStore;
+use lasr_types::{Address, PersistenceStore};
 use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
+#[cfg(not(feature = "mock_storage"))]
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::{
     mpsc::{Receiver, Sender},
@@ -87,13 +90,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         setup_eo_client(web3_instance.clone(), sk).await?,
     ));
 
-    const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
-    let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT]).await?;
+    #[cfg(not(feature = "mock_storage"))]
+    let persistence_storage = <TikvClient as PersistenceStore>::new().await?;
+    #[cfg(feature = "mock_storage")]
+    let persistence_storage =
+        <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::new().await?;
 
     let inner_eo_server = setup_eo_server(
         web3_instance.clone(),
         &block_processed_path,
-        tikv_client.clone(),
+        persistence_storage.clone(),
     )
     .await
     .map_err(Box::new)?;
@@ -243,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .account_cache(
             account_cache_actor.clone(),
-            tikv_client.clone(),
+            persistence_storage.clone(),
             account_cache_supervisor,
         )
         .await?
@@ -299,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batcher_clone = batcher.clone();
     let executor_actor_clone = executor_actor.clone();
     let execution_engine_clone = execution_engine.clone();
-    let tikv_client_clone = tikv_client.clone();
+    let persistence_storage_clone = persistence_storage.clone();
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
@@ -322,7 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 account_cache_actor.clone(),
-                                tikv_client_clone.clone(),
+                                persistence_storage_clone.clone(),
                             )
                             .await
                             .typecast()
@@ -453,9 +459,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run(block_processed_path.to_string(), tikv_client.clone()));
+    tokio::spawn(eo_server_wrapper.run(
+        block_processed_path.to_string(),
+        persistence_storage.clone(),
+    ));
     tokio::spawn(server_handle.stopped());
-    tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
+    tokio::spawn(lasr_actors::batch_requestor(
+        stop_rx,
+        persistence_storage.clone(),
+    ));
 
     let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
@@ -535,7 +547,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
-    tikv_client: TikvClient,
+    storage: StorageRef,
 ) -> Result<EoListener, EoServerError> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
@@ -551,7 +563,7 @@ async fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
-    let blocks_processed = load_processed_blocks(path, tikv_client)
+    let blocks_processed = load_processed_blocks(path, storage)
         .await
         .unwrap_or_default();
     let bridge_from_block = blocks_processed.bridge;
@@ -656,7 +668,7 @@ async fn setup_eo_client(
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-async fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<BlocksProcessed> {
+async fn load_processed_blocks(path: &str, storage: StorageRef) -> Option<BlocksProcessed> {
     tracing::info!("attempting to load processed blocks in eo server setup");
     let blocks_processed_bytes = if let Ok(mut file) = std::fs::OpenOptions::new()
         .read(true)
@@ -670,7 +682,7 @@ async fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<Bl
             Some(buf)
         } else {
             tracing::warn!("checking persistence storage for processed blocks");
-            get_blocks_processed_from_persistence(tikv_client).await
+            get_blocks_processed_from_persistence(storage).await
         }
     } else {
         None
@@ -678,11 +690,13 @@ async fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<Bl
     bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default()).ok()
 }
 
-async fn get_blocks_processed_from_persistence(tikv_client: TikvClient) -> Option<Vec<u8>> {
-    tikv_client
-        .get(TIKV_PROCESSED_BLOCKS_KEY.to_string())
-        .await
-        .typecast()
-        .log_err(|e| e.to_string())
-        .flatten()
+async fn get_blocks_processed_from_persistence(storage: StorageRef) -> Option<Vec<u8>> {
+    PersistenceStore::get(
+        &storage,
+        <StorageRef as PersistenceStore>::Key::from(STORAGE_PROCESSED_BLOCKS_KEY.to_string()),
+    )
+    .await
+    .typecast()
+    .log_err(|e| e.to_string())
+    .flatten()
 }

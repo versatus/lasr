@@ -12,6 +12,7 @@ use ractor::RpcReplyPort;
 use ractor_cluster::RactorMessage;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
+#[cfg(not(feature = "mock_storage"))]
 use tikv_client::RawClient as TikvClient;
 use web3::ethabi::{Address as EthereumAddress, FixedBytes};
 use web3::types::TransactionReceipt;
@@ -448,7 +449,10 @@ pub enum BatcherMessage {
         outputs: Option<Outputs>,
     },
     GetNextBatch {
-        tikv_client: TikvClient,
+        #[cfg(not(feature = "mock_storage"))]
+        storage_ref: TikvClient,
+        #[cfg(feature = "mock_storage")]
+        storage_ref: lasr_types::MockPersistenceStore<String, Vec<u8>>,
     },
     BlobVerificationProof {
         request_id: String,

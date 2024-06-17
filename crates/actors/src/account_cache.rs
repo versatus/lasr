@@ -5,7 +5,9 @@ use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
     TransactionResponse,
 };
-use lasr_types::{Account, AccountType, Address};
+#[cfg(feature = "mock_storage")]
+use lasr_types::MockPersistenceStore;
+use lasr_types::{Account, AccountType, Address, PersistenceStore};
 use ractor::{
     concurrency::OneshotReceiver, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
@@ -14,11 +16,14 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+#[cfg(not(feature = "mock_storage"))]
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Clone, Default)]
 pub struct AccountCacheActor;
+
+pub type StorageRef = <AccountCacheActor as Actor>::Arguments;
 
 impl ActorName for AccountCacheActor {
     fn name(&self) -> ractor::ActorName {
@@ -39,15 +44,15 @@ pub enum AccountCacheError {
     Custom(String),
 }
 
-pub struct AccountCache {
+pub struct AccountCache<S: PersistenceStore> {
     inner: AccountCacheInner,
-    tikv_client: TikvClient,
+    storage: S,
 }
-impl AccountCache {
-    pub fn new(tikv_client: TikvClient) -> Self {
+impl<S: PersistenceStore> AccountCache<S> {
+    pub fn new(storage: S) -> Self {
         Self {
             inner: AccountCacheInner::new(),
-            tikv_client,
+            storage,
         }
     }
 }
@@ -187,8 +192,11 @@ impl AccountCacheActor {
 #[async_trait]
 impl Actor for AccountCacheActor {
     type Msg = AccountCacheMessage;
-    type State = AccountCache;
+    type State = AccountCache<Self::Arguments>;
+    #[cfg(not(feature = "mock_storage"))]
     type Arguments = TikvClient;
+    #[cfg(feature = "mock_storage")]
+    type Arguments = MockPersistenceStore<String, Vec<u8>>;
 
     async fn pre_start(
         &self,
@@ -238,9 +246,10 @@ impl Actor for AccountCacheActor {
                     let acc_key = address.to_full_string();
 
                     // Pull `Account` data from persistence store
-                    state
-                    .tikv_client
-                    .get(acc_key.to_owned())
+                    PersistenceStore::get(
+                        &state.storage,
+                        acc_key.to_owned().into()
+                    )
                     .await
                     .typecast()
                     .log_err(|e| AccountCacheError::Custom(format!("failed to find Account with address: {hex_address} in persistence store: {e:?}")))

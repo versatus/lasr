@@ -483,6 +483,22 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
     }
 }
 
+impl From<Payload> for Transaction {
+    fn from(value: Payload) -> Self {
+        Transaction {
+            transaction_type: value.transaction_type(),
+            from: value.from(),
+            to: value.to(),
+            program_id: value.program_id(),
+            op: value.op(),
+            inputs: value.inputs(),
+            value: value.value(),
+            nonce: value.nonce(),
+            ..Default::default()
+        }
+    }
+}
+
 impl From<Transaction> for Token {
     fn from(value: Transaction) -> Self {
         TokenBuilder::default()
