@@ -1,7 +1,7 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::{EoServer as EoListener, EoServerError};
+use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
@@ -12,7 +12,7 @@ use lasr_actors::{
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
     LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
     PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
-    ValidatorCore, ValidatorSupervisor,
+    ValidatorCore, ValidatorSupervisor, TIKV_PROCESSED_BLOCKS_KEY,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
@@ -86,11 +86,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eo_client = Arc::new(Mutex::new(
         setup_eo_client(web3_instance.clone(), sk).await?,
     ));
-    let inner_eo_server =
-        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
     const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
     let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT]).await?;
+
+    let inner_eo_server = setup_eo_server(
+        web3_instance.clone(),
+        &block_processed_path,
+        tikv_client.clone(),
+    )
+    .await
+    .map_err(Box::new)?;
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -447,7 +453,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run());
+    tokio::spawn(eo_server_wrapper.run(block_processed_path.to_string(), tikv_client.clone()));
     tokio::spawn(server_handle.stopped());
     tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
 
@@ -526,9 +532,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn setup_eo_server(
+async fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
+    tikv_client: TikvClient,
 ) -> Result<EoListener, EoServerError> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
@@ -544,15 +551,23 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
+    let blocks_processed = load_processed_blocks(path, tikv_client)
+        .await
+        .unwrap_or_default();
+    let bridge_from_block = blocks_processed.bridge;
+    let settle_from_block = blocks_processed.settle;
+    let bridge_processed = blocks_processed.bridge_processed;
+    let settled_processed = blocks_processed.settled_processed;
+
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
@@ -588,14 +603,14 @@ fn setup_eo_server(
         .web3(web3_instance)
         .eo_address(eo_address)
         .block_time(std::time::Duration::from_millis(2500))
-        .bridge_processed_blocks(BTreeSet::new())
-        .settled_processed_blocks(BTreeSet::new())
+        .bridge_processed_blocks(bridge_processed)
+        .settled_processed_blocks(settled_processed)
         .contract(contract)
         .bridge_topic(bridge_topic)
         .blob_settled_topic(blob_settled_topic)
         .bridge_filter(bridge_filter)
-        .current_bridge_filter_block(0.into())
-        .current_blob_settlement_filter_block(0.into())
+        .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
+        .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
         .blob_settled_filter(blob_settled_filter)
         .blob_settled_event(blob_settled_event)
         .bridge_event(bridge_event)
@@ -639,4 +654,35 @@ async fn setup_eo_client(
     EoClient::new(web3_instance, contract, user_address, sk)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+}
+
+async fn load_processed_blocks(path: &str, tikv_client: TikvClient) -> Option<BlocksProcessed> {
+    tracing::info!("attempting to load processed blocks in eo server setup");
+    let blocks_processed_bytes = if let Ok(mut file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+    {
+        let mut buf = Vec::new();
+        if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            tracing::info!("found non-empty processed blocks file");
+            Some(buf)
+        } else {
+            tracing::warn!("checking persistence storage for processed blocks");
+            get_blocks_processed_from_persistence(tikv_client).await
+        }
+    } else {
+        None
+    };
+    bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default()).ok()
+}
+
+async fn get_blocks_processed_from_persistence(tikv_client: TikvClient) -> Option<Vec<u8>> {
+    tikv_client
+        .get(TIKV_PROCESSED_BLOCKS_KEY.to_string())
+        .await
+        .typecast()
+        .log_err(|e| e.to_string())
+        .flatten()
 }
