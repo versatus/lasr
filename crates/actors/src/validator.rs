@@ -688,27 +688,6 @@ impl ValidatorCore {
                             TokenOrProgramUpdate::TokenUpdate(token_update) => {
                                 for update_field in token_update.updates() {
                                     match update_field.value() {
-                                        TokenFieldValue::Balance(_) => {
-                                            let err = {
-                                                Box::new(
-                                                    ValidatorError::Custom(
-                                                        "Update Instruction cannot be used to update balance, use Transfer or Burn Instruction instead".to_string()
-                                                    )
-                                                ) as Box<dyn std::error::Error + Send>
-                                            };
-                                            let message = PendingTransactionMessage::Invalid {
-                                                transaction: tx.clone(),
-                                                e: err,
-                                            };
-                                            let _ = pending_transactions.cast(message);
-                                            return Err(
-                                                Box::new(
-                                                    ValidatorError::Custom(
-                                                        "Update Instruction cannot be used to update balance, use Transfer or Burn Instruction instead".to_string()
-                                                    )
-                                                ) as Box<dyn std::error::Error + Send>
-                                            );
-                                        }
                                         TokenFieldValue::Approvals(_approval_value) => {
                                             if let Some(Some(acct)) =
                                                 account_map.get(token_update.account())

@@ -30,7 +30,6 @@ use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use std::io::Write;
 use thiserror::Error;
-use tikv_client::RawClient as TikvClient;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender, UnboundedSender},
@@ -42,8 +41,8 @@ use web3::types::BlockNumber;
 
 use crate::{
     account_cache, get_account, get_actor_ref, handle_actor_response, process_group_changed,
-    AccountCacheError, ActorExt, Coerce, DaClientError, EoClientError, PendingTransactionError,
-    SchedulerError, StaticFuture, UnorderedFuturePool,
+    AccountCacheActor, AccountCacheError, ActorExt, Coerce, DaClientError, EoClientError,
+    PendingTransactionError, SchedulerError, StaticFuture, StorageRef, UnorderedFuturePool,
 };
 use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, BatcherMessage, DaClientMessage, EoMessage,
@@ -55,8 +54,9 @@ use lasr_contract::create_program_id;
 use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstruction, ContractLogType, CreateInstruction, Instruction, Metadata, MetadataValue,
-    Namespace, Outputs, ProgramAccount, ProgramUpdate, TokenDistribution, TokenOrProgramUpdate,
-    TokenUpdate, Transaction, TransactionType, TransferInstruction, UpdateInstruction, U256,
+    Namespace, Outputs, PersistenceStore, ProgramAccount, ProgramUpdate, TokenDistribution,
+    TokenOrProgramUpdate, TokenUpdate, Transaction, TransactionType, TransferInstruction,
+    UpdateInstruction, U256,
 };
 
 use derive_builder::Builder;
@@ -442,7 +442,7 @@ impl Batcher {
         Ok(())
     }
 
-    pub(super) async fn add_transaction_to_account(
+    pub async fn add_transaction_to_account(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
@@ -1333,7 +1333,7 @@ impl Batcher {
         }
     }
 
-    async fn apply_program_registration(
+    pub async fn apply_program_registration(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
     ) -> Result<(), BatcherError> {
@@ -1498,7 +1498,7 @@ impl Batcher {
         }
     }
 
-    async fn apply_instructions_to_accounts(
+    pub async fn apply_instructions_to_accounts(
         batcher: Arc<Mutex<Batcher>>,
         transaction: Transaction,
         outputs: Outputs,
@@ -1703,7 +1703,7 @@ impl Batcher {
 
     async fn handle_next_batch_request(
         batcher: Arc<Mutex<Batcher>>,
-        tikv_client: TikvClient,
+        storage_ref: StorageRef,
     ) -> Result<(), BatcherError> {
         if let Some(blob_response) = {
             let mut guard = batcher.lock().await;
@@ -1722,7 +1722,10 @@ impl Batcher {
                         let acc_val = AccountValue { account: data };
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
-                            if tikv_client.put(addr.clone(), val).await.is_ok() {
+                            if PersistenceStore::put(&storage_ref, addr.clone().into(), val)
+                                .await
+                                .is_ok()
+                            {
                                 tracing::warn!(
                                     "Inserted Account with address of {addr:?} to persistence layer",
                                 )
@@ -1905,8 +1908,8 @@ impl Actor for BatcherActor {
     ) -> Result<(), ActorProcessingErr> {
         let batcher_ptr = Arc::clone(state);
         match message {
-            BatcherMessage::GetNextBatch { tikv_client } => {
-                Batcher::handle_next_batch_request(batcher_ptr, tikv_client).await?;
+            BatcherMessage::GetNextBatch { storage_ref } => {
+                Batcher::handle_next_batch_request(batcher_ptr, storage_ref).await?;
                 // let mut guard = self.future_pool.lock().await;
                 // guard.push(fut.boxed());
             }
@@ -2062,7 +2065,7 @@ impl Actor for BatcherSupervisor {
 
 pub async fn batch_requestor(
     mut stopper: tokio::sync::mpsc::Receiver<u8>,
-    tikv_client: TikvClient,
+    storage_ref: StorageRef,
 ) {
     if let Some(batcher) = ractor::registry::where_is(ActorType::Batcher.to_string()) {
         let batcher: ActorRef<BatcherMessage> = batcher.into();
@@ -2074,7 +2077,7 @@ pub async fn batch_requestor(
             tracing::info!("SLEEPING THEN REQUESTING NEXT BATCH");
             tokio::time::sleep(tokio::time::Duration::from_secs(batch_interval_secs)).await;
             let message = BatcherMessage::GetNextBatch {
-                tikv_client: tikv_client.clone(),
+                storage_ref: storage_ref.clone(),
             };
             tracing::warn!("requesting next batch");
             if let Err(err) = batcher.cast(message) {
@@ -2099,7 +2102,6 @@ mod batcher_tests {
     use futures::{FutureExt, StreamExt};
     use lasr_types::TransactionType;
     use std::sync::Arc;
-    use tikv_client::RawClient as TikvClient;
     use tokio::sync::Mutex;
 
     /// Minimal reproduction of the `ractor::Actor` trait for testing the `handle`
@@ -2116,8 +2118,8 @@ mod batcher_tests {
         async fn handle(&self, message: Self::Msg, state: &mut Self::State) -> Result<()> {
             let batcher_ptr = Arc::clone(state);
             match message {
-                BatcherMessage::GetNextBatch { tikv_client } => {
-                    let fut = Batcher::handle_next_batch_request(batcher_ptr, tikv_client);
+                BatcherMessage::GetNextBatch { storage_ref } => {
+                    let fut = Batcher::handle_next_batch_request(batcher_ptr, storage_ref);
                     let mut guard = self.future_pool.lock().await;
                     guard.push(fut.boxed());
                 }
