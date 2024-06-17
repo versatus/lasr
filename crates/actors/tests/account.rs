@@ -22,14 +22,14 @@ use lasr_types::{
     TransactionType, TransferInstructionBuilder, UpdateInstructionBuilder, U256,
 };
 
+use eigenda_client::proof::BlobVerificationProof;
+use futures::TryFutureExt;
 use ractor::{
     concurrency::{JoinHandle, OneshotReceiver},
     Actor, ActorRef,
 };
 use serial_test::serial;
 use tokio::sync::{mpsc, Mutex};
-use eigenda_client::proof::BlobVerificationProof;
-use futures::TryFutureExt;
 
 /// This is an account with nothing in it, with `Address([1; 20])`.
 pub fn test_default_user_account() -> Account {
