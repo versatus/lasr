@@ -34,6 +34,9 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 use web3::types::BlockNumber;
 
+pub(crate) mod environment;
+pub(crate) use environment::ENVIRONMENT;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file_appender = tracing_appender::rolling::daily("./logs", "lasr.log");
@@ -63,18 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     dotenv::dotenv().ok();
-
+    let env = &*ENVIRONMENT;
     //TODO(asmith): Move this to be read in when and where needed and dropped
     //afterwards to minimize security vulnerabilities
-    let (_, sk_string) = std::env::vars()
-        .find(|(k, _)| k == "SECRET_KEY")
-        .expect("missing SECRET_KEY environment variable");
-
-    let (_, block_processed_path) = std::env::vars()
-        .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
-        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
-
-    let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
+    let sk = web3::signing::SecretKey::from_str(&env.secret_key).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         //TODO(asmith): Move the network endpoint for EigenDA to an
@@ -82,9 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
         .build()?;
 
-    let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
-    tracing::warn!("Ethereum RPC URL: {}", eth_rpc_url);
-    let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
+    tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
+    let http = web3::transports::Http::new(&env.eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = Arc::new(Mutex::new(
         setup_eo_client(web3_instance.clone(), sk).await?,
@@ -98,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let inner_eo_server = setup_eo_server(
         web3_instance.clone(),
-        &block_processed_path,
+        &env.blocks_processed_path,
         persistence_storage.clone(),
     )
     .await
@@ -112,14 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
-    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
-        Some(addr.clone())
-    } else {
-        None
-    };
-
     #[cfg(feature = "local")]
-    let oci_manager = OciManager::new(bundler, store);
+    let oci_manager = OciManager::new(bundler, env.vipfs_address.clone());
 
     #[cfg(feature = "local")]
     let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
@@ -127,20 +115,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     tracing::info!("Attempting to connect compute agent");
     #[cfg(feature = "remote")]
-    let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let compute_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
-        .build(compute_rpc_url)
+        .build(env.compute_rpc_url)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     #[cfg(feature = "remote")]
     tracing::info!("Attempting to connect strorage agent");
     #[cfg(feature = "remote")]
-    let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
-        .build(storage_rpc_url)
+        .build(env.storage_rpc_url)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
@@ -447,10 +433,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
-    let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
         .max_connections(1000)
-        .build(format!("0.0.0.0:{}", port))
+        .build(format!("0.0.0.0:{}", env.port))
         .await
         .map_err(Box::new)?;
     let server_handle = server.start(lasr_rpc.into_rpc());
@@ -460,7 +445,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(graph_cleaner());
     tokio::spawn(eo_server_wrapper.run(
-        block_processed_path.to_string(),
+        env.blocks_processed_path.to_string(),
         persistence_storage.clone(),
     ));
     tokio::spawn(server_handle.stopped());
@@ -551,8 +536,8 @@ async fn setup_eo_server(
 ) -> Result<EoListener, EoServerError> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
-    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
-    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
+    let eo_address =
+        eo_listener::EoAddress::new(&crate::environment::ENVIRONMENT.eo_contract_address);
     let contract_address = eo_address
         .parse()
         .map_err(|err| EoServerError::Other(err.to_string()))?;
@@ -640,8 +625,7 @@ async fn setup_eo_client(
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
 
-    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
-    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
+    let eo_address = eo_listener::EoAddress::new(&crate::ENVIRONMENT.eo_contract_address);
     // Initialize the web3 instance
     let contract_address = eo_address
         .parse()

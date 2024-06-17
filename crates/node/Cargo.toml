@@ -38,6 +38,7 @@ lasr_compute = { path = "../compute", features = ["local"] }
 lasr_messages = { path = "../messages" }
 lasr_rpc = { path = "../rpc" }
 lasr_types = { path = "../types" }
+lazy_static = "1.4.0"
 log = "0.4.20"
 num_cpus = "1.16.0"
 ractor = { version = "0.9.3", features = ["async-std", "cluster"] }

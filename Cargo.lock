@@ -2952,6 +2952,7 @@ dependencies = [
  "lasr_messages",
  "lasr_rpc",
  "lasr_types",
+ "lazy_static",
  "log",
  "num_cpus",
  "ractor",
