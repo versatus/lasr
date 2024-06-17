@@ -1,3 +1,4 @@
+#![allow(clippy::assign_op_pattern)]
 use derive_builder::Builder;
 use ethereum_types::U256 as EthU256;
 use hex::FromHexError;
@@ -84,18 +85,6 @@ impl<'de> Visitor<'de> for U256Visitor {
         } else {
             Err(E::custom("Invalid format for U256"))
         }
-    }
-}
-
-impl From<EthU256> for &mut U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
-    }
-}
-
-impl From<EthU256> for &U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
     }
 }
 
@@ -303,7 +292,7 @@ impl Token {
 
     pub(crate) fn remove_token_ids(
         &mut self,
-        token_ids: &Vec<U256>,
+        token_ids: &[U256],
     ) -> Result<(), Box<dyn std::error::Error + Send>> {
         let positions: Vec<usize> = {
             token_ids

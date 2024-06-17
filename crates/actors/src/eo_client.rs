@@ -38,18 +38,20 @@ impl ActorName for EoClientActor {
     }
 }
 
-#[derive(Debug, Error)]
+impl Default for EoClientActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Error, Default)]
 pub enum EoClientError {
+    #[default]
     #[error("failed to acquire EoClientActor from registry")]
     RactorRegistryError,
 
     #[error("{0}")]
     Custom(String),
-}
-impl Default for EoClientError {
-    fn default() -> Self {
-        EoClientError::RactorRegistryError
-    }
 }
 
 impl EoClientActor {

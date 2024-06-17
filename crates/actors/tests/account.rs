@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![cfg(feature = "mock_storage")]
 //! Test coverage for events that make changes to `Account`.
 
 use std::{

@@ -77,7 +77,7 @@ pub fn get_actor_ref<M: Sized, E: Default + StdError + Debug>(
         .ok_or(E::default())
         .typecast()
         .log_err(|e| e)
-        .and_then(|a| Some(a.into()))
+        .map(|a| a.into())
 }
 
 /// Wrapper type for `std::result::Result` with emphasis on `ractor::Actor` friendliness.

@@ -61,9 +61,9 @@ struct U256Wrapper(pub U256);
 impl FromStr for U256Wrapper {
     type Err = uint::FromDecStrErr;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("0x") {
+        if let Some(s) = s.strip_prefix("0x") {
             Ok(U256Wrapper(
-                ethereum_types::U256::from_str_radix(&s[2..], 16)
+                ethereum_types::U256::from_str_radix(s, 16)
                     .expect("failed to convert hex string to U256")
                     .into(),
             ))
