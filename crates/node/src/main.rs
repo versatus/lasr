@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
         .build()?;
 
-    log::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
+    tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
     let http = web3::transports::Http::new(&env.eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = Arc::new(Mutex::new(
