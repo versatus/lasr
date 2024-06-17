@@ -495,6 +495,7 @@ pub enum TokenField {
     Allowance,
     Approvals,
     Data,
+    Status,
 }
 
 #[derive(
