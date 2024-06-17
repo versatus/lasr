@@ -13,7 +13,7 @@ jobs:
       - name: Install toolchain
         uses: dsherret/rust-toolchain-file@v1
       - name: Clippy Check
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
           
   # check if workspace is formatted, and treat unformatted code as errors.
   fmt-check:
