@@ -87,18 +87,6 @@ impl<'de> Visitor<'de> for U256Visitor {
     }
 }
 
-impl From<EthU256> for &mut U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
-    }
-}
-
-impl From<EthU256> for &U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
-    }
-}
-
 impl From<&mut U256> for U256 {
     fn from(value: &mut U256) -> Self {
         *value
