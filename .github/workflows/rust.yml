@@ -20,7 +20,7 @@ jobs:
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --all-targets -- -D warnings
+          args: --all-features --all-targets -- -D warnings --workspace
           
   # check if workspace is formatted, and treat unformatted code as errors.
   fmt-check:
