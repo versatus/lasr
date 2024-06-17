@@ -5,7 +5,9 @@ use lasr_messages::{
     AccountCacheMessage, ActorName, ActorType, RpcMessage, RpcResponseError, SupervisorType,
     TransactionResponse,
 };
-use lasr_types::{Account, AccountType, Address, MockPersistenceStore, PersistenceStore};
+#[cfg(feature = "mock_storage")]
+use lasr_types::MockPersistenceStore;
+use lasr_types::{Account, AccountType, Address, PersistenceStore};
 use ractor::{
     concurrency::OneshotReceiver, Actor, ActorCell, ActorProcessingErr, ActorRef, SupervisionEvent,
 };
@@ -251,7 +253,7 @@ impl Actor for AccountCacheActor {
                     // Pull `Account` data from persistence store
                     PersistenceStore::get(
                         &state.storage,
-                        <Self::Arguments as PersistenceStore>::Key::from(acc_key.to_owned())
+                        acc_key.to_owned().into()
                     )
                     .await
                     .typecast()

@@ -6,9 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Ok;
-use eigenda_client::proof::BlobVerificationProof;
-use futures::TryFutureExt;
 use lasr_actors::{
     get_account, get_actor_ref, AccountCacheActor, AccountCacheError, Batcher, BatcherActor,
     PendingTransactionActor, TaskScheduler, ETH_ADDR,
@@ -31,6 +28,8 @@ use ractor::{
 };
 use serial_test::serial;
 use tokio::sync::{mpsc, Mutex};
+use eigenda_client::proof::BlobVerificationProof;
+use futures::TryFutureExt;
 
 /// This is an account with nothing in it, with `Address([1; 20])`.
 pub fn test_default_user_account() -> Account {

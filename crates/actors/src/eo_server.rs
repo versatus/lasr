@@ -119,13 +119,10 @@ pub async fn update_blocks_processed_in_persistence(
     file.read_to_end(&mut buf)
         .map_err(|e| EoServerError::Custom(e.to_string()))?;
 
-    PersistenceStore::get(
-        &storage,
-        <StorageRef as PersistenceStore>::Key::from(STORAGE_PROCESSED_BLOCKS_KEY.to_string()),
-    )
-    .await
-    .typecast()
-    .log_err(|e| e);
+    PersistenceStore::get(&storage, STORAGE_PROCESSED_BLOCKS_KEY.to_string().into())
+        .await
+        .typecast()
+        .log_err(|e| e);
 
     Ok(())
 }

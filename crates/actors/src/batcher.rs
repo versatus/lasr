@@ -1720,7 +1720,7 @@ impl Batcher {
                         let acc_val = AccountValue { account: data };
                         // Serialize `Account` data to be stored.
                         if let Some(val) = bincode::serialize(&acc_val).ok() {
-                            if PersistenceStore::put(&storage_ref, addr.clone(), val)
+                            if PersistenceStore::put(&storage_ref, addr.clone().into(), val)
                                 .await
                                 .is_ok()
                             {
