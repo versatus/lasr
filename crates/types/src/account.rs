@@ -597,7 +597,7 @@ impl Account {
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
-        token_ids: &Vec<crate::U256>,
+        token_ids: &[crate::U256],
     ) -> AccountResult<Token> {
         let owner_address = self.owner_address();
         let account_type = self.account_type().clone();
@@ -637,7 +637,7 @@ impl Account {
         &mut self,
         token_address: &Address,
         amount: &Option<crate::U256>,
-        token_ids: &Vec<crate::U256>,
+        token_ids: &[crate::U256],
     ) -> AccountResult<Token> {
         // Check if caller is this address, if so,
         if let Some(entry) = self.programs.get_mut(token_address) {
