@@ -140,7 +140,7 @@ impl Payload {
         let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
-        log::info!("transaction hash: 0x{:x}", res);
+        tracing::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
@@ -157,7 +157,7 @@ impl Payload {
         })
         .to_string();
 
-        log::info!("converted payload to json: {}", &transaction_json);
+        tracing::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
     }
 }
@@ -390,7 +390,7 @@ impl Transaction {
                 s: ethers_core::abi::ethereum_types::U256::from(s),
                 v: v as u64,
             };
-            log::warn!("attempting to recover from {}", sig.to_string());
+            tracing::warn!("attempting to recover from {}", sig.to_string());
             let addr = sig.recover(self.hash())?;
             return Ok(addr.into());
         }
@@ -413,7 +413,7 @@ impl Transaction {
         let mut hasher = Keccak256::new();
         hasher.update(&self.as_bytes());
         let res = hasher.finalize();
-        log::info!("transaction hash: 0x{:x}", res);
+        tracing::info!("transaction hash: 0x{:x}", res);
         res.to_vec()
     }
 
@@ -430,7 +430,7 @@ impl Transaction {
         })
         .to_string();
 
-        log::info!("converted payload to json: {}", &transaction_json);
+        tracing::info!("converted payload to json: {}", &transaction_json);
         transaction_json.as_bytes().to_vec()
     }
 
@@ -440,7 +440,7 @@ impl Transaction {
             .map_err(|_| secp256k1::Error::InvalidMessage)?
             .recover(&self.hash())?;
         if self.from() != addr {
-            log::error!(
+            tracing::error!(
                 "self.from() {} != addr {}",
                 self.from().to_full_string(),
                 addr.to_full_string()
@@ -479,6 +479,22 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
             v: value.1.get_v(),
             r: value.1.get_r(),
             s: value.1.get_s(),
+        }
+    }
+}
+
+impl From<Payload> for Transaction {
+    fn from(value: Payload) -> Self {
+        Transaction {
+            transaction_type: value.transaction_type(),
+            from: value.from(),
+            to: value.to(),
+            program_id: value.program_id(),
+            op: value.op(),
+            inputs: value.inputs(),
+            value: value.value(),
+            nonce: value.nonce(),
+            ..Default::default()
         }
     }
 }

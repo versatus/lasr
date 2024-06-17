@@ -52,7 +52,7 @@ impl LasrRpcServerActor {
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), ActorProcessingErr> {
-        log::info!("Forwarding call transaction to scheduler");
+        tracing::info!("Forwarding call transaction to scheduler");
         Ok(scheduler
             .cast(SchedulerMessage::Call {
                 transaction,
@@ -147,7 +147,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         // This RPC is a program call to a program deployed to the network
         // this should lead to the scheduling of a compute and validation
         // task with the scheduler
-        log::info!("Received RPC `call` method");
+        tracing::info!("Received RPC `call` method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
         self.send_rpc_call_method_to_self(transaction, reply)
@@ -194,7 +194,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     }
 
     async fn send(&self, transaction: Transaction) -> Result<String, RpcError> {
-        log::info!("Received RPC send method");
+        tracing::info!("Received RPC send method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
 
@@ -215,7 +215,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
                     })
                 }
                 TransactionResponse::TransactionError(rpc_response_error) => {
-                    log::error!("Returning error to client: {}", &rpc_response_error);
+                    tracing::error!("Returning error to client: {}", &rpc_response_error);
                     return Err(RpcError::owned(
                         INTERNAL_ERROR_CODE,
                         format!("Error: {0}", rpc_response_error.description),
@@ -241,7 +241,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     }
 
     async fn register_program(&self, transaction: Transaction) -> Result<String, RpcError> {
-        log::info!("Received RPC registerProgram method");
+        tracing::info!("Received RPC registerProgram method");
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
 
@@ -267,7 +267,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
                     }
                 },
                 TransactionResponse::TransactionError(rpc_response_error) => {
-                    log::error!("Returning error to client: {}", &rpc_response_error);
+                    tracing::error!("Returning error to client: {}", &rpc_response_error);
                     return Err(RpcError::owned(
                         INTERNAL_ERROR_CODE,
                         format!("Error: {0}", rpc_response_error.description),
@@ -293,7 +293,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     }
 
     async fn get_account(&self, address: String) -> Result<String, RpcError> {
-        log::info!("Received RPC getAccount method");
+        tracing::info!("Received RPC getAccount method");
 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
@@ -310,7 +310,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         {
             Ok(resp) => match resp {
                 TransactionResponse::GetAccountResponse(account) => {
-                    log::info!("received account response");
+                    tracing::info!("received account response");
                     return serde_json::to_string(&account).map_err(|e| {
                         RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
                     });
@@ -344,7 +344,7 @@ impl LasrRpcServerImpl {
         transaction: Transaction,
         reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), RpcResponseError> {
-        log::info!("Sending RPC call method to proxy actor");
+        tracing::info!("Sending RPC call method to proxy actor");
         self.proxy
             .cast(RpcMessage::Request {
                 method: Box::new(RpcRequestMethod::Call { transaction }),
@@ -428,7 +428,7 @@ impl Actor for LasrRpcServerActor {
         message: Self::Msg,
         _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::info!("RPC Actor Received RPC Message");
+        tracing::info!("RPC Actor Received RPC Message");
         match message {
             RpcMessage::Request { method, reply } => {
                 LasrRpcServerActor::handle_request_method(*method, reply)?
@@ -491,24 +491,24 @@ impl Actor for LasrRpcServerSupervisor {
         message: SupervisionEvent,
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        log::warn!("Received a supervision event: {:?}", message);
+        tracing::warn!("Received a supervision event: {:?}", message);
         match message {
             SupervisionEvent::ActorStarted(actor) => {
-                log::info!(
+                tracing::info!(
                     "actor started: {:?}, status: {:?}",
                     actor.get_name(),
                     actor.get_status()
                 );
             }
             SupervisionEvent::ActorPanicked(who, reason) => {
-                log::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor panicked: {:?}, err: {:?}", who.get_name(), reason);
                 self.panic_tx.send(who).await.typecast().log_err(|e| e);
             }
             SupervisionEvent::ActorTerminated(who, _, reason) => {
-                log::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
+                tracing::error!("actor terminated: {:?}, err: {:?}", who.get_name(), reason);
             }
             SupervisionEvent::PidLifecycleEvent(event) => {
-                log::info!("pid lifecycle event: {:?}", event);
+                tracing::info!("pid lifecycle event: {:?}", event);
             }
             SupervisionEvent::ProcessGroupChanged(m) => {
                 process_group_changed(m);

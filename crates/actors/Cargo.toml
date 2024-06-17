@@ -9,6 +9,7 @@ edition = "2021"
 default = ["local"]
 local = []
 remote = []
+mock_storage = []
 
 [dependencies]
 ethereum-types = "0.14.1"
@@ -65,6 +66,8 @@ rustc-hex = "2.1.0"
 hex = "0.4.3"
 async-std = { version = "1", features = ["attributes", "tokio1"] }
 dotenv = "0.15.0"
+tracing = "0.1.40"
 
 [dev-dependencies]
 anyhow = "1"
+serial_test = "3.1.1"

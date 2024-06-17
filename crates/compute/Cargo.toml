@@ -36,3 +36,4 @@ web3_pkg = { git = "https://github.com/versatus/versatus.git" }
 walkdir = "2.4.0"
 lasr_types = { path = "../types" }
 lasr_messages = { path = "../messages" }
+tracing = "0.1.40"
