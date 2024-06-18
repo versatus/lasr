@@ -271,6 +271,11 @@ impl ActorName for ExecutorActor {
         ActorType::Executor.to_string()
     }
 }
+impl Default for ExecutorActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ExecutorActor {
     pub fn new() -> Self {
@@ -439,7 +444,7 @@ impl ExecutorActor {
         let manager = {
             let state = engine.lock().await;
             let manager = state.manager.clone();
-            if let Err(_) = manager.check_pinned_status(&content_id).await {
+            if (manager.check_pinned_status(&content_id).await).is_err() {
                 match state.pin_object(&content_id.clone(), true).await {
                     Ok(()) => {
                         tracing::info!("Successfully pinned objects");

@@ -70,10 +70,8 @@ impl EngineActor {
             if let Ok(Some(account)) = self.check_cache(address).await {
                 return account;
             }
-        } else {
-            if let Ok(Some(account)) = self.check_cache(address).await {
-                return account;
-            }
+        } else if let Ok(Some(account)) = self.check_cache(address).await {
+            return account;
         }
 
         Account::new(account_type, None, *address, None)

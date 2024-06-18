@@ -664,6 +664,11 @@ impl DependencyGraphs {
 pub struct PendingTransactionActor {
     bridge_in_transactions: std::sync::Arc<tokio::sync::Mutex<Vec<Transaction>>>,
 }
+impl Default for PendingTransactionActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl PendingTransactionActor {
     pub fn new() -> Self {
         Self {
@@ -677,19 +682,14 @@ impl ActorName for PendingTransactionActor {
     }
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, Default)]
 pub enum PendingTransactionError {
+    #[default]
     #[error("failed to acquire PendingTransactionActor from registry")]
     RactorRegistryError,
 
     #[error("{0}")]
     Custom(String),
-}
-
-impl Default for PendingTransactionError {
-    fn default() -> Self {
-        PendingTransactionError::RactorRegistryError
-    }
 }
 
 #[async_trait]

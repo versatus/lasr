@@ -66,7 +66,7 @@ pub const ETH_ADDR: Address = Address::eth_addr();
 // const BATCH_INTERVAL: u64 = 180;
 pub type PendingReceivers = FuturesUnordered<OneshotReceiver<(String, BlobVerificationProof)>>;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Default)]
 pub enum BatcherError {
     #[error(transparent)]
     AccountCacheMessage(#[from] MessagingErr<AccountCacheMessage>),
@@ -86,17 +86,12 @@ pub enum BatcherError {
     #[error("{msg}")]
     FailedTransaction { msg: String, txn: Box<Transaction> },
 
+    #[default]
     #[error("failed to acquire BatcherActor from registry")]
     RactorRegistryError,
 
     #[error("{0}")]
     Custom(String),
-}
-
-impl Default for BatcherError {
-    fn default() -> Self {
-        BatcherError::RactorRegistryError
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1721,7 +1716,7 @@ impl Batcher {
                         //TiKV will accept any key if of type String, OR Vec<u8>
                         let acc_val = AccountValue { account: data };
                         // Serialize `Account` data to be stored.
-                        if let Some(val) = bincode::serialize(&acc_val).ok() {
+                        if let Ok(val) = bincode::serialize(&acc_val) {
                             if PersistenceStore::put(&storage_ref, addr.clone().into(), val)
                                 .await
                                 .is_ok()

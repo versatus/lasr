@@ -14,6 +14,7 @@ use lasr_messages::{
 use lasr_types::{Address, RecoverableSignature, Transaction};
 use ractor::{concurrency::oneshot, Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use ractor::{ActorCell, SupervisionEvent};
+use std::default;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Display};
 use thiserror::*;
@@ -22,19 +23,14 @@ use tokio::task::JoinHandle;
 
 /// A generic error type to propagate errors from this actor
 /// and other actors that interact with it
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, Default)]
 pub enum SchedulerError {
+    #[default]
     #[error("failed to acquire SchedulerActor from registry")]
     RactorRegistryError,
 
     #[error("{0}")]
     Custom(String),
-}
-
-impl Default for SchedulerError {
-    fn default() -> Self {
-        SchedulerError::RactorRegistryError
-    }
 }
 
 pub type MethodResults = Arc<Mutex<FuturesUnordered<Result<(), Box<dyn std::error::Error>>>>>;

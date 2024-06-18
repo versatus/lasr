@@ -951,8 +951,9 @@ impl ActorName for ValidatorActor {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Default)]
 pub enum ValidatorError {
+    #[default]
     #[error("failed to acquire ValidatorActor from registry")]
     RactorRegistryError,
 
@@ -964,12 +965,6 @@ pub enum ValidatorError {
 
     #[error(transparent)]
     ValidatorCoreError(#[from] ValidatorCoreError),
-}
-
-impl Default for ValidatorError {
-    fn default() -> Self {
-        ValidatorError::RactorRegistryError
-    }
 }
 
 impl ValidatorActor {

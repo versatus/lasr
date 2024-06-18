@@ -174,12 +174,12 @@ impl EoServerActor {
             let a_value = a
                 .params
                 .iter()
-                .find(|p| p.name == "bridgeEventId".to_string())
+                .find(|p| p.name == *"bridgeEventId")
                 .and_then(|p| p.value.clone().into_uint()?.into());
             let b_value = b
                 .params
                 .iter()
-                .find(|p| p.name == "bridgeEventId".to_string())
+                .find(|p| p.name == *"bridgeEventId")
                 .and_then(|p| p.value.clone().into_uint()?.into());
 
             a_value.cmp(&b_value)

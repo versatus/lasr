@@ -31,8 +31,9 @@ impl ActorName for AccountCacheActor {
     }
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, Default)]
 pub enum AccountCacheError {
+    #[default]
     #[error("failed to acquire AccountCacheActor from registry")]
     RactorRegistryError,
 
@@ -41,12 +42,6 @@ pub enum AccountCacheError {
 
     #[error("{0}")]
     Custom(String),
-}
-
-impl Default for AccountCacheError {
-    fn default() -> Self {
-        AccountCacheError::RactorRegistryError
-    }
 }
 
 pub struct AccountCache<S: PersistenceStore> {
@@ -263,9 +258,9 @@ impl Actor for AccountCacheActor {
                         bincode::deserialize(&returned_data)
                             .typecast()
                             .log_err(|e| e)
-                            .and_then(|AccountValue { account }| {
+                            .map(|AccountValue { account }| {
                                 tracing::debug!("retrieved account from persistence store for address {hex_address}: {account:?}");
-                                Some(account)
+                                account
                             })
                     })
                 };
