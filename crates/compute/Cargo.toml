@@ -11,6 +11,17 @@ local = []
 remote = []
 
 [dependencies]
+async-std = { version = "1", features = ["attributes", "tokio1"] }
+bincode = "1.3.3"
+derive_builder = "0.12.0"
+fs_extra = "1.3.0"
+ipfs-api = "0.17.0"
+ipfs-api-backend-hyper = "0.6"
+lasr_messages = { path = "../messages" }
+lasr_types = { path = "../types" }
+log = "0.4.20"
+oci-spec = "0.6.4"
+ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
 secp256k1 = { version = "0.28.0", features = [
   "serde",
   "recovery",
@@ -18,22 +29,11 @@ secp256k1 = { version = "0.28.0", features = [
   "rand",
   "hashes",
 ] }
-tokio = { version = "1.34.0", features = ["full"] }
 serde = { version = "1.0.192", features = ["derive"] }
 serde_json = "1.0.108"
-bincode = "1.3.3"
-derive_builder = "0.12.0"
 sha3 = "0.10.8"
-ractor = { version = "0.9.3", features = ["async-std", "cluster"] }
-log = "0.4.20"
-async-std = { version = "1", features = ["attributes", "tokio1"] }
-oci-spec = "0.6.4"
-fs_extra = "1.3.0"
-ipfs-api = "0.17.0"
-ipfs-api-backend-hyper = "0.6"
+tokio = { version = "1.34.0", features = ["full"] }
 toml = { version = "0.8.8", features = ["preserve_order"] }
-web3_pkg = { git = "https://github.com/versatus/versatus.git" }
-walkdir = "2.4.0"
-lasr_types = { path = "../types" }
-lasr_messages = { path = "../messages" }
 tracing = "0.1.40"
+walkdir = "2.4.0"
+web3_pkg = { git = "https://github.com/versatus/versatus.git" }
