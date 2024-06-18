@@ -54,7 +54,7 @@ use lasr_contract::create_program_id;
 use lasr_types::{
     Account, AccountBuilder, AccountType, Address, AddressOrNamespace, ArbitraryData,
     BurnInstruction, ContractLogType, CreateInstruction, Instruction, Metadata, MetadataValue,
-    Namespace, Outputs, PersistenceStore, ProgramAccount, ProgramUpdate, TokenDistribution,
+    Namespace, Outputs, PersistenceStore, ProgramAccount, ProgramUpdate, Token, TokenDistribution,
     TokenOrProgramUpdate, TokenUpdate, Transaction, TransactionType, TransferInstruction,
     UpdateInstruction, U256,
 };
@@ -437,16 +437,11 @@ impl Batcher {
         Ok(())
     }
 
-    pub async fn add_transaction_to_account(
-        batcher: Arc<Mutex<Batcher>>,
-        transaction: Transaction,
-    ) -> Result<(), BatcherError> {
-        let mut batch_buffer = HashMap::new();
-        tracing::warn!(
-            "checking account cache for account associated with address {:?} to add transaction: {:?}",
-            transaction.from(),
-            transaction
-        );
+    // Applies txn token data for `BridgeIn` events & `from` account's for `Send` events.
+    pub async fn handle_bridge_send_txn(
+        batch_buffer: &mut HashMap<String, Account>,
+        transaction: &Transaction,
+    ) -> Result<Token, BatcherError> {
         let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             tracing::warn!("found account, token pair");
@@ -516,7 +511,14 @@ impl Batcher {
             transaction.clone().hash_string(),
             from_account.owner_address()
         );
+        Ok(token)
+    }
 
+    // Applies txn token data for `to` account in `Send` events
+    pub async fn handle_to_send_txn(
+        batch_buffer: &mut HashMap<String, Account>,
+        transaction: &Transaction,
+    ) -> Result<(), BatcherError> {
         if transaction.to() != transaction.from() {
             tracing::warn!(
                 "checking account cache for account: {}",
@@ -691,6 +693,21 @@ impl Batcher {
                 batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
             }
         }
+        Ok(())
+    }
+
+    pub async fn add_transaction_to_account(
+        batcher: Arc<Mutex<Batcher>>,
+        transaction: Transaction,
+    ) -> Result<(), BatcherError> {
+        let mut batch_buffer = HashMap::new();
+        tracing::warn!(
+            "checking account cache for account associated with address {:?} to add transaction: {:?}",
+            transaction.from(),
+            transaction
+        );
+        let token = Self::handle_bridge_send_txn(&mut batch_buffer, &transaction).await?;
+        Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
 
         for (_, account) in batch_buffer {
             tracing::info!("adding account to batch");
@@ -714,7 +731,7 @@ impl Batcher {
         {
             let message = SchedulerMessage::TransactionApplied {
                 transaction_hash: transaction.clone().hash_string(),
-                token: token.clone(),
+                token,
             };
 
             scheduler
