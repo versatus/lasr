@@ -660,14 +660,9 @@ impl DependencyGraphs {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PendingTransactionActor {
     bridge_in_transactions: std::sync::Arc<tokio::sync::Mutex<Vec<Transaction>>>,
-}
-impl Default for PendingTransactionActor {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 impl PendingTransactionActor {
     pub fn new() -> Self {
