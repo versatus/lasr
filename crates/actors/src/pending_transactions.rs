@@ -660,16 +660,15 @@ impl DependencyGraphs {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PendingTransactionActor;
-impl Default for PendingTransactionActor {
-    fn default() -> Self {
-        Self::new()
-    }
+#[derive(Debug, Clone, Default)]
+pub struct PendingTransactionActor {
+    bridge_in_transactions: std::sync::Arc<tokio::sync::Mutex<Vec<Transaction>>>,
 }
 impl PendingTransactionActor {
     pub fn new() -> Self {
-        Self
+        Self {
+            bridge_in_transactions: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        }
     }
 }
 impl ActorName for PendingTransactionActor {
@@ -714,6 +713,16 @@ impl Actor for PendingTransactionActor {
                 outputs,
             } => {
                 tracing::warn!("received new transction {}", transaction.hash_string());
+                if transaction.transaction_type().is_bridge_in() {
+                    let mut bridge_in_transactions = self.bridge_in_transactions.lock().await;
+                    match bridge_in_transactions.contains(&transaction) {
+                        true => {
+                            tracing::warn!("found duplicate bridge in transaction, skipping..");
+                            return Ok(());
+                        }
+                        false => bridge_in_transactions.push(transaction.clone()),
+                    }
+                }
                 state.add_transaction(transaction.clone(), outputs);
                 tracing::warn!(
                     "added transaction: {} to dependency graph",

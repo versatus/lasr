@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use lasr_types::{Address, Transaction};
 
 use serde::{Deserialize, Serialize};
@@ -23,23 +25,23 @@ pub enum ActorType {
     RemoteExecutor,
 }
 
-impl ToString for ActorType {
-    fn to_string(&self) -> String {
+impl Display for ActorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ActorType::Registry => "registry".to_string(),
-            ActorType::RpcServer => "rpc_server".to_string(),
-            ActorType::Scheduler => "scheduler".to_string(),
-            ActorType::Validator => "validator".to_string(),
-            ActorType::Engine => "engine".to_string(),
-            ActorType::EoServer => "eo_server".to_string(),
-            ActorType::DaClient => "da_client".to_string(),
-            ActorType::AccountCache => "account_cache".to_string(),
-            ActorType::BlobCache => "blob_cache".to_string(),
-            ActorType::PendingTransactions => "pending_transactions".to_string(),
-            ActorType::EoClient => "eo_client".to_string(),
-            ActorType::Batcher => "batcher".to_string(),
-            ActorType::Executor => "executor".to_string(),
-            ActorType::RemoteExecutor => "remote_executor".to_string(),
+            ActorType::Registry => write!(f, "registry"),
+            ActorType::RpcServer => write!(f, "rpc_server"),
+            ActorType::Scheduler => write!(f, "scheduler"),
+            ActorType::Validator => write!(f, "validator"),
+            ActorType::Engine => write!(f, "engine"),
+            ActorType::EoServer => write!(f, "eo_server"),
+            ActorType::DaClient => write!(f, "da_client"),
+            ActorType::AccountCache => write!(f, "account_cache"),
+            ActorType::BlobCache => write!(f, "blob_cache"),
+            ActorType::PendingTransactions => write!(f, "pending_transactions"),
+            ActorType::EoClient => write!(f, "eo_client"),
+            ActorType::Batcher => write!(f, "batcher"),
+            ActorType::Executor => write!(f, "executor"),
+            ActorType::RemoteExecutor => write!(f, "remote_executor"),
         }
     }
 }
@@ -59,21 +61,21 @@ pub enum SupervisorType {
     Batcher,
     Executor,
 }
-impl ToString for SupervisorType {
-    fn to_string(&self) -> String {
+impl Display for SupervisorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SupervisorType::BlobCache => "blob_cache_supervisor".to_string(),
-            SupervisorType::AccountCache => "account_cache_supervisor".to_string(),
-            SupervisorType::PendingTransaction => "pending_transaction_supervisor".to_string(),
-            SupervisorType::LasrRpcServer => "lasr_rpc_server_supervisor".to_string(),
-            SupervisorType::Scheduler => "scheduler_supervisor".to_string(),
-            SupervisorType::EoServer => "eo_server_supervisor".to_string(),
-            SupervisorType::Engine => "engine_supervisor".to_string(),
-            SupervisorType::Validator => "validator_supervisor".to_string(),
-            SupervisorType::EoClient => "eo_client_supervisor".to_string(),
-            SupervisorType::DaClient => "da_client_supervisor".to_string(),
-            SupervisorType::Batcher => "batcher_supervisor".to_string(),
-            SupervisorType::Executor => "executor_supervisor".to_string(),
+            SupervisorType::BlobCache => write!(f, "blob_cache_supervisor"),
+            SupervisorType::AccountCache => write!(f, "account_cache_supervisor"),
+            SupervisorType::PendingTransaction => write!(f, "pending_transaction_supervisor"),
+            SupervisorType::LasrRpcServer => write!(f, "lasr_rpc_server_supervisor"),
+            SupervisorType::Scheduler => write!(f, "scheduler_supervisor"),
+            SupervisorType::EoServer => write!(f, "eo_server_supervisor"),
+            SupervisorType::Engine => write!(f, "engine_supervisor"),
+            SupervisorType::Validator => write!(f, "validator_supervisor"),
+            SupervisorType::EoClient => write!(f, "eo_client_supervisor"),
+            SupervisorType::DaClient => write!(f, "da_client_supervisor"),
+            SupervisorType::Batcher => write!(f, "batcher_supervisor"),
+            SupervisorType::Executor => write!(f, "executor_supervisor"),
         }
     }
 }

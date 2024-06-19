@@ -1,3 +1,4 @@
+#![allow(clippy::assign_op_pattern)]
 use derive_builder::Builder;
 use ethereum_types::U256 as EthU256;
 use hex::FromHexError;
@@ -84,18 +85,6 @@ impl<'de> Visitor<'de> for U256Visitor {
         } else {
             Err(E::custom("Invalid format for U256"))
         }
-    }
-}
-
-impl From<EthU256> for &mut U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
-    }
-}
-
-impl From<EthU256> for &U256 {
-    fn from(value: EthU256) -> Self {
-        value.into()
     }
 }
 
@@ -206,6 +195,10 @@ pub struct Metadata(BTreeMap<String, String>);
 impl Metadata {
     pub fn new() -> Self {
         Self(BTreeMap::new())
+    }
+
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.0.get(key)
     }
 
     pub fn extend(&mut self, iter: BTreeMap<String, String>) {
@@ -348,26 +341,6 @@ impl Token {
             }
             TokenFieldValue::Status(status_update) => {
                 self.apply_status_update(status_update)?;
-            }
-            TokenFieldValue::TokenIds(_token_ids_update) => {
-                return Err(
-                    Box::new(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Updating token_ids through a Create should be done via the `token_ids` field not as a TokenFieldValue"
-                        )
-                    ) as Box<dyn std::error::Error + Send>
-                )
-            }
-            TokenFieldValue::Balance(_balance_update) => {
-                return Err(
-                    Box::new(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Updating balance through a Create should be done via the `amount` field not as a TokenFieldValue"
-                        )
-                    ) as Box<dyn std::error::Error + Send>
-                )
             }
         }
 
@@ -523,9 +496,7 @@ pub enum TokenField {
 )]
 #[serde(rename_all = "camelCase")]
 pub enum TokenFieldValue {
-    Balance(BalanceValue),
     Metadata(MetadataValue),
-    TokenIds(TokenIdValue),
     Allowance(AllowanceValue),
     Approvals(ApprovalsValue),
     Data(DataValue),
@@ -536,31 +507,10 @@ pub enum TokenFieldValue {
     Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum BalanceValue {
-    Credit(U256),
-    Debit(U256),
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
 pub enum MetadataValue {
     Insert(String, String),
     Extend(BTreeMap<String, String>),
     Remove(String),
-}
-
-#[derive(
-    Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "camelCase")]
-pub enum TokenIdValue {
-    Push(U256),
-    Extend(Vec<U256>),
-    Insert(usize, U256),
-    Pop,
-    Remove(U256),
 }
 
 #[derive(

@@ -7,7 +7,6 @@ use lasr_messages::{
 use ractor::{concurrency::JoinHandle, Actor, ActorRef};
 use std::sync::Arc;
 use thiserror::Error;
-use tikv_client::RawClient as TikvClient;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -16,7 +15,7 @@ use crate::{
     DaClientSupervisorError, EngineActor, EngineSupervisorError, EoClient, EoClientActor,
     EoClientSupervisorError, EoServerActor, EoServerSupervisorError, ExecutionEngine,
     ExecutorActor, ExecutorSupervisorError, LasrRpcServerActor, LasrRpcServerSupervisorError,
-    PendingTransactionActor, PendingTransactionSupervisorError, TaskScheduler,
+    PendingTransactionActor, PendingTransactionSupervisorError, StorageRef, TaskScheduler,
     TaskSchedulerSupervisorError, ValidatorActor, ValidatorCore, ValidatorSupervisorError,
 };
 
@@ -87,7 +86,7 @@ impl ActorManager {
         actor_manager: Arc<Mutex<ActorManager>>,
         actor_name: ractor::ActorName,
         handler: AccountCacheActor,
-        startup_args: TikvClient,
+        startup_args: StorageRef,
     ) -> Result<(), ActorManagerError> {
         if let Some(supervisor) = get_actor_ref::<AccountCacheMessage, AccountCacheSupervisorError>(
             SupervisorType::AccountCache,
@@ -438,7 +437,7 @@ impl ActorManagerBuilder {
     pub async fn account_cache(
         self,
         account_cache_actor: AccountCacheActor,
-        startup_args: TikvClient,
+        startup_args: StorageRef,
         account_cache_supervisor: ActorRef<AccountCacheMessage>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut new = self;

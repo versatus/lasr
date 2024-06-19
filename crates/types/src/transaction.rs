@@ -65,14 +65,14 @@ impl TransactionType {
     }
 }
 
-impl ToString for TransactionType {
-    fn to_string(&self) -> String {
+impl Display for TransactionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransactionType::BridgeIn(n) => format!("bridgeIn{n}"),
-            TransactionType::Send(n) => format!("send{n}"),
-            TransactionType::Call(n) => format!("call{n}"),
-            TransactionType::BridgeOut(n) => format!("bridgeOut{n}"),
-            TransactionType::RegisterProgram(n) => format!("deploy{n}"),
+            TransactionType::BridgeIn(n) => write!(f, "bridgeIn{n}"),
+            TransactionType::Send(n) => write!(f, "send{n}"),
+            TransactionType::Call(n) => write!(f, "call{n}"),
+            TransactionType::BridgeOut(n) => write!(f, "bridgeOut{n}"),
+            TransactionType::RegisterProgram(n) => write!(f, "deploy{n}"),
         }
     }
 }
@@ -479,6 +479,22 @@ impl From<(Payload, RecoverableSignature)> for Transaction {
             v: value.1.get_v(),
             r: value.1.get_r(),
             s: value.1.get_s(),
+        }
+    }
+}
+
+impl From<Payload> for Transaction {
+    fn from(value: Payload) -> Self {
+        Transaction {
+            transaction_type: value.transaction_type(),
+            from: value.from(),
+            to: value.to(),
+            program_id: value.program_id(),
+            op: value.op(),
+            inputs: value.inputs(),
+            value: value.value(),
+            nonce: value.nonce(),
+            ..Default::default()
         }
     }
 }

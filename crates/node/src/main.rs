@@ -1,7 +1,7 @@
 #![allow(unreachable_code)]
-use std::{collections::BTreeSet, path::PathBuf, str::FromStr, sync::Arc};
+use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
-use eo_listener::{EoServer as EoListener, EoServerError};
+use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
 use lasr_actors::{
@@ -11,15 +11,18 @@ use lasr_actors::{
     EngineSupervisor, EoClient, EoClientActor, EoClientSupervisor, EoServerActor,
     EoServerSupervisor, EoServerWrapper, ExecutionEngine, ExecutorActor, ExecutorSupervisor,
     LasrRpcServerActor, LasrRpcServerImpl, LasrRpcServerSupervisor, PendingTransactionActor,
-    PendingTransactionSupervisor, TaskScheduler, TaskSchedulerSupervisor, ValidatorActor,
-    ValidatorCore, ValidatorSupervisor,
+    PendingTransactionSupervisor, StorageRef, TaskScheduler, TaskSchedulerSupervisor,
+    ValidatorActor, ValidatorCore, ValidatorSupervisor, STORAGE_PROCESSED_BLOCKS_KEY,
 };
 use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
-use lasr_types::Address;
+#[cfg(feature = "mock_storage")]
+use lasr_types::MockPersistenceStore;
+use lasr_types::{Address, PersistenceStore};
 use ractor::{Actor, ActorCell, ActorStatus};
 use secp256k1::Secp256k1;
+#[cfg(not(feature = "mock_storage"))]
 use tikv_client::RawClient as TikvClient;
 use tokio::sync::{
     mpsc::{Receiver, Sender},
@@ -30,6 +33,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 use web3::types::BlockNumber;
+
+pub(crate) mod environment;
+pub(crate) use environment::ENVIRONMENT;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,18 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     dotenv::dotenv().ok();
-
+    let env = &*ENVIRONMENT;
     //TODO(asmith): Move this to be read in when and where needed and dropped
     //afterwards to minimize security vulnerabilities
-    let (_, sk_string) = std::env::vars()
-        .find(|(k, _)| k == "SECRET_KEY")
-        .expect("missing SECRET_KEY environment variable");
-
-    let (_, block_processed_path) = std::env::vars()
-        .find(|(k, _)| k == "BLOCKS_PROCESSED_PATH")
-        .expect("missing BLOCKS_PROCESSED_PATH environment variable");
-
-    let sk = web3::signing::SecretKey::from_str(&sk_string).map_err(Box::new)?;
+    let sk = web3::signing::SecretKey::from_str(&env.secret_key).map_err(Box::new)?;
     let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
         .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
         //TODO(asmith): Move the network endpoint for EigenDA to an
@@ -79,18 +77,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .server_address("disperser-holesky.eigenda.xyz:443".to_string())
         .build()?;
 
-    let eth_rpc_url = std::env::var("ETH_RPC_URL").expect("ETH_RPC_URL must be set");
-    tracing::warn!("Ethereum RPC URL: {}", eth_rpc_url);
-    let http = web3::transports::Http::new(&eth_rpc_url).expect("Invalid ETH_RPC_URL");
+    tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
+    let http = web3::transports::Http::new(&env.eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
     let eo_client = Arc::new(Mutex::new(
         setup_eo_client(web3_instance.clone(), sk).await?,
     ));
-    let inner_eo_server =
-        setup_eo_server(web3_instance.clone(), &block_processed_path).map_err(Box::new)?;
 
-    const TIKV_CLIENT_PD_ENDPOINT: &str = "127.0.0.1:2379";
-    let tikv_client = TikvClient::new(vec![TIKV_CLIENT_PD_ENDPOINT]).await?;
+    #[cfg(not(feature = "mock_storage"))]
+    let persistence_storage = <TikvClient as PersistenceStore>::new().await?;
+    #[cfg(feature = "mock_storage")]
+    let persistence_storage =
+        <MockPersistenceStore<String, Vec<u8>> as PersistenceStore>::new().await?;
+
+    let inner_eo_server = setup_eo_server(
+        web3_instance.clone(),
+        &env.blocks_processed_path,
+        persistence_storage.clone(),
+    )
+    .await
+    .map_err(Box::new)?;
 
     #[cfg(feature = "local")]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
@@ -100,14 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
-    let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
-        Some(addr.clone())
-    } else {
-        None
-    };
-
     #[cfg(feature = "local")]
-    let oci_manager = OciManager::new(bundler, store);
+    let oci_manager = OciManager::new(bundler, env.vipfs_address.clone());
 
     #[cfg(feature = "local")]
     let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
@@ -115,20 +115,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "remote")]
     tracing::info!("Attempting to connect compute agent");
     #[cfg(feature = "remote")]
-    let compute_rpc_url = std::env::var("COMPUTE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let compute_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
-        .build(compute_rpc_url)
+        .build(env.compute_rpc_url)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     #[cfg(feature = "remote")]
     tracing::info!("Attempting to connect strorage agent");
     #[cfg(feature = "remote")]
-    let storage_rpc_url = std::env::var("STORAGE_RPC_URL").expect("COMPUTE_RPC_URL must be set");
     #[cfg(feature = "remote")]
     let storage_rpc_client = jsonrpsee::ws_client::WsClientBuilder::default()
-        .build(storage_rpc_url)
+        .build(env.storage_rpc_url)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
@@ -237,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .account_cache(
             account_cache_actor.clone(),
-            tikv_client.clone(),
+            persistence_storage.clone(),
             account_cache_supervisor,
         )
         .await?
@@ -293,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batcher_clone = batcher.clone();
     let executor_actor_clone = executor_actor.clone();
     let execution_engine_clone = execution_engine.clone();
-    let tikv_client_clone = tikv_client.clone();
+    let persistence_storage_clone = persistence_storage.clone();
 
     tokio::spawn(async move {
         while let Some(actor) = panic_rx.recv().await {
@@ -316,7 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 manager_ptr,
                                 actor_name,
                                 account_cache_actor.clone(),
-                                tikv_client_clone.clone(),
+                                persistence_storage_clone.clone(),
                             )
                             .await
                             .typecast()
@@ -435,10 +433,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let lasr_rpc = LasrRpcServerImpl::new(lasr_rpc_actor_ref);
-    let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
     let server = RpcServerBuilder::default()
         .max_connections(1000)
-        .build(format!("0.0.0.0:{}", port))
+        .build(format!("0.0.0.0:{}", env.port))
         .await
         .map_err(Box::new)?;
     let server_handle = server.start(lasr_rpc.into_rpc());
@@ -447,9 +444,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1);
 
     tokio::spawn(graph_cleaner());
-    tokio::spawn(eo_server_wrapper.run());
+    tokio::spawn(eo_server_wrapper.run(
+        env.blocks_processed_path.to_string(),
+        persistence_storage.clone(),
+    ));
     tokio::spawn(server_handle.stopped());
-    tokio::spawn(lasr_actors::batch_requestor(stop_rx, tikv_client.clone()));
+    tokio::spawn(lasr_actors::batch_requestor(
+        stop_rx,
+        persistence_storage.clone(),
+    ));
 
     let future_thread_pool = tokio_rayon::rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
@@ -526,14 +529,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn setup_eo_server(
+async fn setup_eo_server(
     web3_instance: web3::Web3<web3::transports::Http>,
     path: &str,
+    storage: StorageRef,
 ) -> Result<EoListener, EoServerError> {
     // Initialize the ExecutableOracle Address
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
-    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
-    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
+    let eo_address =
+        eo_listener::EoAddress::new(&crate::environment::ENVIRONMENT.eo_contract_address);
     let contract_address = eo_address
         .parse()
         .map_err(|err| EoServerError::Other(err.to_string()))?;
@@ -544,15 +548,23 @@ fn setup_eo_server(
     let blob_settled_topic = eo_listener::get_blob_index_settled_topic();
     let bridge_topic = eo_listener::get_bridge_event_topic();
 
+    let blocks_processed = load_processed_blocks(path, storage)
+        .await
+        .unwrap_or_default();
+    let bridge_from_block = blocks_processed.bridge;
+    let settle_from_block = blocks_processed.settle;
+    let bridge_processed = blocks_processed.bridge_processed;
+    let settled_processed = blocks_processed.settled_processed;
+
     let blob_settled_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(settle_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(blob_settled_topic.clone(), None, None, None)
         .build();
 
     let bridge_filter = web3::types::FilterBuilder::default()
-        .from_block(BlockNumber::Number(0.into()))
+        .from_block(BlockNumber::Number(bridge_from_block.unwrap_or_default()))
         .to_block(BlockNumber::Latest)
         .address(vec![contract_address])
         .topics(bridge_topic.clone(), None, None, None)
@@ -588,14 +600,14 @@ fn setup_eo_server(
         .web3(web3_instance)
         .eo_address(eo_address)
         .block_time(std::time::Duration::from_millis(2500))
-        .bridge_processed_blocks(BTreeSet::new())
-        .settled_processed_blocks(BTreeSet::new())
+        .bridge_processed_blocks(bridge_processed)
+        .settled_processed_blocks(settled_processed)
         .contract(contract)
         .bridge_topic(bridge_topic)
         .blob_settled_topic(blob_settled_topic)
         .bridge_filter(bridge_filter)
-        .current_bridge_filter_block(0.into())
-        .current_blob_settlement_filter_block(0.into())
+        .current_bridge_filter_block(bridge_from_block.unwrap_or_default())
+        .current_blob_settlement_filter_block(settle_from_block.unwrap_or_default())
         .blob_settled_filter(blob_settled_filter)
         .blob_settled_event(blob_settled_event)
         .bridge_event(bridge_event)
@@ -613,8 +625,7 @@ async fn setup_eo_client(
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
     //0x5FbDB2315678afecb367f032d93F642f64180aa3
 
-    let eo_address_str = std::env::var("EO_CONTRACT_ADDRESS").expect("EO_CONTRACT_ADDRESS environment variable is not set. Please set the EO_CONTRACT_ADDRESS environment variable with the Executable Oracle contract address.");
-    let eo_address = eo_listener::EoAddress::new(&eo_address_str);
+    let eo_address = eo_listener::EoAddress::new(&crate::ENVIRONMENT.eo_contract_address);
     // Initialize the web3 instance
     let contract_address = eo_address
         .parse()
@@ -639,4 +650,37 @@ async fn setup_eo_client(
     EoClient::new(web3_instance, contract, user_address, sk)
         .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+}
+
+async fn load_processed_blocks(path: &str, storage: StorageRef) -> Option<BlocksProcessed> {
+    tracing::info!("attempting to load processed blocks in eo server setup");
+    let blocks_processed_bytes = if let Ok(mut file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+    {
+        let mut buf = Vec::new();
+        if file.read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            tracing::info!("found non-empty processed blocks file");
+            Some(buf)
+        } else {
+            tracing::warn!("checking persistence storage for processed blocks");
+            get_blocks_processed_from_persistence(storage).await
+        }
+    } else {
+        None
+    };
+    bincode::deserialize::<BlocksProcessed>(&blocks_processed_bytes.unwrap_or_default()).ok()
+}
+
+async fn get_blocks_processed_from_persistence(storage: StorageRef) -> Option<Vec<u8>> {
+    PersistenceStore::get(
+        &storage,
+        <StorageRef as PersistenceStore>::Key::from(STORAGE_PROCESSED_BLOCKS_KEY.to_string()),
+    )
+    .await
+    .typecast()
+    .log_err(|e| e.to_string())
+    .flatten()
 }
