@@ -437,7 +437,7 @@ impl Batcher {
         Ok(())
     }
 
-    // Applies txn token data for `BridgeIn` events & `from` account's for `Send` events.
+    // Applies txn token data for `BridgeIn` event & `from` account for `Send` event.
     pub async fn handle_bridge_send_txn(
         batch_buffer: &mut HashMap<String, Account>,
         transaction: &Transaction,
@@ -706,7 +706,9 @@ impl Batcher {
             transaction.from(),
             transaction
         );
+        // Handles token update for either `BridgeIn` event or the `from` account used in a `Send` event.
         let token = Self::handle_bridge_send_txn(&mut batch_buffer, &transaction).await?;
+        // Handles account token updates for the `to` account used in a `Send` event.
         Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
 
         for (_, account) in batch_buffer {
