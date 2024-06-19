@@ -12,10 +12,13 @@ use std::process::Stdio;
 use std::{ffi::OsStr, fmt::Display};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::time::{timeout, Duration};
 use web3_pkg::web3_store::Web3Store;
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
+
+const IPFS_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub enum BaseImage {
@@ -130,9 +133,8 @@ impl OciManager {
             content_id
         );
         let store = self.try_get_store()?;
-        store
-            .is_pinned(content_id)
-            .await
+        timeout(IPFS_TIMEOUT, store.is_pinned(content_id))
+            .await?
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
     }
 
@@ -142,9 +144,8 @@ impl OciManager {
         recursive: bool,
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
-        let cids = store
-            .pin_object(content_id, recursive)
-            .await
+        let cids = timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive))
+            .await?
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         tracing::info!("Pinned object: {:?}", cids);
@@ -165,9 +166,8 @@ impl OciManager {
 
         tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
         let store = self.try_get_store()?;
-        let package_data = store
-            .read_dag(&cid)
-            .await
+        let package_data = timeout(IPFS_TIMEOUT, store.read_dag(&cid))
+            .await?
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
