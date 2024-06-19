@@ -144,9 +144,22 @@ impl OciManager {
         recursive: bool,
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
-        let cids = timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive))
-            .await?
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let cids = match timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive)).await {
+            Ok(Ok(cids)) => cids,
+            Ok(Err(e)) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            }
+            Err(_) => {
+                tracing::error!("Timed out pinning object in IPFS");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out pinning object in IPFS",
+                ));
+            }
+        };
 
         tracing::info!("Pinned object: {:?}", cids);
         Ok(())
@@ -166,9 +179,22 @@ impl OciManager {
 
         tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
         let store = self.try_get_store()?;
-        let package_data = timeout(IPFS_TIMEOUT, store.read_dag(&cid))
-            .await?
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let package_data = match timeout(IPFS_TIMEOUT, store.read_dag(&cid)).await {
+            Ok(Ok(data)) => data,
+            Ok(Err(e)) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            }
+            Err(_) => {
+                tracing::error!("Timed out reading from IPFS");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out reading from IPFS",
+                ));
+            }
+        };
 
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
