@@ -12,10 +12,13 @@ use std::process::Stdio;
 use std::{ffi::OsStr, fmt::Display};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::time::{timeout, Duration};
 use web3_pkg::web3_store::Web3Store;
 
 #[allow(unused)]
 use ipfs_api::{IpfsApi, IpfsClient};
+
+const IPFS_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub enum BaseImage {
@@ -130,10 +133,16 @@ impl OciManager {
             content_id
         );
         let store = self.try_get_store()?;
-        store
-            .is_pinned(content_id)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        match timeout(IPFS_TIMEOUT, store.is_pinned(content_id)).await {
+            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Err(_) => {
+                tracing::error!("Timed out checking if {} is pinned", content_id);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out checking if content is pinned",
+                ))
+            }
+        }
     }
 
     pub async fn pin_object(
@@ -142,10 +151,16 @@ impl OciManager {
         recursive: bool,
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
-        let cids = store
-            .pin_object(content_id, recursive)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let cids = match timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive)).await {
+            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            Err(_) => {
+                tracing::error!("Timed out pinning object in IPFS");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out pinning object in IPFS",
+                ));
+            }
+        };
 
         tracing::info!("Pinned object: {:?}", cids);
         Ok(())
@@ -165,10 +180,22 @@ impl OciManager {
 
         tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
         let store = self.try_get_store()?;
-        let package_data = store
-            .read_dag(&cid)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let package_data = match timeout(IPFS_TIMEOUT, store.read_dag(&cid)).await {
+            Ok(Ok(data)) => data,
+            Ok(Err(e)) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            }
+            Err(_) => {
+                tracing::error!("Timed out reading from IPFS");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out reading from IPFS",
+                ));
+            }
+        };
 
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
