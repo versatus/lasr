@@ -615,81 +615,79 @@ impl Batcher {
             };
 
             batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
-        } else {
-            if !transaction.transaction_type().is_bridge_in() {
-                let to_account = if let Some(mut account) =
-                    batch_buffer.get_mut(&transaction.to().to_full_string())
+        } else if !transaction.transaction_type().is_bridge_in() {
+            let to_account = if let Some(mut account) =
+                batch_buffer.get_mut(&transaction.to().to_full_string())
+            {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
                 {
-                    if let Some(program_account) =
-                        get_account(transaction.program_id(), ActorType::Batcher).await
-                    {
-                        let _ = account
-                            .apply_send_transaction(transaction.clone(), Some(&program_account));
-                        tracing::warn!(
-                            "applied send transaction, account {} now has new token",
-                            account.owner_address().to_full_string()
-                        );
-                        tracing::warn!(
-                            "token_entry: {:?}",
-                            &account.programs().get(&transaction.program_id())
-                        );
-                        account.clone()
-                    } else if transaction.program_id() == ETH_ADDR {
-                        account.apply_send_transaction(transaction.clone(), None);
-                        account.clone()
-                    } else if transaction.program_id() == VERSE_ADDR {
-                        let _ = account.apply_send_transaction(transaction.clone(), None);
-                        account.clone()
-                    } else {
-                        return Err(BatcherError::FailedTransaction {
-                            msg: format!(
-                                "program account {} does not exist",
-                                transaction.program_id().to_full_string()
-                            ),
-                            txn: Box::new(transaction.clone()),
-                        });
-                    }
-                } else if let Some(mut account) =
-                    get_account(transaction.to(), ActorType::Batcher).await
-                {
-                    if let Some(program_account) =
-                        get_account(transaction.program_id(), ActorType::Batcher).await
-                    {
-                        let _ = account
-                            .apply_send_transaction(transaction.clone(), Some(&program_account));
-                        tracing::warn!(
-                            "applied send transaction, account {} now has new token",
-                            account.owner_address().to_full_string()
-                        );
-                        tracing::warn!(
-                            "token_entry: {:?}",
-                            &account.programs().get(&transaction.program_id())
-                        );
-                        account.clone()
-                    } else if transaction.program_id() == ETH_ADDR {
-                        account.apply_send_transaction(transaction.clone(), None);
-                        account.clone()
-                    } else if transaction.program_id() == VERSE_ADDR {
-                        let _ = account.apply_send_transaction(transaction.clone(), None);
-                        account.clone()
-                    } else {
-                        return Err(BatcherError::FailedTransaction {
-                            msg: format!(
-                                "program account {} does not exist",
-                                transaction.program_id().to_full_string()
-                            ),
-                            txn: Box::new(transaction.clone()),
-                        });
-                    }
+                    let _ =
+                        account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    tracing::warn!(
+                        "applied send transaction, account {} now has new token",
+                        account.owner_address().to_full_string()
+                    );
+                    tracing::warn!(
+                        "token_entry: {:?}",
+                        &account.programs().get(&transaction.program_id())
+                    );
+                    account.clone()
+                } else if transaction.program_id() == ETH_ADDR {
+                    account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
+                } else if transaction.program_id() == VERSE_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
                 } else {
                     return Err(BatcherError::FailedTransaction {
-                        msg: "account sending to itself does not exist".to_string(),
+                        msg: format!(
+                            "program account {} does not exist",
+                            transaction.program_id().to_full_string()
+                        ),
                         txn: Box::new(transaction.clone()),
                     });
-                };
+                }
+            } else if let Some(mut account) =
+                get_account(transaction.to(), ActorType::Batcher).await
+            {
+                if let Some(program_account) =
+                    get_account(transaction.program_id(), ActorType::Batcher).await
+                {
+                    let _ =
+                        account.apply_send_transaction(transaction.clone(), Some(&program_account));
+                    tracing::warn!(
+                        "applied send transaction, account {} now has new token",
+                        account.owner_address().to_full_string()
+                    );
+                    tracing::warn!(
+                        "token_entry: {:?}",
+                        &account.programs().get(&transaction.program_id())
+                    );
+                    account.clone()
+                } else if transaction.program_id() == ETH_ADDR {
+                    account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
+                } else if transaction.program_id() == VERSE_ADDR {
+                    let _ = account.apply_send_transaction(transaction.clone(), None);
+                    account.clone()
+                } else {
+                    return Err(BatcherError::FailedTransaction {
+                        msg: format!(
+                            "program account {} does not exist",
+                            transaction.program_id().to_full_string()
+                        ),
+                        txn: Box::new(transaction.clone()),
+                    });
+                }
+            } else {
+                return Err(BatcherError::FailedTransaction {
+                    msg: "account sending to itself does not exist".to_string(),
+                    txn: Box::new(transaction.clone()),
+                });
+            };
 
-                batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
-            }
+            batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
         }
 
         for (_, account) in batch_buffer {
