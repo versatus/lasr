@@ -437,11 +437,11 @@ impl Batcher {
         Ok(())
     }
 
-    // Applies txn token data for `BridgeIn` event & `from` account for `Send` event.
     pub async fn handle_bridge_send_txn(
         batch_buffer: &mut HashMap<String, Account>,
         transaction: &Transaction,
     ) -> Result<Token, BatcherError> {
+        // Applies txn token data for `BridgeIn` event & `from` account for `Send` event.
         let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             tracing::warn!("found account, token pair");
@@ -455,6 +455,7 @@ impl Batcher {
             batch_buffer.insert(transaction.from().to_full_string(), account.clone());
             (account, token)
         } else {
+            // Builds account for first time `BridgeIn` event.
             if !transaction.transaction_type().is_bridge_in() {
                 return Err(BatcherError::FailedTransaction {
                     msg: "sender account does not exist".to_string(),
@@ -481,6 +482,7 @@ impl Batcher {
                     txn: Box::new(transaction.clone()),
                 })?;
 
+            // Applies txn token data for `BridgeIn` event
             if let Some(program_account) =
                 get_account(transaction.program_id(), ActorType::Batcher).await
             {
@@ -511,19 +513,21 @@ impl Batcher {
             transaction.clone().hash_string(),
             from_account.owner_address()
         );
+        // Updated token sent to scheduler
         Ok(token)
     }
 
-    // Applies txn token data for `to` account in `Send` events
     pub async fn handle_to_send_txn(
         batch_buffer: &mut HashMap<String, Account>,
         transaction: &Transaction,
     ) -> Result<(), BatcherError> {
+        // Applies txn token data for `to` account in `Send` event
         if transaction.to() != transaction.from() {
             tracing::warn!(
                 "checking account cache for account: {}",
                 transaction.to().to_full_string()
             );
+            // Txn `to` account updated if found, built and applied if first time.
             let mut to_account = get_account(transaction.to(), ActorType::Batcher).await;
             let to_account = if let Some(mut account) = to_account {
                 tracing::warn!("found `to` account: {}", transaction.to().to_full_string());
@@ -540,20 +544,6 @@ impl Batcher {
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
-                    account
-                } else if transaction.program_id() == ETH_ADDR {
-                    tracing::warn!(
-                        "applying ETH to account {}",
-                        transaction.to().to_full_string()
-                    );
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
-                    account
-                } else if transaction.program_id() == VERSE_ADDR {
-                    tracing::warn!(
-                        "applying VERSE to account {}",
-                        transaction.to().to_full_string()
-                    );
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
                     account
                 } else {
                     return Err(BatcherError::FailedTransaction {
@@ -599,12 +589,6 @@ impl Batcher {
                         &account.programs().get(&transaction.program_id())
                     );
                     account
-                } else if transaction.program_id() == ETH_ADDR {
-                    account.apply_send_transaction(transaction.clone(), None);
-                    account
-                } else if transaction.program_id() == VERSE_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
-                    account
                 } else {
                     return Err(BatcherError::FailedTransaction {
                         msg: format!(
@@ -617,7 +601,10 @@ impl Batcher {
             };
 
             batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
-        } else if !transaction.transaction_type().is_bridge_in() {
+        }
+        // Applies txn token data for `Send` event to self.
+        else {
+            // Attempt account retrieval though `batch_buffer`
             let to_account = if let Some(mut account) =
                 batch_buffer.get_mut(&transaction.to().to_full_string())
             {
@@ -627,19 +614,13 @@ impl Batcher {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     tracing::warn!(
-                        "applied send transaction, account {} now has new token",
+                        "applied send transaction to self, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
                     tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
-                    account.clone()
-                } else if transaction.program_id() == ETH_ADDR {
-                    account.apply_send_transaction(transaction.clone(), None);
-                    account.clone()
-                } else if transaction.program_id() == VERSE_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
                     account.clone()
                 } else {
                     return Err(BatcherError::FailedTransaction {
@@ -650,7 +631,9 @@ impl Batcher {
                         txn: Box::new(transaction.clone()),
                     });
                 }
-            } else if let Some(mut account) =
+            }
+            // Attempt account retrieval through helper methods.
+            else if let Some(mut account) =
                 get_account(transaction.to(), ActorType::Batcher).await
             {
                 if let Some(program_account) =
@@ -659,19 +642,13 @@ impl Batcher {
                     let _ =
                         account.apply_send_transaction(transaction.clone(), Some(&program_account));
                     tracing::warn!(
-                        "applied send transaction, account {} now has new token",
+                        "applied send transaction to self, account {} now has new token",
                         account.owner_address().to_full_string()
                     );
                     tracing::warn!(
                         "token_entry: {:?}",
                         &account.programs().get(&transaction.program_id())
                     );
-                    account.clone()
-                } else if transaction.program_id() == ETH_ADDR {
-                    account.apply_send_transaction(transaction.clone(), None);
-                    account.clone()
-                } else if transaction.program_id() == VERSE_ADDR {
-                    let _ = account.apply_send_transaction(transaction.clone(), None);
                     account.clone()
                 } else {
                     return Err(BatcherError::FailedTransaction {
@@ -704,10 +681,17 @@ impl Batcher {
             transaction.from(),
             transaction
         );
-        // Handles token update for either `BridgeIn` event or the `from` account used in a `Send` event.
-        let token = Self::handle_bridge_send_txn(&mut batch_buffer, &transaction).await?;
-        // Handles account token updates for the `to` account used in a `Send` event.
-        Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
+        // Handles token update for `BridgeIn` event OR `from` account involved in `Send` event.
+        let token = Self::handle_bridge_send_txn(&mut batch_buffer, &transaction)
+            .await
+            .map_err(|e| BatcherError::FailedTransaction {
+                msg: e.to_string(),
+                txn: Box::new(transaction.clone()),
+            })?;
+        // Handles token update for `to` account involved in `Send` event.
+        if !transaction.transaction_type().is_bridge_in() {
+            Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
+        }
 
         for (_, account) in batch_buffer {
             tracing::info!("adding account to batch");
