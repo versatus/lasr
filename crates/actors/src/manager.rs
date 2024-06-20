@@ -741,7 +741,7 @@ mod actor_manager_tests {
                         .map_err(|e| println!("{e:?}"))
                         .unwrap();
                 }
-                _ => {}
+                event => println!("Handling supervisor event: {event:?}"),
             }
             Ok(())
         }

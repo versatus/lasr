@@ -69,16 +69,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(" ");
 
     // Serialize User `Account` data to be stored.
-    let user_val = bincode::serialize(&user_acc_val)
-        .ok()
-        .expect("failed to serialize user `Account` data.");
+    let user_val =
+        bincode::serialize(&user_acc_val).expect("failed to serialize user `Account` data.");
 
     println!("Serialized User `Account` data: {:?}", user_val.to_vec());
 
     // Serialize Program `Account` data to be stored.
-    let prgm_val = bincode::serialize(&prgm_acc_val)
-        .ok()
-        .expect("failed to serialize program `Account` data.");
+    let prgm_val =
+        bincode::serialize(&prgm_acc_val).expect("failed to serialize program `Account` data.");
 
     println!("Serialized Program `Account` data: {:?}", prgm_val);
     println!(" ");
