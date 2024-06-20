@@ -6,7 +6,7 @@ use crate::{
     UnorderedFuturePool,
 };
 use async_trait::async_trait;
-use eo_listener::{BlocksProcessed, EoServer as InnerEoServer, EventType};
+use eo_listener::{BlocksProcessed, EoServer as InnerEoServer, EventLogResult, EventType};
 use futures::{
     stream::{FuturesUnordered, StreamExt},
     FutureExt,
@@ -21,6 +21,9 @@ use ractor::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{mpsc::Sender, Mutex};
+use tokio::time::error::Elapsed;
+use tokio::time::timeout;
+use tokio::time::Duration;
 use web3::ethabi::{Address as EthereumAddress, FixedBytes, Log, LogParam, Uint};
 
 use crate::{handle_actor_response, scheduler::SchedulerError};
@@ -32,6 +35,7 @@ use lasr_messages::{
 };
 
 pub const STORAGE_PROCESSED_BLOCKS_KEY: &str = "blocks_processed";
+const LOG_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Clone, Debug, Default)]
 pub struct EoServerActor;
@@ -61,9 +65,15 @@ impl EoServerWrapper {
                     ))?
                     .into();
 
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+            let mut interval = tokio::time::interval(Duration::from_secs(15));
             loop {
-                let logs = self.server.next().await;
+                let logs = match timeout(LOG_TIMEOUT, self.server.next()).await {
+                    Ok(logs) => logs,
+                    Err(e) => {
+                        tracing::error!("EoServer Error: event log retrieval timeout: {e:?}");
+                        continue;
+                    }
+                };
                 match &logs.log_result {
                     Ok(log) => {
                         if !log.is_empty() {
