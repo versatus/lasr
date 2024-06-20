@@ -133,9 +133,16 @@ impl OciManager {
             content_id
         );
         let store = self.try_get_store()?;
-        timeout(IPFS_TIMEOUT, store.is_pinned(content_id))
-            .await?
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        match timeout(IPFS_TIMEOUT, store.is_pinned(content_id)).await {
+            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Err(_) => {
+                tracing::error!("Timed out checking if {} is pinned", content_id);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timed out checking if content is pinned",
+                ))
+            }
+        }
     }
 
     pub async fn pin_object(
@@ -145,13 +152,7 @@ impl OciManager {
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
         let cids = match timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive)).await {
-            Ok(Ok(cids)) => cids,
-            Ok(Err(e)) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            }
+            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
             Err(_) => {
                 tracing::error!("Timed out pinning object in IPFS");
                 return Err(std::io::Error::new(
