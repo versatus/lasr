@@ -1,0 +1,24 @@
+[package]
+name = "eo_listener"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[dependencies]
+web3 = "0.19.0"
+tokio = { version = "1.34.0", features = ["full"] }
+rustc-hex = "2.1.0"
+futures = "0.3.29"
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = "1.0.108"
+bincode = "1.3.3"
+sha3 = "0.10.8"
+derive_builder = "0.12.0"
+hex = "0.4.3"
+log = "0.4.20"
+simple_logger = "4.3.0"

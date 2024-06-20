@@ -5,6 +5,7 @@ members = [
   "crates/cli",
   "crates/compute",
   "crates/contract",
+  "crates/eo_listener",
   "crates/messages",
   "crates/node",
   "crates/rpc",

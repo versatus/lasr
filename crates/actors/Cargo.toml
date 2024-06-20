@@ -21,7 +21,7 @@ chrono = "0.4.35"
 derive_builder = "0.12.0"
 dotenv = "0.15.0"
 eigenda_client = { git = "https://github.com/versatus/eigenda_client" }
-eo_listener = { git = "https://github.com/versatus/eo_listener" }
+eo_listener = { path = "../eo_listener" }
 ethereum-types = "0.14.1"
 flate2 = "1.0.28"
 futures = "0.3.29"
