@@ -408,7 +408,8 @@ impl Account {
 
         crate::U256::from(0)
     }
-    pub fn apply_send_transaction(
+
+    pub fn apply_bridge_transaction(
         &mut self,
         transaction: Transaction,
         program_account: Option<&Account>,
@@ -455,7 +456,16 @@ impl Account {
                 }
             }
         }
+        Err(Box::new(ToTokenError::Custom(
+            "unable to convert transaction into token".to_string(),
+        )))
+    }
 
+    pub fn apply_send_transaction(
+        &mut self,
+        transaction: Transaction,
+        program_account: Option<&Account>,
+    ) -> AccountResult<Token> {
         if !transaction.transaction_type().is_bridge_in() {
             if transaction.to() == transaction.from() {
                 if let Some(token) = self.programs.get(&transaction.program_id()) {

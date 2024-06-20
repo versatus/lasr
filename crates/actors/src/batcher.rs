@@ -437,17 +437,17 @@ impl Batcher {
         Ok(())
     }
 
-    pub async fn handle_bridge_send_txn(
+    pub async fn handle_bridge_txn(
         batch_buffer: &mut HashMap<String, Account>,
         transaction: &Transaction,
     ) -> Result<Token, BatcherError> {
-        // Applies txn token data for `BridgeIn` event & `from` account for `Send` event.
+        // Applies txn token data for `BridgeIn` event.
         let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
         let (from_account, token) = if let Some(mut account) = from_account {
             tracing::warn!("found account, token pair");
             account.increment_nonce();
             let token = account
-                .apply_send_transaction(transaction.clone(), None)
+                .apply_bridge_transaction(transaction.clone(), None)
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
@@ -456,13 +456,6 @@ impl Batcher {
             (account, token)
         } else {
             // Builds account for first time `BridgeIn` event.
-            if !transaction.transaction_type().is_bridge_in() {
-                return Err(BatcherError::FailedTransaction {
-                    msg: "sender account does not exist".to_string(),
-                    txn: Box::new(transaction.clone()),
-                });
-            }
-
             tracing::warn!(
                 "transaction is first for account {:?} bridge_in, building account",
                 transaction.from()
@@ -487,7 +480,7 @@ impl Batcher {
                 get_account(transaction.program_id(), ActorType::Batcher).await
             {
                 let token = account
-                    .apply_send_transaction(transaction.clone(), Some(&program_account))
+                    .apply_bridge_transaction(transaction.clone(), Some(&program_account))
                     .map_err(|e| BatcherError::FailedTransaction {
                         msg: e.to_string(),
                         txn: Box::new(transaction.clone()),
@@ -497,7 +490,7 @@ impl Batcher {
                 (account, token)
             } else {
                 let token = account
-                    .apply_send_transaction(transaction.clone(), None)
+                    .apply_bridge_transaction(transaction.clone(), None)
                     .map_err(|e| BatcherError::FailedTransaction {
                         msg: e.to_string(),
                         txn: Box::new(transaction.clone()),
@@ -506,6 +499,39 @@ impl Batcher {
                 batch_buffer.insert(transaction.from().to_full_string(), account.clone());
                 (account, token)
             }
+        };
+
+        tracing::info!(
+            "applied transaction {} to account {:x}, informing scheduler",
+            transaction.clone().hash_string(),
+            from_account.owner_address()
+        );
+        // Updated token sent to scheduler
+        Ok(token)
+    }
+
+    pub async fn handle_from_send_txn(
+        batch_buffer: &mut HashMap<String, Account>,
+        transaction: &Transaction,
+    ) -> Result<Token, BatcherError> {
+        // Applies txn token data for `from` account in `Send` event.
+        let mut from_account = get_account(transaction.from(), ActorType::Batcher).await;
+        let (from_account, token) = if let Some(mut account) = from_account {
+            tracing::warn!("found account, token pair");
+            account.increment_nonce();
+            let token = account
+                .apply_send_transaction(transaction.clone(), None)
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction.clone()),
+                })?;
+            batch_buffer.insert(transaction.from().to_full_string(), account.clone());
+            (account, token)
+        } else {
+            return Err(BatcherError::FailedTransaction {
+                msg: "sender account does not exist".to_string(),
+                txn: Box::new(transaction.clone()),
+            });
         };
 
         tracing::info!(
@@ -681,17 +707,25 @@ impl Batcher {
             transaction.from(),
             transaction
         );
-        // Handles token update for `BridgeIn` event OR `from` account involved in `Send` event.
-        let token = Self::handle_bridge_send_txn(&mut batch_buffer, &transaction)
-            .await
-            .map_err(|e| BatcherError::FailedTransaction {
-                msg: e.to_string(),
-                txn: Box::new(transaction.clone()),
-            })?;
-        // Handles token update for `to` account involved in `Send` event.
-        if !transaction.transaction_type().is_bridge_in() {
+
+        let token = if transaction.transaction_type().is_bridge_in() {
+            let token = Self::handle_bridge_txn(&mut batch_buffer, &transaction)
+                .await
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction.clone()),
+                })?;
+            token
+        } else {
+            let token = Self::handle_from_send_txn(&mut batch_buffer, &transaction)
+                .await
+                .map_err(|e| BatcherError::FailedTransaction {
+                    msg: e.to_string(),
+                    txn: Box::new(transaction.clone()),
+                })?;
             Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
-        }
+            token
+        };
 
         for (_, account) in batch_buffer {
             tracing::info!("adding account to batch");
