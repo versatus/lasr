@@ -376,7 +376,8 @@ impl EoServer {
         let from_block = self
             .bridge_processed_blocks
             .last()
-            .unwrap_or_else(|| &default);
+            .unwrap_or_else(|| &default)
+            + 1;
         let to_block = self.current_bridge_filter_block + U64::from(1);
         log::info!(
             "filtering from block {} to block {}",
@@ -385,15 +386,11 @@ impl EoServer {
         );
 
         let new_filter = FilterBuilder::default()
-            .from_block(BlockNumber::Number(*from_block)) // Last processed block
+            .from_block(BlockNumber::Number(from_block)) // Last processed block
             .to_block(BlockNumber::Number(to_block))
             .address(vec![contract_address])
             .topics(self.bridge_topic.clone(), None, None, None)
             .build();
-
-        if log_discovered {
-            self.bridge_processed_blocks.insert(block_number);
-        }
 
         self.current_bridge_filter_block = block_number;
         self.bridge_filter = new_filter;
@@ -416,19 +413,17 @@ impl EoServer {
         let from_block = self
             .settled_processed_blocks
             .last()
-            .unwrap_or_else(|| &default);
+            .unwrap_or_else(|| &default)
+            + 1;
         let to_block = self.current_blob_settlement_filter_block + U64::from(1);
 
         let new_filter = FilterBuilder::default()
-            .from_block(BlockNumber::Number(*from_block))
+            .from_block(BlockNumber::Number(from_block))
             .to_block(BlockNumber::Number(to_block))
             .address(vec![contract_address])
             .topics(self.blob_settled_topic.clone(), None, None, None)
             .build();
 
-        if log_discovered {
-            self.settled_processed_blocks.insert(block_number);
-        }
         self.current_blob_settlement_filter_block = block_number;
         self.blob_settled_filter = new_filter;
 
