@@ -30,7 +30,7 @@ macro_rules! log_handler {
     };
 }
 pub fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
-    web3::ethabi::Contract::load(&include_bytes!("../eo_contract_abi.json")[..])
+    web3::ethabi::Contract::load(&include_bytes!("eo_contract_abi.json")[..])
         .map_err(|e| EoServerError::Other(e.to_string()))
 }
 
