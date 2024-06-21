@@ -510,7 +510,7 @@ impl Batcher {
         Ok(token)
     }
 
-    pub async fn handle_from_send_txn(
+    pub async fn handle_send_txn(
         batch_buffer: &mut HashMap<String, Account>,
         transaction: &Transaction,
     ) -> Result<Token, BatcherError> {
@@ -539,14 +539,6 @@ impl Batcher {
             transaction.clone().hash_string(),
             from_account.owner_address()
         );
-        // Updated token sent to scheduler
-        Ok(token)
-    }
-
-    pub async fn handle_to_send_txn(
-        batch_buffer: &mut HashMap<String, Account>,
-        transaction: &Transaction,
-    ) -> Result<(), BatcherError> {
         // Applies txn token data for `to` account in `Send` event
         if transaction.to() != transaction.from() {
             tracing::warn!(
@@ -694,7 +686,9 @@ impl Batcher {
 
             batch_buffer.insert(transaction.to().to_full_string(), to_account.clone());
         }
-        Ok(())
+
+        // Updated token sent to scheduler
+        Ok(token)
     }
 
     pub async fn add_transaction_to_account(
@@ -717,13 +711,12 @@ impl Batcher {
                 })?;
             token
         } else {
-            let token = Self::handle_from_send_txn(&mut batch_buffer, &transaction)
+            let token = Self::handle_send_txn(&mut batch_buffer, &transaction)
                 .await
                 .map_err(|e| BatcherError::FailedTransaction {
                     msg: e.to_string(),
                     txn: Box::new(transaction.clone()),
                 })?;
-            Self::handle_to_send_txn(&mut batch_buffer, &transaction).await;
             token
         };
 
