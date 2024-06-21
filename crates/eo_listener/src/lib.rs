@@ -30,10 +30,11 @@ macro_rules! log_handler {
         }
     };
 }
+
+static EO_CONTRACT_ABI: &[u8] = include_bytes!("../eo_contract_abi.json").as_slice();
+
 pub fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
-    static CONTRACT_ABI: &[u8] =
-        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/eo_contract_abi.json"));
-    web3::ethabi::Contract::load(CONTRACT_ABI).map_err(|e| EoServerError::Other(e.to_string()))
+    web3::ethabi::Contract::load(EO_CONTRACT_ABI).map_err(|e| EoServerError::Other(e.to_string()))
 }
 
 pub fn get_blob_index_settled_topic() -> Option<Vec<H256>> {
