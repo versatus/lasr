@@ -31,10 +31,16 @@ macro_rules! log_handler {
     };
 }
 
-static EO_CONTRACT_ABI: &[u8] = include_bytes!("../eo_contract_abi.json").as_slice();
+pub async fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
+    let abi_bytes = tokio::fs::read("../eo_contract_abi.json")
+        .await
+        .map_err(|e| EoServerError::Other(e.to_string()))?;
+    let full_json_with_abi: serde_json::Value =
+        serde_json::from_slice(&abi_bytes).map_err(|e| EoServerError::Other(e.to_string()))?;
+    let x = serde_json::to_vec(full_json_with_abi.get("abi").expect("create abi bytes err"))
+        .map_err(|e| EoServerError::Other(e.to_string()))?;
 
-pub fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
-    web3::ethabi::Contract::load(EO_CONTRACT_ABI).map_err(|e| EoServerError::Other(e.to_string()))
+    web3::ethabi::Contract::load(&*x).map_err(|e| EoServerError::Other(e.to_string()))
 }
 
 pub fn get_blob_index_settled_topic() -> Option<Vec<H256>> {
