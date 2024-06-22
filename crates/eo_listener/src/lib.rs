@@ -1,7 +1,6 @@
 #![allow(unused)]
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
-use std::path::Path;
 use std::time::Duration;
 
 mod eo_contract_abi;
@@ -9,17 +8,14 @@ use crate::eo_contract_abi::EO_CONTRACT_ABI_JSON;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver};
 use web3::types::U64;
 use web3::{
     contract::{
         tokens::{Detokenize, Tokenize},
         Contract, Options,
     },
-    ethabi::RawLog as ParsedLog,
     transports::Http,
-    types::{Address, BlockId, BlockNumber, Filter, FilterBuilder, Log, H160, H256, U256},
+    types::{Address, BlockId, BlockNumber, Filter, FilterBuilder, Log, H160, H256},
     Error as Web3Error, Transport, Web3,
 };
 
