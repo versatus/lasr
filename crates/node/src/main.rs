@@ -541,9 +541,7 @@ async fn setup_eo_server(
     let contract_address = eo_address
         .parse()
         .map_err(|err| EoServerError::Other(err.to_string()))?;
-    let contract_abi = eo_listener::get_abi()
-        .await
-        .map_err(|e| EoServerError::Other(e.to_string()))?;
+    let contract_abi = eo_listener::get_abi().map_err(|e| EoServerError::Other(e.to_string()))?;
     let address = web3::types::Address::from(contract_address);
     let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
 
@@ -632,9 +630,8 @@ async fn setup_eo_client(
     let contract_address = eo_address
         .parse()
         .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
-    let contract_abi = eo_listener::get_abi()
-        .await
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    let contract_abi =
+        eo_listener::get_abi().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     let address = web3::types::Address::from(contract_address);
     let contract = web3::contract::Contract::new(web3_instance.eth(), address, contract_abi);
 

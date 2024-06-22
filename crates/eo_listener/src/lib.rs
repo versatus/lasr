@@ -33,7 +33,7 @@ macro_rules! log_handler {
     };
 }
 
-pub async fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
+pub fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
     web3::ethabi::Contract::load(EO_CONTRACT_ABI_JSON.as_bytes())
         .map_err(|e| EoServerError::Other(e.to_string()))
 }
