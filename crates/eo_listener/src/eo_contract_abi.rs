@@ -1,3 +1,4 @@
+pub const EO_CONTRACT_ABI_JSON: &str = r#"
 [
 	{
 		"inputs": [],
@@ -448,3 +449,4 @@
 		"type": "function"
 	}
 ]
+"#;

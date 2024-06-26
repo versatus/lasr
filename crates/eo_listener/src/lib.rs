@@ -1,22 +1,21 @@
 #![allow(unused)]
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::time::Duration;
 
+mod eo_contract_abi;
+use crate::eo_contract_abi::EO_CONTRACT_ABI_JSON;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver};
 use web3::types::U64;
 use web3::{
     contract::{
         tokens::{Detokenize, Tokenize},
         Contract, Options,
     },
-    ethabi::RawLog as ParsedLog,
     transports::Http,
-    types::{Address, BlockId, BlockNumber, Filter, FilterBuilder, Log, H160, H256, U256},
+    types::{Address, BlockId, BlockNumber, Filter, FilterBuilder, Log, H160, H256},
     Error as Web3Error, Transport, Web3,
 };
 
@@ -29,8 +28,9 @@ macro_rules! log_handler {
         }
     };
 }
+
 pub fn get_abi() -> Result<web3::ethabi::Contract, EoServerError> {
-    web3::ethabi::Contract::load(&include_bytes!("../eo_contract_abi.json")[..])
+    web3::ethabi::Contract::load(EO_CONTRACT_ABI_JSON.as_bytes())
         .map_err(|e| EoServerError::Other(e.to_string()))
 }
 
