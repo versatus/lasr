@@ -373,11 +373,7 @@ impl EoServer {
             .map_err(|err| EoServerError::Other(err.to_string()))?;
 
         let default: U64 = U64::from(0);
-        let from_block = self
-            .bridge_processed_blocks
-            .last()
-            .unwrap_or_else(|| &default)
-            + 1;
+        let from_block = self.bridge_processed_blocks.last().unwrap_or_default() + U64::from(1);
         let to_block = self.current_bridge_filter_block + U64::from(1);
         log::info!(
             "filtering from block {} to block {}",
@@ -410,11 +406,7 @@ impl EoServer {
             .map_err(|err| EoServerError::Other(err.to_string()))?;
 
         let default: U64 = U64::from(0);
-        let from_block = self
-            .settled_processed_blocks
-            .last()
-            .unwrap_or_else(|| &default)
-            + 1;
+        let from_block = self.settled_processed_blocks.last().unwrap_or_default() + U64::from(1);
         let to_block = self.current_blob_settlement_filter_block + U64::from(1);
 
         let new_filter = FilterBuilder::default()
