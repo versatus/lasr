@@ -359,7 +359,7 @@ impl EoServerActor {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error parsing settlement log: {e:?}");
+                        tracing::error!("Error parsing settlement log: {e:?}\n for Log: {log:?}");
                     }
                 }
             }

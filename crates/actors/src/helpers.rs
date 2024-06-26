@@ -372,7 +372,7 @@ pub async fn check_account_cache(address: Address, who: ActorType) -> Option<Acc
 }
 
 pub async fn get_account(address: Address, who: ActorType) -> Option<Account> {
-    tracing::info!(
+    tracing::debug!(
         "Attempting to get account information from AccountCache for address: {}",
         address.to_full_string()
     );

@@ -293,7 +293,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
     }
 
     async fn get_account(&self, address: String) -> Result<String, RpcError> {
-        tracing::info!("Received RPC getAccount method");
+        tracing::debug!("Received RPC getAccount method");
 
         let (tx, rx) = oneshot();
         let reply = RpcReplyPort::from(tx);
@@ -310,7 +310,7 @@ impl LasrRpcServer for LasrRpcServerImpl {
         {
             Ok(resp) => match resp {
                 TransactionResponse::GetAccountResponse(account) => {
-                    tracing::info!("received account response");
+                    tracing::debug!("received account response");
                     return serde_json::to_string(&account).map_err(|e| {
                         RpcError::owned(INTERNAL_ERROR_CODE, e.to_string(), None::<()>)
                     });
@@ -428,7 +428,7 @@ impl Actor for LasrRpcServerActor {
         message: Self::Msg,
         _: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        tracing::info!("RPC Actor Received RPC Message");
+        tracing::debug!("RPC Actor Received RPC Message");
         match message {
             RpcMessage::Request { method, reply } => {
                 LasrRpcServerActor::handle_request_method(*method, reply)?
