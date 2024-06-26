@@ -341,7 +341,7 @@ impl EoServerActor {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error parsing bridge log: {e:?}\n for Log: {log:?}");
+                        tracing::error!("Error parsing bridge log: {e:?}");
                     }
                 }
             }
@@ -359,7 +359,7 @@ impl EoServerActor {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error parsing settlement log: {e:?}\n for Log: {log:?}");
+                        tracing::error!("Error parsing settlement log: {e:?}");
                     }
                 }
             }
