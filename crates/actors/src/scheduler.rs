@@ -61,7 +61,7 @@ impl TaskScheduler {
         address: Address,
         rpc_reply: RpcReplyPort<RpcMessage>,
     ) -> Result<(), SchedulerError> {
-        tracing::info!("Checking for account cache for account: {address:?} from scheduler");
+        tracing::debug!("Checking for account cache for account: {address:?} from scheduler");
         if let Some(account) = get_account(address, ActorType::Scheduler).await {
             rpc_reply
                 .send(RpcMessage::Response {
@@ -184,7 +184,7 @@ impl Actor for TaskScheduler {
                 state.insert(transaction.hash_string(), rpc_reply);
             }
             SchedulerMessage::GetAccount { address, rpc_reply } => {
-                tracing::info!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
+                tracing::debug!("Scheduler received RPC `getAccount` method for account: {:?}. Prepping to check cache", address);
                 // Check cache
                 self.handle_get_account_request(address, rpc_reply).await;
                 // if not in cache check DA
