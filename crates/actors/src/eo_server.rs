@@ -341,7 +341,7 @@ impl EoServerActor {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error parsing bridge log: {e:?}");
+                        tracing::error!("Error parsing bridge log: {e:?}\n for Log: {log:?}");
                     }
                 }
             }
