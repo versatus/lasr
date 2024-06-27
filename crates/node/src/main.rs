@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
         .runtime("/usr/local/bin/runsc".to_string())
         .base_images("./base_image".to_string())
@@ -106,10 +106,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .payload_path("./payload".to_string())
         .build()?;
 
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     let oci_manager = OciManager::new(bundler, env.vipfs_address.clone());
 
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     let execution_engine = Arc::new(Mutex::new(ExecutionEngine::new(oci_manager)));
 
     #[cfg(feature = "remote")]

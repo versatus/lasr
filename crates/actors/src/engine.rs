@@ -248,7 +248,7 @@ impl EngineActor {
         }
         .to_string();
 
-        #[cfg(feature = "local")]
+        #[cfg(not(feature = "remote"))]
         let message = ExecutorMessage::Create {
             transaction: transaction.clone(),
             content_id: content_id.clone(),

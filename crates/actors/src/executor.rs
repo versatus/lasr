@@ -8,7 +8,7 @@ use internal_rpc::api::InternalRpcApiClient;
 #[cfg(feature = "remote")]
 use internal_rpc::job_queue::job::{ComputeJobExecutionType, ServiceJobState, ServiceJobType};
 use jsonrpsee::{core::client::ClientT, ws_client::WsClient};
-#[cfg(feature = "local")]
+#[cfg(not(feature = "remote"))]
 use lasr_compute::OciManager;
 use lasr_contract::create_program_id;
 use lasr_messages::{ActorName, BatcherMessage, SupervisorType};
@@ -74,7 +74,7 @@ pub struct DynCache;
 
 #[allow(unused)]
 pub struct ExecutionEngine<C: InternalRpcApiClient> {
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     manager: OciManager,
     #[cfg(feature = "remote")]
     compute_rpc_client: C,
@@ -84,7 +84,7 @@ pub struct ExecutionEngine<C: InternalRpcApiClient> {
     pending: HashMap<uuid::Uuid, PendingJob>,
     handles: HashMap<(String, String), tokio::task::JoinHandle<std::io::Result<String>>>,
     cache: DynCache,
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     phantom: std::marker::PhantomData<C>,
 }
 
@@ -136,7 +136,7 @@ impl<C: InternalRpcApiClient> ExecutionEngine<C> {
     }
 }
 
-#[cfg(feature = "local")]
+#[cfg(not(feature = "remote"))]
 impl<C: ClientT> ExecutionEngine<C> {
     pub fn new(manager: OciManager) -> Self {
         Self {
@@ -306,7 +306,7 @@ impl ExecutorActor {
         Ok(())
     }
 
-    #[cfg(feature = "local")]
+    #[cfg(not(feature = "remote"))]
     fn registration_success(transaction: Transaction) -> std::io::Result<()> {
         let actor: ActorRef<BatcherMessage> =
             ractor::registry::where_is(ActorType::Batcher.to_string())
@@ -699,7 +699,7 @@ impl ExecutorActor {
     }
 }
 
-#[cfg(feature = "local")]
+#[cfg(not(feature = "remote"))]
 #[async_trait]
 impl Actor for ExecutorActor {
     type Msg = ExecutorMessage;
