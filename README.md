@@ -24,14 +24,15 @@ Language Agnostic Stateless Rollup.
 
 ## Base Image
 
+We're using BusyBox to create the filesystem for managing smart contract payloads in the oci-runtime.
+To create a new payload filesystem with root privileges:
 ```sh
 docker export $(docker create busybox) | sudo tar -xf - -C rootfs --same-owner --same-permissions
 ```
 
-Relevant documentation for the oci-runtime, busybox and taskfile:
+Relevant documentation for the oci-runtime and busybox:
 - https://gvisor.dev/docs/user_guide/quick_start/oci/
 - https://hub.docker.com/_/busybox
-- https://taskfile.dev/
 
 ### Handy commands
 
