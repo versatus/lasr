@@ -1715,15 +1715,17 @@ impl Batcher {
                         let acc_val = AccountValue { account: data };
                         // Serialize `Account` data to be stored.
                         if let Ok(val) = bincode::serialize(&acc_val) {
-                            if PersistenceStore::put(&storage_ref, addr.clone().into(), val)
-                                .await
-                                .is_ok()
+                            if let Err(e) =
+                                PersistenceStore::put(&storage_ref, addr.clone().into(), val).await
                             {
+                                tracing::error!(
+                                    "Insertion to persistence for {addr:?} failed: {}",
+                                    BatcherError::Custom(e.to_string())
+                                )
+                            } else {
                                 tracing::warn!(
                                     "Inserted Account with address of {addr:?} to persistence layer",
                                 )
-                            } else {
-                                tracing::error!("failed to push Account data to persistence store")
                             }
                         } else {
                             tracing::error!("failed to serialize account data")

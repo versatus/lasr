@@ -1,3 +1,4 @@
+# Starts TiKV persistence layer docker services via entrypoints.
 version: "3.7"
 
 x-defaults: &defaults
