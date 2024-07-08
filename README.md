@@ -2,7 +2,20 @@
 
 Language Agnostic Stateless Rollup.
 
-## LASR Node Environment Variables
+## Usage
+
+All of our documentation including design details and deploying programs can be found on our documentation site: https://docs.versatus.io/
+
+## Getting Started
+
+The fastest way to see a LASR node in action is by using our internal Nix tooling at https://github.com/versatus/versatus.nix
+which includes a local NixOS VM that will automatically spin up a LASR node and works with Linux/Darwin systems as well as WSL.
+Generic modules are also available there, making it seamless to create a custom image for your personal node server. A production
+configuration is also available for deploying to DigitalOcean servers.
+
+## Environment Variables
+
+### LASR Node Environment Variables
 
 | Environment Variable    | Description                                                      |
 |-------------------------|------------------------------------------------------------------|
@@ -16,38 +29,52 @@ Language Agnostic Stateless Rollup.
 | `BATCH_INTERVAL`        | Interval in secs that transactions are batched, defaults to 180. |
 | `VIPFS_ADDRESS`         | Optional. Used by the OciManager.                                |
 
-## LASR CLI Environment Variables
+### LASR CLI Environment Variables
 
 | Environment Variable   | Description                                                               |
 |------------------------|---------------------------------------------------------------------------|
 | `LASR_RPC_URL`         | URL used for remote procedure calls, defaults to `http://127.0.0.1:9292`. |
 
-## Base Image
+## Contributing Guide
 
-We're using BusyBox to create the filesystem for managing smart contract payloads in the oci-runtime.
-To create a new payload filesystem with root privileges:
-```sh
-docker export $(docker create busybox) | sudo tar -xf - -C rootfs --same-owner --same-permissions
+Contributors are welcome, and we encourage interacting with us on Discord where we can help guide and
+answer any questions.
+
+### Fork And Clone The Repository
+Create your own fork of the `lasr` repository, and create a local copy of your fork.
+```
+git clone github:<your-username>/lasr
 ```
 
-Relevant documentation for the oci-runtime and busybox:
-- https://gvisor.dev/docs/user_guide/quick_start/oci/
-- https://hub.docker.com/_/busybox
-
-### Handy commands
-
-Register a program.
-```sh
-cli wallet register-program --from-file --inputs '{"contentId": "0x742d35cc6634c0532925a3b844bc454e4438f44e"}'
+### Build The Project
+LASR is built with Rust, so a Rust toolchain is a pre-requisite. If you have `rustup` installed
+the project's `rust-toolchain.toml` will enable the current toolchain our core team uses.
+```
+cd lasr && cargo build
 ```
 
-Call a program method.
+### Testing Your Changes
+To see your changes take effect, we suggest adding an appropriate unit or integration test, however
+some testing cases (such as bug fixes) may require manual testing, in which case using the [`versatus.nix` flake](https://github.com/versatus/versatus.nix)
+is the easiest option. After following the setup steps there, testing your changes is straight-forward:
+
+- unit or integration tests with `cargo`
 ```sh
-cli wallet call --from-file --to 0x742d35cc6634c0532925a3b844bc454e4438f44e -c 0x742d35cc6634c0532925a3b844bc454e4438f44e --op getName --inputs '{"first_name": "Andrew", "last_name": "Smith"}' -v 0
+# The mock_storage feature enables an in-memory variant of node storage
+cargo test --workspace --features mock_storage
 ```
 
-Test gVistor runtime.
+- `versatus.nix` manual debugging
+
+> Note: To see your changes take effect, you will need to replace `inputs.lasr.url` in the `flake.nix`
+> with the URL to your upstream branch.
+
 ```sh
-runsc --debug --debug-log=/tmp/runsc/ --TESTONLY-unsafe-nonroot do echo 123
-runsc --debug --debug-log=/tmp/runsc/ do echo 123
+nix flake update # updates flake inputs, see note above
+nix build .#lasr_vm
+./result/bin/run-lasr-nightly-server-vm
 ```
+
+> Note: A qemu terminal should appear which you can either login as root, or ssh into.
+> A `logs` folder should appear after a minute or so, with node debug info. Further info
+> aboute the running node service can be found with `journalctl -b | grep node-start`.
