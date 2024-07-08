@@ -78,3 +78,18 @@ nix build .#lasr_vm
 > Note: A qemu terminal should appear which you can either login as root, or ssh into.
 > A `logs` folder should appear after a minute or so, with node debug info. Further info
 > aboute the running node service can be found with `journalctl -b | grep node-start`.
+
+### Code Review
+Pull requests must meet the following requirements:
+- A corresponding issue and closing keywords for that issue in the pull request description
+- A description of how your solution solves the issue
+- Tests that prove the effectiveness of your changes (if applicable)
+- Branch must be up-to-date with `main`
+- All status checks must pass
+
+A core contributor will be assigned to review your pull request in 24-48hrs.
+Please be sure the above guidelines are followed, failure to meet them could result in your PR being closed!
+If the issue you are having is not listed, feel free to open one. Doing so helps us point you in the right
+direction, which could save you precious hours. Please understand that feature requests that are not on the
+roadmap may not be approved, but don't let it deter you from suggesting features you'd like to see implemented.
+Happy hacking!
