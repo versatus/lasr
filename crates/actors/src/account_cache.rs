@@ -219,28 +219,28 @@ impl Actor for AccountCacheActor {
                 location,
             } => {
                 let owner = &account.owner_address().to_full_string();
-                tracing::warn!(
+                tracing::debug!(
                     "Received account cache write request from {} for address {}: WHERE: {}",
                     who.to_string(),
                     owner,
                     location
                 );
                 let _ = state.inner.handle_cache_write(account.clone());
-                tracing::info!("Account written to for address {owner}: {:?}", &account);
+                tracing::debug!("Account written to for address {owner}: {:?}", &account);
             }
             AccountCacheMessage::Read { address, tx, who } => {
                 let hex_address = &address.to_full_string();
-                tracing::warn!(
+                tracing::debug!(
                     "Recieved account cache read request from {} for address: {}",
                     who.to_string(),
                     hex_address
                 );
                 let account = if let Some(account) = state.inner.get(&address) {
-                    tracing::warn!("retrieved account from account cache for address {hex_address}: {account:?}");
+                    tracing::debug!("retrieved account from account cache for address {hex_address}: {account:?}");
                     Some(account.clone())
                 } else {
                     // Pass to persistence store
-                    tracing::warn!(
+                    tracing::debug!(
                         "Account not found in AccountCache for address {hex_address}, connecting to persistence store."
                     );
                     let acc_key = address.to_full_string();
