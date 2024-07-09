@@ -4,7 +4,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
- # check workspace for warnings & treat them as errors
+  cargo-build-workspace:
+    name: build workspace crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install toolchain
+        uses: dsherret/rust-toolchain-file@v1
+      - name: Build Workspace
+        run: cargo build --workspace
+
+  # check workspace for warnings & treat them as errors
   clippy:
     name: clippy
     runs-on: ubuntu-latest
