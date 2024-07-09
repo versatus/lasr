@@ -4,6 +4,7 @@ use lasr_messages::{ActorType, ExecutorMessage};
 use lasr_types::{Inputs, ProgramSchema, Transaction};
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use ractor::ActorRef;
+use std::fmt::format;
 use std::io::Read;
 use std::io::Write;
 use std::os::unix::prelude::PermissionsExt;
@@ -179,13 +180,18 @@ impl OciManager {
             .to_string();
 
         tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
-        let store = self.try_get_store()?;
+        let store = self.try_get_store().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to get Web3Store: {e:?}"),
+            )
+        })?;
         let package_data = match timeout(IPFS_TIMEOUT, store.read_dag(&cid)).await {
             Ok(Ok(data)) => data,
             Ok(Err(e)) => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    e.to_string(),
+                    format!("Failure to read DAG from Web3Store: {e:?}"),
                 ))
             }
             Err(_) => {
@@ -200,9 +206,19 @@ impl OciManager {
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
         tracing::info!("creating all directories in path: {}", &package_dir);
-        std::fs::create_dir_all(&package_dir)?;
+        std::fs::create_dir_all(&package_dir).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload directory for {cid} in path {package_dir}: {e:?}"),
+            )
+        })?;
 
-        let package: LasrPackage = serde_json::from_slice(&package_data)?;
+        let package: LasrPackage = serde_json::from_slice(&package_data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error deserializing package from DAG {package_data:?}: {e:?}"),
+            )
+        })?;
         tracing::info!(
             "Package '{}' version {} from '{}' is type {:?}",
             &package.package_payload.package_name,
@@ -227,19 +243,31 @@ impl OciManager {
             "creating package metadata file: {}",
             &package_metadata_filepath
         );
-        let mut f = std::fs::File::create(&package_metadata_filepath)?;
+        let mut f = std::fs::File::create(&package_metadata_filepath).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload metadata directory in path {package_dir}: {e:?}"),
+            )
+        })?;
 
-        f.write_all(&package_data)?;
+        f.write_all(&package_data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error writing to package metadata file {f:?}: {e:?}"),
+            )
+        })?;
 
         let package_object_iter = package.package_payload.package_objects.into_iter();
 
         //TODO(asmith) convert into a parallel iterator
         for obj in package_object_iter {
             tracing::info!("getting object: {} from Web3Store", &obj.object_cid());
-            let object_data = store
-                .read_object(obj.object_cid())
-                .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            let object_data = store.read_object(obj.object_cid()).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read for {obj:?} from Web3Store: {e:?}"),
+                )
+            })?;
 
             let mut object_path = obj
                 .object_path()
@@ -273,7 +301,12 @@ impl OciManager {
             tracing::info!("creating missing directories in: {}", &object_filepath);
             let object_path = Path::new(&object_filepath);
             if let Some(parent) = object_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating object filepath at {object_filepath} for {parent:?}: {e:?}"),
+                    )
+                })?;
             }
             tracing::info!("writing object to: {}", &object_filepath);
 
@@ -283,14 +316,37 @@ impl OciManager {
                 .truncate(true)
                 .append(false)
                 .create(true)
-                .open(&object_filepath)?;
+                .open(&object_filepath)
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating object file in {object_filepath}: {e:?}"),
+                    )
+                })?;
 
-            f.write_all(&object_data)?;
+            f.write_all(&object_data).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error writing to object file {f:?}: {e:?}"),
+                )
+            })?;
 
             if exec {
-                let mut permissions = std::fs::metadata(object_path)?.permissions();
+                let mut permissions = std::fs::metadata(object_path)
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to query files in {object_path:?}: {e:?}"),
+                        )
+                    })?
+                    .permissions();
                 permissions.set_mode(0o755);
-                std::fs::set_permissions(object_path, permissions)?;
+                std::fs::set_permissions(object_path, permissions).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error setting permissions on files in {object_path:?}: {e:?}"),
+                    )
+                })?;
             }
         }
 
