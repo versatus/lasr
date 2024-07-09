@@ -1770,18 +1770,21 @@ impl Batcher {
                             .ok_or(BatcherError::Custom("failed to encode batch".to_string()))?,
                         tx,
                     };
-                    da_client
-                        .cast(message)
-                        .typecast()
-                        .log_err(|e| BatcherError::Custom(e.to_string()));
+                    da_client.cast(message).typecast().log_err(|e| {
+                        BatcherError::Custom(format!("Failed to cast batch to DA Client: {e:?}"))
+                    });
                     let handler = |resp: Result<BlobResponse, std::io::Error>| match resp {
                         Ok(r) => Ok(r),
                         Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>),
                     };
 
-                    let blob_response = handle_actor_response(rx, handler)
-                        .await
-                        .map_err(|e| BatcherError::Custom(e.to_string()))?;
+                    tracing::info!("Encoded batch has been casted to DA Client");
+
+                    let blob_response = handle_actor_response(rx, handler).await.map_err(|e| {
+                        BatcherError::Custom(format!(
+                            "Failed to recieve blob response from DA Client: {e:?}"
+                        ))
+                    })?;
 
                     tracing::info!(
                         "Batcher received blob response: RequestId: {}",
