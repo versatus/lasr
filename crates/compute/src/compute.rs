@@ -4,7 +4,6 @@ use lasr_messages::{ActorType, ExecutorMessage};
 use lasr_types::{Inputs, ProgramSchema, Transaction};
 use oci_spec::runtime::{ProcessBuilder, RootBuilder, Spec};
 use ractor::ActorRef;
-use std::fmt::format;
 use std::io::Read;
 use std::io::Write;
 use std::os::unix::prelude::PermissionsExt;
@@ -118,11 +117,19 @@ impl OciManager {
 
     pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
         let store = if let Some(addr) = &self.store {
-            Web3Store::from_multiaddr(addr)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            Web3Store::from_multiaddr(addr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error aquiring Web3Store for {addr}: {e:?}"),
+                )
+            })?
         } else {
-            Web3Store::local()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            Web3Store::local().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error aquiring local Web3Store: {e:?}"),
+                )
+            })?
         };
 
         Ok(store)
@@ -135,7 +142,12 @@ impl OciManager {
         );
         let store = self.try_get_store()?;
         match timeout(IPFS_TIMEOUT, store.is_pinned(content_id)).await {
-            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Ok(result) => result.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error checking pinned status for {content_id}: {e:?}"),
+                )
+            }),
             Err(_) => {
                 tracing::error!("Timed out checking if {} is pinned", content_id);
                 Err(std::io::Error::new(
@@ -153,7 +165,12 @@ impl OciManager {
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
         let cids = match timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive)).await {
-            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            Ok(result) => result.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error pinning {content_id}: {e:?}"),
+                )
+            })?,
             Err(_) => {
                 tracing::error!("Timed out pinning object in IPFS");
                 return Err(std::io::Error::new(
@@ -360,12 +377,27 @@ impl OciManager {
             .into_owned()
             .to_string();
         tracing::info!("attempting to create bundle for {}", cid);
-        let container_metadata = self.create_payload_package(content_id).await?;
+        let container_metadata = self.create_payload_package(content_id).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload for {cid}: {e:?}"),
+            )
+        })?;
         if let Some(metadata) = container_metadata {
             tracing::info!("received container metadata: {:?}", &metadata);
             tracing::info!("building container bundle");
-            self.bundler.bundle(&cid, &metadata).await?;
-            self.add_payload(&cid).await?;
+            self.bundler.bundle(&cid, &metadata).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error building container bundle for {cid}: {e:?}"),
+                )
+            })?;
+            self.add_payload(&cid).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to add payload for {cid}: {e:?}"),
+                )
+            })?;
             self.base_spec(&cid).await?;
             let program_args = {
                 if metadata.program_args().is_empty() {
@@ -374,7 +406,13 @@ impl OciManager {
                     Some(metadata.program_args().clone())
                 }
             };
-            self.customize_spec(cid, &metadata, metadata.entrypoint(), program_args)?;
+            self.customize_spec(cid, &metadata, metadata.entrypoint(), program_args)
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error customizing container configuration: {e:?}"),
+                    )
+                })?;
             return Ok(());
         }
 
@@ -439,17 +477,34 @@ impl OciManager {
 
             // Create the temporary file for container output
             if let Some(parent) = temp_file_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating temp conatiner path {temp_file_path:?}: {e:?}"),
+                    )
+                })?;
             }
 
             // Check if the file exists
             if tokio::fs::metadata(&temp_file_path).await.is_ok() {
                 // If it exists, make sure it is empty
-                tokio::fs::write(&temp_file_path, b"").await?;
+                tokio::fs::write(&temp_file_path, b"").await.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error writing container metadata to {temp_file_path:?}: {e:?}"),
+                    )
+                })?;
             }
 
             // Create a standard file for stdout redirection
-            let container_stdout_file = std::fs::File::create(&temp_file_path)?;
+            let container_stdout_file = std::fs::File::create(&temp_file_path).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "Error creating temp container file in path {temp_file_path:?}:  {e:?}"
+                    ),
+                )
+            })?;
 
             let mut child = Command::new("runsc")
                 .arg("--rootless")
@@ -460,7 +515,13 @@ impl OciManager {
                 .arg(&container_id)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::from(container_stdout_file))
-                .spawn()?;
+                .spawn()
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error executing runsc command for {container_id}: {e:?}"),
+                    )
+                })?;
 
             let mut stdin = child.stdin.take().ok_or({
                 std::io::Error::new(
@@ -471,13 +532,32 @@ impl OciManager {
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
             tracing::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
             let _ = tokio::task::spawn(async move {
-                stdin.write_all(stdio_inputs.clone().as_bytes()).await?;
+                stdin
+                    .write_all(stdio_inputs.clone().as_bytes())
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to write stdio inputes to stdin: {e:?}"),
+                        )
+                    })?;
 
                 drop(stdin);
                 Ok::<_, std::io::Error>(())
             })
-            .await?;
-            let status = child.wait().await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Unable to join async handle: {e:?}"),
+                )
+            })?;
+            let status = child.wait().await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error retrieving child status: {e:?}"),
+                )
+            })?;
             if !status.success() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -485,9 +565,19 @@ impl OciManager {
                 ));
             }
 
-            let mut file = tokio::fs::File::open(&temp_file_path).await?;
+            let mut file = tokio::fs::File::open(&temp_file_path).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to open {temp_file_path:?}: {e:?}"),
+                )
+            })?;
             let mut outputs = String::new();
-            file.read_to_string(&mut outputs).await?;
+            file.read_to_string(&mut outputs).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to parse {file:?} for output results: {e:?}"),
+                )
+            })?;
 
             if outputs.is_empty() {
                 return Err(std::io::Error::new(
@@ -514,14 +604,22 @@ impl OciManager {
                 transaction,
             };
 
-            actor
-                .cast(message)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            actor.cast(message).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to cast message to executor: {e:?}"),
+                )
+            })?;
 
             tracing::warn!("casted message to inform executor");
 
             // Clean up the temporary file
-            tokio::fs::remove_file(temp_file_path).await?;
+            tokio::fs::remove_file(temp_file_path).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error removing temp container file {temp_file_path}: {e:?}"),
+                )
+            })?;
 
             Ok::<_, std::io::Error>(outputs)
         }))
