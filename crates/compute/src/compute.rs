@@ -614,10 +614,10 @@ impl OciManager {
             tracing::warn!("casted message to inform executor");
 
             // Clean up the temporary file
-            tokio::fs::remove_file(temp_file_path).await.map_err(|e| {
+            tokio::fs::remove_file(&temp_file_path).await.map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Error removing temp container file {temp_file_path}: {e:?}"),
+                    format!("Error removing temp container file {temp_file_path:?}: {e:?}"),
                 )
             })?;
 
