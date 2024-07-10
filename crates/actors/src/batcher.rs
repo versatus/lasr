@@ -1774,7 +1774,10 @@ impl Batcher {
                         BatcherError::Custom(format!("Failed to cast batch to DA Client: {e:?}"))
                     });
                     let handler = |resp: Result<BlobResponse, std::io::Error>| match resp {
-                        Ok(r) => Ok(r),
+                        Ok(r) => {
+                            tracing::info!("Blob Response: {r:?}");
+                            Ok(r)
+                        }
                         Err(e) => Err(Box::new(e) as Box<dyn std::error::Error>),
                     };
 
