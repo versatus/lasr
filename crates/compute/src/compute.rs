@@ -649,7 +649,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 
     pub async fn bundle(
         &self,
-        content_id: impl AsRef<Path>,
+        content_id: impl AsRef<Path> + std::fmt::Debug,
         container_metadata: &PackageContainerMetadata,
     ) -> Result<(), std::io::Error> {
         let base_path = self.get_base_path(container_metadata.base_image());
@@ -659,7 +659,12 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 "container path: {} doesn't exist, creating...",
                 container_path.as_ref().to_string_lossy().to_string()
             );
-            std::fs::create_dir_all(container_path.as_ref())?;
+            std::fs::create_dir_all(container_path.as_ref()).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error creating container path for {content_id:?}: {e:?}"),
+                )
+            })?;
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
@@ -671,7 +676,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 &base_path.as_ref().join(Self::CONTAINER_ROOT),
                 &container_root_path.as_ref(),
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error creating container root path for {content_id:?}: {e:?}"),
+                )
+            })?;
         }
 
         Ok(())
@@ -699,7 +710,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .arg("spec")
             .current_dir(container_path)
             .output()
-            .await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error establishing runtime for container: {e:?}"),
+                )
+            })?;
 
         Ok(())
     }
@@ -714,15 +731,22 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_path = self.get_container_path(&content_id);
         let config_path = container_path.as_ref().join("config.json");
 
-        let mut spec: Spec = Spec::load(&config_path)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let mut spec: Spec = Spec::load(&config_path).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to load spec config from {config_path:?}: {e:?}"),
+            )
+        })?;
 
         let mut proc = if let Some(gen_proc) = spec.process() {
             gen_proc.to_owned()
         } else {
-            ProcessBuilder::default()
-                .build()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+            ProcessBuilder::default().build().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error while building default Oci Process: {e:?}"),
+                )
+            })?
         };
 
         match container_metadata.base_image() {
@@ -744,16 +768,33 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 let mut rootfs = if let Some(genroot) = spec.root() {
                     genroot.to_owned()
                 } else {
-                    RootBuilder::default()
-                        .build()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                    RootBuilder::default().build().map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Error while building default Oci Root: {e:?}"),
+                        )
+                    })?
                 };
 
                 rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
                 rootfs.set_readonly(Some(false));
                 spec.set_root(Some(rootfs));
 
-                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+                std::fs::write(
+                    &config_path,
+                    serde_json::to_string_pretty(&spec).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to serialize Oci spec: {e}"),
+                        )
+                    })?,
+                )
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to write Oci spec to {config_path:?}: {e}"),
+                    )
+                })?;
             }
             _ => {
                 let mut args = vec![format!(
@@ -774,9 +815,12 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 let mut rootfs = if let Some(genroot) = spec.root() {
                     genroot.to_owned()
                 } else {
-                    RootBuilder::default()
-                        .build()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                    RootBuilder::default().build().map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Error while building default Oci Root: {e:?}"),
+                        )
+                    })?
                 };
 
                 rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
@@ -784,7 +828,21 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 rootfs.set_readonly(Some(false));
                 spec.set_root(Some(rootfs));
 
-                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+                std::fs::write(
+                    &config_path,
+                    serde_json::to_string_pretty(&spec).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to serialize Oci spec: {e}"),
+                        )
+                    })?,
+                )
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to write Oci spec to {config_path:?}: {e}"),
+                    )
+                })?;
             }
         }
         Ok(())
@@ -833,8 +891,20 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .append(false)
             .truncate(false)
             .create(false)
-            .open(schema_path)?
-            .read_to_string(&mut str)?;
+            .open(&schema_path)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to open {schema_path}: {e}"),
+                )
+            })?
+            .read_to_string(&mut str)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read program schema from payload file: {e:?}"),
+                )
+            })?;
 
         let schema = toml::from_str(&str).map_err(|e| {
             std::io::Error::new(
@@ -873,25 +943,49 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 async fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
     let options = fs_extra::dir::CopyOptions::default();
 
-    fs_extra::dir::copy(&src, &dst, &options)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    fs_extra::dir::copy(&src, &dst, &options).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to copy src dir to dst: {e:?}"),
+        )
+    })?;
 
     Ok(())
 }
 
-async fn link_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+async fn link_dir(
+    src: impl AsRef<Path> + std::fmt::Debug,
+    dst: impl AsRef<Path> + std::fmt::Debug,
+) -> std::io::Result<()> {
     tracing::info!("src: {}", src.as_ref().display());
     tracing::info!("dst: {}", src.as_ref().display());
-    let link_path = src.as_ref().canonicalize()?;
+    let link_path = src.as_ref().canonicalize().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Error canonicalizing path {src:?}: {e}"),
+        )
+    })?;
     tracing::info!("canonicalized src path: {}", &link_path.display());
-    std::os::unix::fs::symlink(link_path, dst)?;
+    std::os::unix::fs::symlink(&link_path, &dst).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to symlink {dst:?} to {link_path:?}: {e:?}"),
+        )
+    })?;
 
     Ok(())
 }
 
-pub fn ensure_dir_exists(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+pub fn ensure_dir_exists(
+    path: impl AsRef<std::path::Path> + std::fmt::Debug,
+) -> std::io::Result<()> {
     if !path.as_ref().exists() {
-        std::fs::create_dir_all(path.as_ref())?;
+        std::fs::create_dir_all(path.as_ref()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating dir path {path:?}: {e:?}"),
+            )
+        })?;
     }
     Ok(())
 }
