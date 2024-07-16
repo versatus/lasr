@@ -17,17 +17,18 @@ configuration is also available for deploying to DigitalOcean servers.
 
 ### LASR Node Environment Variables
 
-| Environment Variable    | Description                                                      |
-|-------------------------|------------------------------------------------------------------|
-| `SECRET_KEY`            | Used for signing transactions and securing connections.          |
-| `BLOCKS_PROCESSED_PATH` | Path where processed blocks information is stored.               |
-| `ETH_RPC_URL`           | URL for Ethereum RPC endpoint.                                   |
-| `EO_CONTRACT_ADDRESS`   | Address of the Executable Oracle contract.                       |
-| `COMPUTE_RPC_URL`       | URL for the compute RPC endpoint.                                |
-| `STORAGE_RPC_URL`       | URL for the compute RPC endpoint.                                |
-| `PORT`                  | Optionally specify a port, defaults to `9292`.                   |
-| `BATCH_INTERVAL`        | Interval in secs that transactions are batched, defaults to 180. |
-| `VIPFS_ADDRESS`         | Optional. Used by the OciManager.                                |
+| Environment Variable     | Description                                                      |
+|--------------------------|------------------------------------------------------------------|
+| `SECRET_KEY`             | Used for signing transactions and securing connections.          |
+| `BLOCKS_PROCESSED_PATH`  | Path where processed blocks information is stored.               |
+| `ETH_RPC_URL`            | URL for Ethereum RPC endpoint.                                   |
+| `EO_CONTRACT_ADDRESS`    | Address of the Executable Oracle contract.                       |
+| `COMPUTE_RPC_URL`        | URL for the compute RPC endpoint.                                |
+| `STORAGE_RPC_URL`        | URL for the compute RPC endpoint.                                |
+| `PORT`                   | Optionally specify a port, defaults to `9292`.                   |
+| `BATCH_INTERVAL`         | Interval in secs that transactions are batched, defaults to 180. |
+| `VIPFS_ADDRESS`          | Optional. Used by the OciManager.                                |
+| `EIGENDA_SERVER_ADDRESS` | Optional. Defaults to `disperser-holesky.eigenda.xyz:443`.       |
 
 ### LASR CLI Environment Variables
 

@@ -5,6 +5,7 @@ pub struct Environment {
     pub batch_interval: String,
     pub eo_contract_address: String,
     pub eth_rpc_url: String,
+    pub eigenda_server_address: Option<String>,
     pub compute_rpc_url: String,
     pub storage_rpc_url: String,
     pub port: String,
@@ -30,6 +31,7 @@ impl Environment {
         let batch_interval = get_var_or_err("BATCH_INTERVAL", &mut err_buf);
         let eo_contract_address = get_var_or_err("EO_CONTRACT_ADDRESS", &mut err_buf);
         let eth_rpc_url = get_var_or_err("ETH_RPC_URL", &mut err_buf);
+        let eigenda_server_address = std::env::var("EIGENDA_SERVER_ADDRESS").ok();
 
         let compute_rpc_url = get_var_or_err("COMPUTE_RPC_URL", &mut err_buf);
         let storage_rpc_url = get_var_or_err("STORAGE_RPC_URL", &mut err_buf);
@@ -45,6 +47,7 @@ impl Environment {
             batch_interval,
             eo_contract_address,
             eth_rpc_url,
+            eigenda_server_address,
             compute_rpc_url,
             storage_rpc_url,
             port,
