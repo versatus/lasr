@@ -117,11 +117,19 @@ impl OciManager {
 
     pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
         let store = if let Some(addr) = &self.store {
-            Web3Store::from_multiaddr(addr)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            Web3Store::from_multiaddr(addr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error aquiring Web3Store for {addr}: {e:?}"),
+                )
+            })?
         } else {
-            Web3Store::local()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            Web3Store::local().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error aquiring local Web3Store: {e:?}"),
+                )
+            })?
         };
 
         Ok(store)
@@ -134,7 +142,12 @@ impl OciManager {
         );
         let store = self.try_get_store()?;
         match timeout(IPFS_TIMEOUT, store.is_pinned(content_id)).await {
-            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Ok(result) => result.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error checking pinned status for {content_id}: {e:?}"),
+                )
+            }),
             Err(_) => {
                 tracing::error!("Timed out checking if {} is pinned", content_id);
                 Err(std::io::Error::new(
@@ -152,7 +165,12 @@ impl OciManager {
     ) -> Result<(), std::io::Error> {
         let store = self.try_get_store()?;
         let cids = match timeout(IPFS_TIMEOUT, store.pin_object(content_id, recursive)).await {
-            Ok(result) => result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            Ok(result) => result.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error pinning {content_id}: {e:?}"),
+                )
+            })?,
             Err(_) => {
                 tracing::error!("Timed out pinning object in IPFS");
                 return Err(std::io::Error::new(
@@ -179,13 +197,18 @@ impl OciManager {
             .to_string();
 
         tracing::info!("Attempting to read DAG for {} from Web3Store...", &cid);
-        let store = self.try_get_store()?;
+        let store = self.try_get_store().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to get Web3Store: {e:?}"),
+            )
+        })?;
         let package_data = match timeout(IPFS_TIMEOUT, store.read_dag(&cid)).await {
             Ok(Ok(data)) => data,
             Ok(Err(e)) => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    e.to_string(),
+                    format!("Failure to read DAG from Web3Store: {e:?}"),
                 ))
             }
             Err(_) => {
@@ -200,9 +223,19 @@ impl OciManager {
         let package_dir = format!("{}/{}", &payload_path_string, &cid);
 
         tracing::info!("creating all directories in path: {}", &package_dir);
-        std::fs::create_dir_all(&package_dir)?;
+        std::fs::create_dir_all(&package_dir).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload directory for {cid} in path {package_dir}: {e:?}"),
+            )
+        })?;
 
-        let package: LasrPackage = serde_json::from_slice(&package_data)?;
+        let package: LasrPackage = serde_json::from_slice(&package_data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error deserializing package from DAG {package_data:?}: {e:?}"),
+            )
+        })?;
         tracing::info!(
             "Package '{}' version {} from '{}' is type {:?}",
             &package.package_payload.package_name,
@@ -227,19 +260,31 @@ impl OciManager {
             "creating package metadata file: {}",
             &package_metadata_filepath
         );
-        let mut f = std::fs::File::create(&package_metadata_filepath)?;
+        let mut f = std::fs::File::create(&package_metadata_filepath).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload metadata directory in path {package_dir}: {e:?}"),
+            )
+        })?;
 
-        f.write_all(&package_data)?;
+        f.write_all(&package_data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error writing to package metadata file {f:?}: {e:?}"),
+            )
+        })?;
 
         let package_object_iter = package.package_payload.package_objects.into_iter();
 
         //TODO(asmith) convert into a parallel iterator
         for obj in package_object_iter {
             tracing::info!("getting object: {} from Web3Store", &obj.object_cid());
-            let object_data = store
-                .read_object(obj.object_cid())
-                .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            let object_data = store.read_object(obj.object_cid()).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read for {obj:?} from Web3Store: {e:?}"),
+                )
+            })?;
 
             let mut object_path = obj
                 .object_path()
@@ -273,7 +318,12 @@ impl OciManager {
             tracing::info!("creating missing directories in: {}", &object_filepath);
             let object_path = Path::new(&object_filepath);
             if let Some(parent) = object_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating object filepath at {object_filepath} for {parent:?}: {e:?}"),
+                    )
+                })?;
             }
             tracing::info!("writing object to: {}", &object_filepath);
 
@@ -283,14 +333,37 @@ impl OciManager {
                 .truncate(true)
                 .append(false)
                 .create(true)
-                .open(&object_filepath)?;
+                .open(&object_filepath)
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating object file in {object_filepath}: {e:?}"),
+                    )
+                })?;
 
-            f.write_all(&object_data)?;
+            f.write_all(&object_data).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error writing to object file {f:?}: {e:?}"),
+                )
+            })?;
 
             if exec {
-                let mut permissions = std::fs::metadata(object_path)?.permissions();
+                let mut permissions = std::fs::metadata(object_path)
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to query files in {object_path:?}: {e:?}"),
+                        )
+                    })?
+                    .permissions();
                 permissions.set_mode(0o755);
-                std::fs::set_permissions(object_path, permissions)?;
+                std::fs::set_permissions(object_path, permissions).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error setting permissions on files in {object_path:?}: {e:?}"),
+                    )
+                })?;
             }
         }
 
@@ -304,12 +377,27 @@ impl OciManager {
             .into_owned()
             .to_string();
         tracing::info!("attempting to create bundle for {}", cid);
-        let container_metadata = self.create_payload_package(content_id).await?;
+        let container_metadata = self.create_payload_package(content_id).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating payload for {cid}: {e:?}"),
+            )
+        })?;
         if let Some(metadata) = container_metadata {
             tracing::info!("received container metadata: {:?}", &metadata);
             tracing::info!("building container bundle");
-            self.bundler.bundle(&cid, &metadata).await?;
-            self.add_payload(&cid).await?;
+            self.bundler.bundle(&cid, &metadata).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error building container bundle for {cid}: {e:?}"),
+                )
+            })?;
+            self.add_payload(&cid).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to add payload for {cid}: {e:?}"),
+                )
+            })?;
             self.base_spec(&cid).await?;
             let program_args = {
                 if metadata.program_args().is_empty() {
@@ -318,7 +406,13 @@ impl OciManager {
                     Some(metadata.program_args().clone())
                 }
             };
-            self.customize_spec(cid, &metadata, metadata.entrypoint(), program_args)?;
+            self.customize_spec(cid, &metadata, metadata.entrypoint(), program_args)
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error customizing container configuration: {e:?}"),
+                    )
+                })?;
             return Ok(());
         }
 
@@ -383,17 +477,34 @@ impl OciManager {
 
             // Create the temporary file for container output
             if let Some(parent) = temp_file_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error creating temp conatiner path {temp_file_path:?}: {e:?}"),
+                    )
+                })?;
             }
 
             // Check if the file exists
             if tokio::fs::metadata(&temp_file_path).await.is_ok() {
                 // If it exists, make sure it is empty
-                tokio::fs::write(&temp_file_path, b"").await?;
+                tokio::fs::write(&temp_file_path, b"").await.map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error writing container metadata to {temp_file_path:?}: {e:?}"),
+                    )
+                })?;
             }
 
             // Create a standard file for stdout redirection
-            let container_stdout_file = std::fs::File::create(&temp_file_path)?;
+            let container_stdout_file = std::fs::File::create(&temp_file_path).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!(
+                        "Error creating temp container file in path {temp_file_path:?}:  {e:?}"
+                    ),
+                )
+            })?;
 
             let mut child = Command::new("runsc")
                 .arg("--rootless")
@@ -404,7 +515,13 @@ impl OciManager {
                 .arg(&container_id)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::from(container_stdout_file))
-                .spawn()?;
+                .spawn()
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Error executing runsc command for {container_id}: {e:?}"),
+                    )
+                })?;
 
             let mut stdin = child.stdin.take().ok_or({
                 std::io::Error::new(
@@ -415,13 +532,32 @@ impl OciManager {
             let stdio_inputs = serde_json::to_string(&inner_inputs.clone())?;
             tracing::info!("passing inputs to stdio: {:#?}", &stdio_inputs);
             let _ = tokio::task::spawn(async move {
-                stdin.write_all(stdio_inputs.clone().as_bytes()).await?;
+                stdin
+                    .write_all(stdio_inputs.clone().as_bytes())
+                    .await
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to write stdio inputes to stdin: {e:?}"),
+                        )
+                    })?;
 
                 drop(stdin);
                 Ok::<_, std::io::Error>(())
             })
-            .await?;
-            let status = child.wait().await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Unable to join async handle: {e:?}"),
+                )
+            })?;
+            let status = child.wait().await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error retrieving child status: {e:?}"),
+                )
+            })?;
             if !status.success() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -429,9 +565,19 @@ impl OciManager {
                 ));
             }
 
-            let mut file = tokio::fs::File::open(&temp_file_path).await?;
+            let mut file = tokio::fs::File::open(&temp_file_path).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to open {temp_file_path:?}: {e:?}"),
+                )
+            })?;
             let mut outputs = String::new();
-            file.read_to_string(&mut outputs).await?;
+            file.read_to_string(&mut outputs).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to parse {file:?} for output results: {e:?}"),
+                )
+            })?;
 
             if outputs.is_empty() {
                 return Err(std::io::Error::new(
@@ -458,14 +604,22 @@ impl OciManager {
                 transaction,
             };
 
-            actor
-                .cast(message)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            actor.cast(message).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to cast message to executor: {e:?}"),
+                )
+            })?;
 
             tracing::warn!("casted message to inform executor");
 
             // Clean up the temporary file
-            tokio::fs::remove_file(temp_file_path).await?;
+            tokio::fs::remove_file(&temp_file_path).await.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error removing temp container file {temp_file_path:?}: {e:?}"),
+                )
+            })?;
 
             Ok::<_, std::io::Error>(outputs)
         }))
@@ -495,7 +649,7 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 
     pub async fn bundle(
         &self,
-        content_id: impl AsRef<Path>,
+        content_id: impl AsRef<Path> + std::fmt::Debug,
         container_metadata: &PackageContainerMetadata,
     ) -> Result<(), std::io::Error> {
         let base_path = self.get_base_path(container_metadata.base_image());
@@ -505,7 +659,12 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 "container path: {} doesn't exist, creating...",
                 container_path.as_ref().to_string_lossy().to_string()
             );
-            std::fs::create_dir_all(container_path.as_ref())?;
+            std::fs::create_dir_all(container_path.as_ref()).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error creating container path for {content_id:?}: {e:?}"),
+                )
+            })?;
         }
         let container_root_path = self.container_root_path(&container_path);
         if !container_root_path.as_ref().exists() {
@@ -517,7 +676,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 &base_path.as_ref().join(Self::CONTAINER_ROOT),
                 &container_root_path.as_ref(),
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error creating container root path for {content_id:?}: {e:?}"),
+                )
+            })?;
         }
 
         Ok(())
@@ -545,7 +710,13 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .arg("spec")
             .current_dir(container_path)
             .output()
-            .await?;
+            .await
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error establishing runtime for container: {e:?}"),
+                )
+            })?;
 
         Ok(())
     }
@@ -560,15 +731,22 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
         let container_path = self.get_container_path(&content_id);
         let config_path = container_path.as_ref().join("config.json");
 
-        let mut spec: Spec = Spec::load(&config_path)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let mut spec: Spec = Spec::load(&config_path).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to load spec config from {config_path:?}: {e:?}"),
+            )
+        })?;
 
         let mut proc = if let Some(gen_proc) = spec.process() {
             gen_proc.to_owned()
         } else {
-            ProcessBuilder::default()
-                .build()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+            ProcessBuilder::default().build().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error while building default Oci Process: {e:?}"),
+                )
+            })?
         };
 
         match container_metadata.base_image() {
@@ -590,16 +768,33 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 let mut rootfs = if let Some(genroot) = spec.root() {
                     genroot.to_owned()
                 } else {
-                    RootBuilder::default()
-                        .build()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                    RootBuilder::default().build().map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Error while building default Oci Root: {e:?}"),
+                        )
+                    })?
                 };
 
                 rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
                 rootfs.set_readonly(Some(false));
                 spec.set_root(Some(rootfs));
 
-                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+                std::fs::write(
+                    &config_path,
+                    serde_json::to_string_pretty(&spec).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to serialize Oci spec: {e}"),
+                        )
+                    })?,
+                )
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to write Oci spec to {config_path:?}: {e}"),
+                    )
+                })?;
             }
             _ => {
                 let mut args = vec![format!(
@@ -620,9 +815,12 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 let mut rootfs = if let Some(genroot) = spec.root() {
                     genroot.to_owned()
                 } else {
-                    RootBuilder::default()
-                        .build()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                    RootBuilder::default().build().map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Error while building default Oci Root: {e:?}"),
+                        )
+                    })?
                 };
 
                 rootfs.set_path(std::path::PathBuf::from(Self::CONTAINER_ROOT));
@@ -630,7 +828,21 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
                 rootfs.set_readonly(Some(false));
                 spec.set_root(Some(rootfs));
 
-                std::fs::write(config_path, serde_json::to_string_pretty(&spec)?)?;
+                std::fs::write(
+                    &config_path,
+                    serde_json::to_string_pretty(&spec).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to serialize Oci spec: {e}"),
+                        )
+                    })?,
+                )
+                .map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to write Oci spec to {config_path:?}: {e}"),
+                    )
+                })?;
             }
         }
         Ok(())
@@ -679,8 +891,20 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             .append(false)
             .truncate(false)
             .create(false)
-            .open(schema_path)?
-            .read_to_string(&mut str)?;
+            .open(&schema_path)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to open {schema_path}: {e}"),
+                )
+            })?
+            .read_to_string(&mut str)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to read program schema from payload file: {e:?}"),
+                )
+            })?;
 
         let schema = toml::from_str(&str).map_err(|e| {
             std::io::Error::new(
@@ -719,25 +943,49 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
 async fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
     let options = fs_extra::dir::CopyOptions::default();
 
-    fs_extra::dir::copy(&src, &dst, &options)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    fs_extra::dir::copy(&src, &dst, &options).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to copy src dir to dst: {e:?}"),
+        )
+    })?;
 
     Ok(())
 }
 
-async fn link_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+async fn link_dir(
+    src: impl AsRef<Path> + std::fmt::Debug,
+    dst: impl AsRef<Path> + std::fmt::Debug,
+) -> std::io::Result<()> {
     tracing::info!("src: {}", src.as_ref().display());
     tracing::info!("dst: {}", src.as_ref().display());
-    let link_path = src.as_ref().canonicalize()?;
+    let link_path = src.as_ref().canonicalize().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Error canonicalizing path {src:?}: {e}"),
+        )
+    })?;
     tracing::info!("canonicalized src path: {}", &link_path.display());
-    std::os::unix::fs::symlink(link_path, dst)?;
+    std::os::unix::fs::symlink(&link_path, &dst).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to symlink {dst:?} to {link_path:?}: {e:?}"),
+        )
+    })?;
 
     Ok(())
 }
 
-pub fn ensure_dir_exists(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+pub fn ensure_dir_exists(
+    path: impl AsRef<std::path::Path> + std::fmt::Debug,
+) -> std::io::Result<()> {
     if !path.as_ref().exists() {
-        std::fs::create_dir_all(path.as_ref())?;
+        std::fs::create_dir_all(path.as_ref()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error creating dir path {path:?}: {e:?}"),
+            )
+        })?;
     }
     Ok(())
 }
