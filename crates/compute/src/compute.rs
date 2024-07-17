@@ -625,47 +625,45 @@ impl OciManager {
         }))
     }
 }
-#[derive(Builder, Clone, Debug)]
-pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
-    containers: P,
-    #[allow(unused)]
-    base_images: P,
-    runtime: R,
-    payload_path: P,
+
+pub const DEFAULT_CONTAINERS_PATH: &'static str = "./containers";
+pub const DEFAULT_BASE_IMAGES_PATH: &'static str = "./base_image";
+pub const DEFAULT_PAYLOAD_PATH: &'static str = "./payload";
+
+#[derive(Default, Debug)]
+pub struct OciBundlerBuilder<R: AsRef<OsStr>, P: AsRef<Path>> {
+    containers: Option<P>,
+    base_images: Option<P>,
+    runtime: Option<R>,
+    payload_path: Option<P>,
 }
-
-impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundler<R, P> {
-    pub const CONTAINER_ROOT: &'static str = "rootfs";
-    pub const CONTAINER_BIN: &'static str = "bin";
-
-    pub fn new(runtime: R, containers: P, base_images: P, payload_path: P) -> Self {
-        Self {
-            containers,
-            base_images,
-            runtime,
-            payload_path,
-        }
-    }
-
-    pub fn verify(mut self) -> Result<Self, std::io::Error> {
-        let containers = &self.containers.as_ref();
-        let base_images = &self.base_images.as_ref();
-        let payload_path = &self.payload_path.as_ref();
-        if !base_images.exists() {
-            panic!("
-                A base_image filepath containing a busybox rootfs filesystem is necessary for running lasr programs.
-                Please follow the instructions at https://gvisor.dev/docs/user_guide/quick_start/oci/ to create the expected busybox filesystem.
-                An example can be found at github.com/versatus/versatus.nix/deployments/lasr_node.
-            ");
-        }
-        if !containers.exists() {
-            std::fs::create_dir(containers).map_err(|e| {
+impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundlerBuilder<R, P> {
+    pub fn containers_path(mut self, p: P) -> Result<Self, std::io::Error> {
+        let containers_path = p.as_ref();
+        if !containers_path.exists() {
+            std::fs::create_dir(containers_path).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!("failed to create container path: {e:?}"),
                 )
             })?;
         }
+        self.containers = Some(p);
+        Ok(self)
+    }
+    pub fn base_images_path(mut self, p: P) -> Result<Self, std::io::Error> {
+        if !p.as_ref().exists() {
+            panic!("
+                A base_image filepath containing a busybox rootfs filesystem is necessary for running lasr programs.
+                Please follow the instructions at https://gvisor.dev/docs/user_guide/quick_start/oci/ to create the expected busybox filesystem.
+                An example can be found at github.com/versatus/versatus.nix/deployments/lasr_node.
+            ");
+        }
+        self.base_images = Some(p);
+        Ok(self)
+    }
+    pub fn payload_path(mut self, p: P) -> Result<Self, std::io::Error> {
+        let payload_path = p.as_ref();
         if !payload_path.exists() {
             std::fs::create_dir(payload_path).map_err(|e| {
                 std::io::Error::new(
@@ -674,13 +672,15 @@ impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundler<R, P> {
                 )
             })?;
         }
+        self.payload_path = Some(p);
+        Ok(self)
+    }
+    pub fn runtime_path(mut self) -> Result<Self, std::io::Error> {
         match std::process::Command::new("which").arg("runsc").output() {
             Ok(r) => {
                 let r = String::from_utf8(r.stdout)
                     .expect("output of command 'which runsc' could not be converted to a utf8 encoded String.");
-                if std::ffi::OsStr::new(&r) != self.runtime.as_ref() {
-                    self.runtime = R::from(r);
-                }
+                self.runtime = Some(R::from(r));
             }
             Err(e) => {
                 return Err(std::io::Error::new(
@@ -692,8 +692,42 @@ impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundler<R, P> {
                 ));
             }
         }
-
         Ok(self)
+    }
+    pub fn build(self) -> OciBundler<R, P> {
+        OciBundler {
+            containers: self.containers.expect("OciBundler missing containers path"),
+            base_images: self
+                .base_images
+                .expect("OciBundler missing base image path"),
+            runtime: self
+                .runtime
+                .expect("OciBundler missing runsc runtime path, check runsc installation"),
+            payload_path: self.payload_path.expect("OciBundler missing payload path"),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
+    containers: P,
+    #[allow(unused)]
+    base_images: P,
+    runtime: R,
+    payload_path: P,
+}
+
+impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
+    pub const CONTAINER_ROOT: &'static str = "rootfs";
+    pub const CONTAINER_BIN: &'static str = "bin";
+
+    pub fn new(runtime: R, containers: P, base_images: P, payload_path: P) -> Self {
+        Self {
+            containers,
+            base_images,
+            runtime,
+            payload_path,
+        }
     }
 
     pub async fn bundle(

@@ -14,7 +14,10 @@ use lasr_actors::{
     PendingTransactionSupervisor, StorageRef, TaskScheduler, TaskSchedulerSupervisor,
     ValidatorActor, ValidatorCore, ValidatorSupervisor, STORAGE_PROCESSED_BLOCKS_KEY,
 };
-use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
+use lasr_compute::{
+    OciBundler, OciBundlerBuilder, OciManager, DEFAULT_BASE_IMAGES_PATH, DEFAULT_CONTAINERS_PATH,
+    DEFAULT_PAYLOAD_PATH,
+};
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
 #[cfg(feature = "mock_storage")]
@@ -100,12 +103,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(not(feature = "remote"))]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
-        .runtime("/usr/local/bin/runsc".to_string())
-        .base_images("./base_image".to_string())
-        .containers("./containers".to_string())
-        .payload_path("./payload".to_string())
-        .build()?
-        .verify()?;
+        .runtime_path()?
+        .base_images_path(DEFAULT_BASE_IMAGES_PATH.into())?
+        .containers_path(DEFAULT_CONTAINERS_PATH.into())?
+        .payload_path(DEFAULT_PAYLOAD_PATH.into())?
+        .build();
 
     #[cfg(not(feature = "remote"))]
     let oci_manager = OciManager::new(bundler, env.vipfs_address.clone());
