@@ -1040,7 +1040,10 @@ impl Actor for ExecutorSupervisor {
 mod executor_tests {
     use crate::{ActorExt, ExecutionEngine, ExecutorActor};
     use jsonrpsee::ws_client::WsClient;
-    use lasr_compute::{OciBundler, OciBundlerBuilder, OciManager};
+    use lasr_compute::{
+        OciBundler, OciBundlerBuilder, OciManager, DEFAULT_BASE_IMAGES_PATH,
+        DEFAULT_CONTAINERS_PATH, DEFAULT_PAYLOAD_PATH,
+    };
     use lasr_messages::{ActorType, ExecutorMessage};
     use lasr_types::Transaction;
     use ractor::Actor;
@@ -1049,14 +1052,18 @@ mod executor_tests {
 
     #[tokio::test]
     async fn test_executor_future_handler() {
+        std::fs::create_dir(DEFAULT_BASE_IMAGES_PATH).unwrap();
         let executor_actor = ExecutorActor::new();
         let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
-            .runtime("/usr/local/bin/runsc".to_string())
-            .base_images("./base_image".to_string())
-            .containers("./containers".to_string())
-            .payload_path("./payload".to_string())
-            .build()
-            .expect("failed to build bundler");
+            .runtime_path()
+            .unwrap()
+            .base_images_path(DEFAULT_BASE_IMAGES_PATH.into())
+            .unwrap()
+            .containers_path(DEFAULT_CONTAINERS_PATH.into())
+            .unwrap()
+            .payload_path(DEFAULT_PAYLOAD_PATH.into())
+            .unwrap()
+            .build();
         let store = if let Ok(addr) = std::env::var("VIPFS_ADDRESS") {
             Some(addr.clone())
         } else {
@@ -1107,5 +1114,8 @@ mod executor_tests {
             }
             interval.tick().await;
         }
+        std::fs::remove_dir(DEFAULT_BASE_IMAGES_PATH).unwrap();
+        std::fs::remove_dir(DEFAULT_CONTAINERS_PATH).unwrap();
+        std::fs::remove_dir(DEFAULT_PAYLOAD_PATH).unwrap();
     }
 }
