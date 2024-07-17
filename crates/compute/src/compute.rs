@@ -626,6 +626,7 @@ impl OciManager {
     }
 }
 
+pub const DEFAULT_RUNSC_PATH: &str = "/usr/local/bin/runsc";
 pub const DEFAULT_CONTAINERS_PATH: &str = "./containers";
 pub const DEFAULT_BASE_IMAGES_PATH: &str = "./base_image";
 pub const DEFAULT_PAYLOAD_PATH: &str = "./payload";
@@ -637,7 +638,7 @@ pub struct OciBundlerBuilder<R: AsRef<OsStr>, P: AsRef<Path>> {
     runtime: Option<R>,
     payload_path: Option<P>,
 }
-impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundlerBuilder<R, P> {
+impl<R: AsRef<OsStr> + AsRef<Path>, P: AsRef<Path>> OciBundlerBuilder<R, P> {
     pub fn containers_path(mut self, p: P) -> Result<Self, std::io::Error> {
         let containers_path = p.as_ref();
         if !containers_path.exists() {
@@ -675,23 +676,16 @@ impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundlerBuilder<R, P> {
         self.payload_path = Some(p);
         Ok(self)
     }
-    pub fn runtime_path(mut self) -> Result<Self, std::io::Error> {
-        match std::process::Command::new("which").arg("runsc").output() {
-            Ok(r) => {
-                let r = String::from_utf8(r.stdout)
-                    .expect("output of command 'which runsc' could not be converted to a utf8 encoded String.");
-                self.runtime = Some(R::from(r));
-            }
-            Err(e) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("
-                        command 'which runsc' returned an error: {e:?}
-                        'runsc' is a dependency of 'lasr_node' and must be available on the host system.
-                    "),
-                ));
-            }
+    pub fn runtime_path(mut self, r: R, do_check: bool) -> Result<Self, std::io::Error> {
+        if do_check && !<dyn AsRef<Path>>::as_ref(&r).exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "The given path to 'runsc' binary does not exist.
+                'runsc' is a dependency of 'lasr_node' and must be available on the host system."
+                    .to_string(),
+            ));
         }
+        self.runtime = Some(r);
         Ok(self)
     }
     pub fn build(self) -> OciBundler<R, P> {

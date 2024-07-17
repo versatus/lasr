@@ -28,6 +28,7 @@ configuration is also available for deploying to DigitalOcean servers.
 | `PORT`                   | Optionally specify a port, defaults to `9292`.                   |
 | `BATCH_INTERVAL`         | Interval in secs that transactions are batched, defaults to 180. |
 | `VIPFS_ADDRESS`          | Optional. Used by the OciManager.                                |
+| `RUNSC_BIN_PATH`         | Optionally specify the path to the gVisor runsc binary.          |
 | `EIGENDA_SERVER_ADDRESS` | Optional. Defaults to `disperser-holesky.eigenda.xyz:443`.       |
 
 ### LASR CLI Environment Variables
