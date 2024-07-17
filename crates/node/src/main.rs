@@ -17,7 +17,7 @@ use lasr_actors::{
 };
 use lasr_compute::{
     OciBundler, OciBundlerBuilder, OciManager, DEFAULT_BASE_IMAGES_PATH, DEFAULT_CONTAINERS_PATH,
-    DEFAULT_PAYLOAD_PATH,
+    DEFAULT_PAYLOAD_PATH, DEFAULT_RUNSC_PATH,
 };
 use lasr_messages::{ActorName, ActorType, ToActorType};
 use lasr_rpc::LasrRpcServer;
@@ -104,9 +104,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .map_err(Box::new)?;
 
+    let runsc_bin_path = env
+        .runsc_bin_path
+        .as_ref()
+        .cloned()
+        .unwrap_or(DEFAULT_RUNSC_PATH.into());
     #[cfg(not(feature = "remote"))]
     let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
-        .runtime_path()?
+        .runtime_path(runsc_bin_path, true)?
         .base_images_path(DEFAULT_BASE_IMAGES_PATH.into())?
         .containers_path(DEFAULT_CONTAINERS_PATH.into())?
         .payload_path(DEFAULT_PAYLOAD_PATH.into())?

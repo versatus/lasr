@@ -10,6 +10,7 @@ pub struct Environment {
     pub storage_rpc_url: String,
     pub port: String,
     pub vipfs_address: Option<String>,
+    pub runsc_bin_path: Option<String>,
 }
 
 fn get_var_or_err(var: &str, err_buf: &mut String) -> String {
@@ -37,6 +38,7 @@ impl Environment {
         let storage_rpc_url = get_var_or_err("STORAGE_RPC_URL", &mut err_buf);
         let port = std::env::var("PORT").unwrap_or_else(|_| "9292".to_string());
         let vipfs_address = std::env::var("VIPFS_ADDRESS").ok();
+        let runsc_bin_path = std::env::var("RUNSC_BIN_PATH").ok();
 
         if !err_buf.is_empty() {
             panic!("Environment variables missing: {}", err_buf);
@@ -52,6 +54,7 @@ impl Environment {
             storage_rpc_url,
             port,
             vipfs_address,
+            runsc_bin_path,
         }
     }
 }

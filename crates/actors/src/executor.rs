@@ -1042,7 +1042,7 @@ mod executor_tests {
     use jsonrpsee::ws_client::WsClient;
     use lasr_compute::{
         OciBundler, OciBundlerBuilder, OciManager, DEFAULT_BASE_IMAGES_PATH,
-        DEFAULT_CONTAINERS_PATH, DEFAULT_PAYLOAD_PATH,
+        DEFAULT_CONTAINERS_PATH, DEFAULT_PAYLOAD_PATH, DEFAULT_RUNSC_PATH,
     };
     use lasr_messages::{ActorType, ExecutorMessage};
     use lasr_types::Transaction;
@@ -1055,7 +1055,7 @@ mod executor_tests {
         std::fs::create_dir(DEFAULT_BASE_IMAGES_PATH).unwrap();
         let executor_actor = ExecutorActor::new();
         let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
-            .runtime_path()
+            .runtime_path(DEFAULT_RUNSC_PATH.into(), false)
             .unwrap()
             .base_images_path(DEFAULT_BASE_IMAGES_PATH.into())
             .unwrap()
