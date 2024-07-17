@@ -104,7 +104,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .base_images("./base_image".to_string())
         .containers("./containers".to_string())
         .payload_path("./payload".to_string())
-        .build()?;
+        .build()?
+        .verify()?;
 
     #[cfg(not(feature = "remote"))]
     let oci_manager = OciManager::new(bundler, env.vipfs_address.clone());

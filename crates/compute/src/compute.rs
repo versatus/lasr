@@ -634,7 +634,7 @@ pub struct OciBundler<R: AsRef<OsStr>, P: AsRef<Path>> {
     payload_path: P,
 }
 
-impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
+impl<R: AsRef<OsStr> + From<String>, P: AsRef<Path>> OciBundler<R, P> {
     pub const CONTAINER_ROOT: &'static str = "rootfs";
     pub const CONTAINER_BIN: &'static str = "bin";
 
@@ -645,6 +645,55 @@ impl<R: AsRef<OsStr>, P: AsRef<Path>> OciBundler<R, P> {
             runtime,
             payload_path,
         }
+    }
+
+    pub fn verify(mut self) -> Result<Self, std::io::Error> {
+        let containers = &self.containers.as_ref();
+        let base_images = &self.base_images.as_ref();
+        let payload_path = &self.payload_path.as_ref();
+        if !base_images.exists() {
+            panic!("
+                A base_image filepath containing a busybox rootfs filesystem is necessary for running lasr programs.
+                Please follow the instructions at https://gvisor.dev/docs/user_guide/quick_start/oci/ to create the expected busybox filesystem.
+                An example can be found at github.com/versatus/versatus.nix/deployments/lasr_node.
+            ");
+        }
+        if !containers.exists() {
+            std::fs::create_dir(containers).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("failed to create container path: {e:?}"),
+                )
+            })?;
+        }
+        if !payload_path.exists() {
+            std::fs::create_dir(payload_path).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("failed to create payload path: {e:?}"),
+                )
+            })?;
+        }
+        match std::process::Command::new("which").arg("runsc").output() {
+            Ok(r) => {
+                let r = String::from_utf8(r.stdout)
+                    .expect("output of command 'which runsc' could not be converted to a utf8 encoded String.");
+                if std::ffi::OsStr::new(&r) != self.runtime.as_ref() {
+                    self.runtime = R::from(r);
+                }
+            }
+            Err(e) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("
+                        command 'which runsc' returned an error: {e:?}
+                        'runsc' is a dependency of 'lasr_node' and must be available on the host system.
+                    "),
+                ));
+            }
+        }
+
+        Ok(self)
     }
 
     pub async fn bundle(
