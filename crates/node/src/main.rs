@@ -1,6 +1,7 @@
 #![allow(unreachable_code)]
 use std::{io::Read, path::PathBuf, str::FromStr, sync::Arc};
 
+use eigenda_client::EigenDaGrpcClient;
 use eo_listener::{BlocksProcessed, EoServer as EoListener, EoServerError};
 use futures::StreamExt;
 use jsonrpsee::server::ServerBuilder as RpcServerBuilder;
@@ -70,13 +71,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //TODO(asmith): Move this to be read in when and where needed and dropped
     //afterwards to minimize security vulnerabilities
     let sk = web3::signing::SecretKey::from_str(&env.secret_key).map_err(Box::new)?;
-    let eigen_da_client = eigenda_client::EigenDaGrpcClientBuilder::default()
-        .proto_path("./eigenda/api/proto/disperser/disperser.proto".to_string())
-        //TODO(asmith): Move the network endpoint for EigenDA to an
-        //environment variable.
-        .server_address("disperser-holesky.eigenda.xyz:443".to_string())
-        .build()?;
-
+    let eigen_da_client: EigenDaGrpcClient = env
+        .eigenda_server_address
+        .as_ref()
+        .and_then(|address| {
+            let mut client = EigenDaGrpcClient::default();
+            client.update_server_address(address.clone());
+            Some(client)
+        })
+        .unwrap_or_default();
     tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
     let http = web3::transports::Http::new(&env.eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
