@@ -38,7 +38,7 @@ pub fn get_blob_index_settled_topic() -> Option<Vec<H256>> {
     let mut hasher = Keccak256::new();
     let blob_index_settled_sig = b"BlobIndexSettled(address[],bytes32,uint128,uint256)";
     hasher.update(blob_index_settled_sig);
-    let res: [u8; 32] = hasher.finalize().try_into().ok()?;
+    let res: [u8; 32] = hasher.finalize().into();
     let blob_settled_topic = H256::from(res);
     Some(vec![blob_settled_topic])
 }
@@ -47,7 +47,7 @@ pub fn get_bridge_event_topic() -> Option<Vec<H256>> {
     let mut hasher = Keccak256::new();
     let bridge_sig = b"Bridge(address,address,uint256,uint256,string,uint256)";
     hasher.update(bridge_sig);
-    let res: [u8; 32] = hasher.finalize().try_into().ok()?;
+    let res: [u8; 32] = hasher.finalize().into();
     let bridge_topic = H256::from(res);
     Some(vec![bridge_topic])
 }
@@ -195,10 +195,10 @@ impl EoServer {
                     log_handler,
                 ).await.map_err(|e| Web3Error::from(e.to_string()));
 
-                return EventLogResult {
+                EventLogResult {
                     event_type: EventType::Settlement(self.blob_settled_event.clone()),
                     log_result
-                };
+                }
             },
             bridge_logs = self.web3.eth().logs(
                 self.bridge_filter.clone()
@@ -209,10 +209,10 @@ impl EoServer {
                     ), bridge_logs,
                     log_handler,
                 ).await.map_err(|e| Web3Error::from(e.to_string()));
-                return EventLogResult {
+                EventLogResult {
                     event_type: EventType::Bridge(self.bridge_event.clone()),
                     log_result
-                };
+                }
             },
         )
     }
@@ -269,7 +269,7 @@ impl EoServer {
             EventType::Bridge(event_abi) => {
                 let bridge_log = self.handle_bridge_event(events, &event_abi);
                 if let Ok(logs) = &bridge_log {
-                    if logs.len() > 0 {
+                    if !logs.is_empty() {
                         log::info!("discovered logs: logs.len() = {}", logs.len());
                         self.increment_bridge_filter(block_number, true);
                     } else {
@@ -281,7 +281,7 @@ impl EoServer {
             EventType::Settlement(event_abi) => {
                 let blob_log = self.handle_settlement_event(events, &event_abi);
                 if let Ok(logs) = &blob_log {
-                    if logs.len() > 0 {
+                    if !logs.is_empty() {
                         self.increment_blob_filter(block_number, true);
                     } else {
                         self.increment_blob_filter(block_number, false);
@@ -373,11 +373,7 @@ impl EoServer {
             .map_err(|err| EoServerError::Other(err.to_string()))?;
 
         let default: U64 = U64::from(0);
-        let from_block = self
-            .bridge_processed_blocks
-            .last()
-            .unwrap_or_else(|| &default)
-            + U64::from(1);
+        let from_block = self.bridge_processed_blocks.last().unwrap_or(&default) + U64::from(1);
         let to_block = self.current_bridge_filter_block + U64::from(1);
         log::info!(
             "filtering from block {} to block {}",
@@ -410,11 +406,7 @@ impl EoServer {
             .map_err(|err| EoServerError::Other(err.to_string()))?;
 
         let default: U64 = U64::from(0);
-        let from_block = self
-            .settled_processed_blocks
-            .last()
-            .unwrap_or_else(|| &default)
-            + U64::from(1);
+        let from_block = self.settled_processed_blocks.last().unwrap_or(&default) + U64::from(1);
         let to_block = self.current_blob_settlement_filter_block + U64::from(1);
 
         let new_filter = FilterBuilder::default()
@@ -436,7 +428,7 @@ impl EoServer {
 
     fn inner_highest_bridge_block_processed_owned(&self) -> Option<U64> {
         if let Some(b) = self.bridge_processed_blocks.last() {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         None
@@ -448,7 +440,7 @@ impl EoServer {
 
     fn inner_lowest_bridge_block_processed_owned(&self) -> Option<U64> {
         if let Some(b) = self.bridge_processed_blocks.first() {
-            return Some(b.clone());
+            return Some(*b);
         }
 
         None
@@ -530,8 +522,8 @@ impl EoServer {
 
     pub fn save_blocks_processed(&self) -> Result<(), Box<dyn std::error::Error>> {
         let blocks_processed = BlocksProcessed {
-            bridge: Some(self.current_bridge_filter_block.clone()),
-            settle: Some(self.current_blob_settlement_filter_block.clone()),
+            bridge: Some(self.current_bridge_filter_block),
+            settle: Some(self.current_blob_settlement_filter_block),
             bridge_processed: self.bridge_processed_blocks.clone(),
             settled_processed: self.settled_processed_blocks.clone(),
         };
@@ -543,7 +535,7 @@ impl EoServer {
             .create(true)
             .open(&self.path)?;
 
-        file.write(&bytes)?;
+        file.write_all(&bytes)?;
 
         Ok(())
     }
