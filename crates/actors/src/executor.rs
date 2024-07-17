@@ -1052,6 +1052,7 @@ mod executor_tests {
 
     #[tokio::test]
     async fn test_executor_future_handler() {
+        std::fs::create_dir(DEFAULT_BASE_IMAGES_PATH).unwrap();
         let executor_actor = ExecutorActor::new();
         let bundler: OciBundler<String, String> = OciBundlerBuilder::default()
             .runtime_path()
@@ -1113,5 +1114,8 @@ mod executor_tests {
             }
             interval.tick().await;
         }
+        std::fs::remove_dir(DEFAULT_BASE_IMAGES_PATH).unwrap();
+        std::fs::remove_dir(DEFAULT_CONTAINERS_PATH).unwrap();
+        std::fs::remove_dir(DEFAULT_PAYLOAD_PATH).unwrap();
     }
 }
