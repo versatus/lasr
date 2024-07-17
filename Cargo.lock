@@ -1260,7 +1260,7 @@ dependencies = [
 [[package]]
 name = "eigenda_client"
 version = "0.1.0"
-source = "git+https://github.com/versatus/eigenda_client#55103f1de6929d5ef8f91c6b7fe4929ae5d08281"
+source = "git+https://github.com/versatus/eigenda_client#24b19a3ac52d6055499f4da3fdd0ed3239de7af4"
 dependencies = [
  "base64 0.13.1",
  "clap 4.5.9",
@@ -2783,7 +2783,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "tokio",
- "toml 0.8.14",
+ "toml 0.8.15",
  "tracing",
  "walkdir",
  "web3_pkg",
@@ -4440,9 +4440,9 @@ dependencies = [
 
 [[package]]
 name = "sdd"
-version = "1.5.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e806d6633ef141556fef75e345275e35652e9c045bbbc21e6ecfce3e9aa2638"
+checksum = "8eb0dde0ccd15e337a3cf738a9a38115c6d8e74795d074e73973dad3d229a897"
 
 [[package]]
 name = "sec1"
@@ -5190,15 +5190,15 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.14"
+version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f49eb2ab21d2f26bd6db7bf383edc527a7ebaee412d17af4d40fdccd442f335"
+checksum = "ac2caab0bf757388c6c0ae23b3293fdb463fee59434529014f85e3263b995c28"
 dependencies = [
  "indexmap 2.2.6",
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.15",
+ "toml_edit 0.22.16",
 ]
 
 [[package]]
@@ -5223,9 +5223,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.15"
+version = "0.22.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59a3a72298453f564e2b111fa896f8d07fabb36f51f06d7e875fc5e0b5a3ef1"
+checksum = "278f3d518e152219c994ce877758516bca5e118eaed6996192a774fb9fbf0788"
 dependencies = [
  "indexmap 2.2.6",
  "serde",
