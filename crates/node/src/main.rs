@@ -77,10 +77,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eigen_da_client: EigenDaGrpcClient = env
         .eigenda_server_address
         .as_ref()
-        .and_then(|address| {
+        .map(|address| {
             let mut client = EigenDaGrpcClient::default();
             client.update_server_address(address.clone());
-            Some(client)
+            client
         })
         .unwrap_or_default();
     tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);

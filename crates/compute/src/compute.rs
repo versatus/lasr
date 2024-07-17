@@ -626,9 +626,9 @@ impl OciManager {
     }
 }
 
-pub const DEFAULT_CONTAINERS_PATH: &'static str = "./containers";
-pub const DEFAULT_BASE_IMAGES_PATH: &'static str = "./base_image";
-pub const DEFAULT_PAYLOAD_PATH: &'static str = "./payload";
+pub const DEFAULT_CONTAINERS_PATH: &str = "./containers";
+pub const DEFAULT_BASE_IMAGES_PATH: &str = "./base_image";
+pub const DEFAULT_PAYLOAD_PATH: &str = "./payload";
 
 #[derive(Default, Debug)]
 pub struct OciBundlerBuilder<R: AsRef<OsStr>, P: AsRef<Path>> {
