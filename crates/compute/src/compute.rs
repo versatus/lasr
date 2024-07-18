@@ -475,7 +475,7 @@ impl OciManager {
             &container_path,
             &container_id
         );
-        let runsc = self.runtime().clone();
+        let mut runsc = Command::new(self.runtime());
         Ok(tokio::spawn(async move {
             // Create temp file for this container to output to
             let temp_file_path = std::env::temp_dir().join(format!("lasr/{}.out", container_id));
@@ -511,7 +511,7 @@ impl OciManager {
                 )
             })?;
 
-            let mut child = Command::new(runsc)
+            let mut child = runsc
                 .arg("--rootless")
                 .arg("--network=none")
                 .arg("run")
