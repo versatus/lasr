@@ -115,7 +115,7 @@ impl OciManager {
         Self { bundler, store }
     }
 
-    pub fn runtime(&self) -> &String {
+    pub fn runtime(&self) -> &str {
         &self.bundler.runtime
     }
 
