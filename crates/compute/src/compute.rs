@@ -115,8 +115,8 @@ impl OciManager {
         Self { bundler, store }
     }
 
-    pub fn runtime(&self) -> String {
-        self.bundler.runtime.clone()
+    pub fn runtime(&self) -> &String {
+        &self.bundler.runtime
     }
 
     pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
@@ -475,7 +475,7 @@ impl OciManager {
             &container_path,
             &container_id
         );
-        let runsc = self.runtime();
+        let runsc = self.runtime().clone();
         Ok(tokio::spawn(async move {
             // Create temp file for this container to output to
             let temp_file_path = std::env::temp_dir().join(format!("lasr/{}.out", container_id));
