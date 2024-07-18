@@ -115,6 +115,10 @@ impl OciManager {
         Self { bundler, store }
     }
 
+    pub fn runtime(&self) -> &str {
+        &self.bundler.runtime
+    }
+
     pub fn try_get_store(&self) -> Result<Web3Store, std::io::Error> {
         let store = if let Some(addr) = &self.store {
             Web3Store::from_multiaddr(addr).map_err(|e| {
@@ -471,6 +475,7 @@ impl OciManager {
             &container_path,
             &container_id
         );
+        let mut runsc = Command::new(self.runtime());
         Ok(tokio::spawn(async move {
             // Create temp file for this container to output to
             let temp_file_path = std::env::temp_dir().join(format!("lasr/{}.out", container_id));
@@ -506,7 +511,7 @@ impl OciManager {
                 )
             })?;
 
-            let mut child = Command::new("runsc")
+            let mut child = runsc
                 .arg("--rootless")
                 .arg("--network=none")
                 .arg("run")
