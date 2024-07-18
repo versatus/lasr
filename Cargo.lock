@@ -1260,7 +1260,7 @@ dependencies = [
 [[package]]
 name = "eigenda_client"
 version = "0.1.0"
-source = "git+https://github.com/versatus/eigenda_client#7774d0ed13169a2aa3b81460d2bdcbf66918b217"
+source = "git+https://github.com/versatus/eigenda_client#2cac35948d8887c670f595f39f80eade49eaa130"
 dependencies = [
  "base64 0.13.1",
  "clap 4.5.9",

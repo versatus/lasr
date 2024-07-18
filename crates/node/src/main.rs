@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //TODO(asmith): Move this to be read in when and where needed and dropped
     //afterwards to minimize security vulnerabilities
     let sk = web3::signing::SecretKey::from_str(&env.secret_key).map_err(Box::new)?;
-    let eigen_da_client: EigenDaGrpcClient = env
+    let mut eigen_da_client: EigenDaGrpcClient = env
         .eigenda_server_address
         .as_ref()
         .map(|address| {
@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client
         })
         .unwrap_or_default();
+    eigen_da_client.update_grpcurl_bin_path(env.grpcurl_bin_path.clone());
     tracing::warn!("Ethereum RPC URL: {}", env.eth_rpc_url);
     let http = web3::transports::Http::new(&env.eth_rpc_url).expect("Invalid ETH_RPC_URL");
     let web3_instance: web3::Web3<web3::transports::Http> = web3::Web3::new(http);
