@@ -142,13 +142,147 @@
           });
         };
 
-        packages = {
-          inherit lasr_cli lasr_node;
-        } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
-          workspace-llvm-coverage = craneLib.cargoLlvmCov (commonArgs // {
-            inherit cargoArtifacts;
-          });
-        };
+        packages =
+          let
+            hostPkgs = pkgs;
+            # The linux virtual machine system architecture, derived from the host's environment
+            # Example: aarch64-darwin -> aarch64-linux
+            guest_system = builtins.replaceStrings [ "darwin" ] [ "linux" ] pkgs.stdenv.hostPlatform.system;
+            # Build packages for the linux variant of the host architecture, but preserve the host's
+            # version of nixpkgs to build the virtual machine with. This way, building and running a
+            # linux virtual environment works for all supported system architectures.
+            lasrGuestVM = nixpkgs.lib.nixosSystem {
+              system = null;
+              modules = [
+                # ./nixos/modules/deployments/lasr_node/common.nix
+                # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+                versatus-nix.nixosModules.deployments.debugVm
+                ({
+                  # macOS specific stuff
+                  virtualisation.host.pkgs = hostPkgs;
+                  nixpkgs.hostPlatform = guest_system;
+                })
+                ({
+                  nixpkgs.overlays = [
+                    # self.overlays.rust
+                    # self.overlays.lasr_overlay
+                    # what we actually want:
+                    #self.inputs.lasr.overlays.default
+                  ];
+                })
+              ];
+            };
+            mkDigitalOceanImage = extraModules:
+              nixpkgs.lib.nixosSystem {
+                system = guest_system;
+                modules = [
+                  # ./nixos/modules/deployments/lasr_node/common.nix
+                  # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+                  versatus-nix.nixosModules.deployments.digitalOcean.digitalOceanImage
+                  ({
+                    nixpkgs.overlays = [
+                      # self.overlays.rust
+                      # self.overlays.lasr_overlay
+                    ];
+                  })
+                ] ++ extraModules;
+              };
+            debugDigitalOceanImage = mkDigitalOceanImage [
+              # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+            ];
+          in
+          {
+            inherit lasr_cli lasr_node;
+
+            lasr_debug_image =
+              debugDigitalOceanImage.config.system.build.digitalOceanImage;
+
+            # Spin up a virtual machine with the lasr_nightly_image options
+            # Useful for quickly debugging or testing changes locally
+            lasr_vm = lasrGuestVM.config.system.build.vm;
+
+            # lasr_cli_cross = # this works on Linux only at the moment
+            #   let
+            #     archPrefix = builtins.elemAt (pkgs.lib.strings.split "-" system) 0;
+            #     target = "${archPrefix}-unknown-linux-musl";
+
+            #     staticCraneLib =
+            #       let rustMuslToolchain = with fenix.packages.${system}; combine [
+            #           minimal.cargo
+            #           minimal.rustc
+            #           targets.${target}.latest.rust-std
+            #         ];
+            #       in
+            #       (crane.mkLib pkgs).overrideToolchain rustMuslToolchain;
+
+            #     buildLasrCliStatic = { stdenv, pkg-config, openssl, libiconv, darwin }:
+            #       staticCraneLib.buildPackage {
+            #         pname = "lasr_cli";
+            #         version = "1";
+            #         src = lasrSrc;
+            #         strictDeps = true;
+            #         nativeBuildInputs = [ pkg-config ];
+            #         buildInputs = [
+            #           (openssl.override { static = true; })
+            #           rustToolchain.darwin-pkgs
+            #         ];
+
+            #         doCheck = false;
+            #         cargoExtraArgs = "--locked --bin lasr_cli";
+
+            #         CARGO_BUILD_TARGET = target;
+            #         CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+            #       };
+            #   in
+            #   pkgs.pkgsMusl.callPackage buildLasrCliStatic {}; # TODO: needs fix, pkgsMusl not available on darwin systems
+
+            # TODO: Getting CC linker error
+            # lasr_cli_windows =
+            #   let
+            #     crossPkgs = import nixpkgs {
+            #       crossSystem = pkgs.lib.systems.examples.mingwW64;
+            #       localSystem = system;
+            #     };
+            #     craneLib = 
+            #       let 
+            #         rustToolchain = with fenix.packages.${system}; combine [
+            #             minimal.cargo
+            #             minimal.rustc
+            #             targets.x86_64-pc-windows-gnu.latest.rust-std
+            #           ];
+            #       in
+            #       (crane.mkLib crossPkgs).overrideToolchain rustToolchain;
+
+            #     inherit (crossPkgs.stdenv.targetPlatform.rust)
+            #       cargoEnvVarTarget cargoShortTarget;
+
+            #     buildLasrCli = { stdenv, pkg-config, openssl, libiconv, windows }:
+            #       craneLib.buildPackage {
+            #         pname = "lasr_node";
+            #         version = "1";
+            #         src = lasrSrc;
+            #         strictDeps = true;
+            #         nativeBuildInputs = [ pkg-config ];
+            #         buildInputs = [
+            #           (openssl.override { static = true; })
+            #           windows.pthreads
+            #         ];
+
+            #         doCheck = false;
+            #         cargoExtraArgs = "--locked --bin lasr_cli";
+
+            #         CARGO_BUILD_TARGET = cargoShortTarget;
+            #         CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+            #         "CARGO_TARGET_${cargoEnvVarTarget}_LINKER" = "${stdenv.cc.targetPrefix}cc";
+            #         HOST_CC = "${stdenv.cc.nativePrefix}cc";
+            #       };
+            #   in
+            #   crossPkgs.callPackage buildLasrCli {};
+          } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
+            workspace-llvm-coverage = craneLib.cargoLlvmCov (commonArgs // {
+              inherit cargoArtifacts;
+            });
+          };
 
         apps = {
           lasr_cli = flake-utils.lib.mkApp {
@@ -177,5 +311,30 @@
         };
 
         formatter = pkgs.nixpkgs-fmt;
-      });
+      }) // {
+        # nixosConfigurations =
+        #   let
+        #     mkDigitalOceanImage = extraModules:
+        #       nixpkgs.lib.nixosSystem {
+        #         inherit guest_system;
+        #         modules = [
+        #           # ./nixos/modules/deployments/lasr_node/common.nix
+        #           # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+        #           versatus-nix.nixosModules.deployments.digitalOcean.digitalOceanImage
+        #           ({
+        #             nixpkgs.overlays = [
+        #               # self.overlays.rust
+        #               # self.overlays.lasr_overlay
+        #             ];
+        #           })
+        #         ] ++ extraModules;
+        #       };
+        #     mkDebugDigitalOceanImage = mkDigitalOceanImage [
+        #       # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+        #     ];
+        #   in
+        #   {
+        #     lasrDebugDigitalOceanImage = mkDebugDigitalOceanImage;
+        #   };
+      };
 }
