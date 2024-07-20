@@ -1,0 +1,204 @@
+{
+  "nodes": {
+    "advisory-db": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721383898,
+        "narHash": "sha256-oB7n3qZp0cVRiiFTSisg2eYfIbFXsbGWK/ZBD02Auq8=",
+        "owner": "rustsec",
+        "repo": "advisory-db",
+        "rev": "eb081cbca8853b7481aec2f194627fa639bc5e62",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rustsec",
+        "repo": "advisory-db",
+        "type": "github"
+      }
+    },
+    "crane": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1721322122,
+        "narHash": "sha256-a0G1NvyXGzdwgu6e1HQpmK5R5yLsfxeBe07nNDyYd+g=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "8a68b987c476a33e90f203f0927614a75c3f47ea",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "crane_2": {
+      "inputs": {
+        "nixpkgs": [
+          "versatus-nix",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1721322122,
+        "narHash": "sha256-a0G1NvyXGzdwgu6e1HQpmK5R5yLsfxeBe07nNDyYd+g=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "8a68b987c476a33e90f203f0927614a75c3f47ea",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "fenix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-analyzer-src": []
+      },
+      "locked": {
+        "lastModified": 1721370560,
+        "narHash": "sha256-3GHNXsPZQRY4yPyov9vD6DAapdb4ZXJp8qpQY2u0lWQ=",
+        "owner": "nix-community",
+        "repo": "fenix",
+        "rev": "13b935cb8e697913298acca8309cf031336497f7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "fenix",
+        "type": "github"
+      }
+    },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-SZ5L6eA7HJ/nmkzGG7/ISclqe6oZdOZTNoesiInkXPQ=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "b1d9ab70662946ef0850d488da1c9019f3a9752a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "lasr": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721333030,
+        "narHash": "sha256-9ZOIw3JE8wPWo5+apNe0ks/iMBxTFYZ8bWBimsm8NTc=",
+        "owner": "versatus",
+        "repo": "lasr",
+        "rev": "8be70184898dc0278fcd098992dd6aee6fb71c2d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "versatus",
+        "repo": "lasr",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1721403608,
+        "narHash": "sha256-X5+QA5K3J2KA20YEaBJ+GKDj/XIb5PutHmphgYQUszA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ad0111043c09f7d0f6b9f039882cbf350d4f7d49",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "advisory-db": "advisory-db",
+        "crane": "crane",
+        "fenix": "fenix",
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs",
+        "versatus-nix": "versatus-nix"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "versatus": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1717000637,
+        "narHash": "sha256-oCKOYZPSGT+Hbp/IoyzeEzPwBkogkYIJA+Eu8IXhGMY=",
+        "owner": "versatus",
+        "repo": "versatus",
+        "rev": "217a0e73fa9284286e1482d50c2af260ada4f51c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "versatus",
+        "repo": "versatus",
+        "type": "github"
+      }
+    },
+    "versatus-nix": {
+      "inputs": {
+        "crane": "crane_2",
+        "fenix": [
+          "fenix"
+        ],
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "lasr": "lasr",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "versatus": "versatus"
+      },
+      "locked": {
+        "lastModified": 1721446288,
+        "narHash": "sha256-zcazy3N5m/YUoH1wIFyYqa8EclfAnYWeLLZk8WvDeXA=",
+        "owner": "versatus",
+        "repo": "versatus.nix",
+        "rev": "99546182b90b0d3b685946f8150cdabed085c9eb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "versatus",
+        "repo": "versatus.nix",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

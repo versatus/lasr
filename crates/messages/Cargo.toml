@@ -1,5 +1,6 @@
 [package]
 name = "lasr_messages"
+publish = false
 version = "0.9.0"
 edition = "2021"
 
