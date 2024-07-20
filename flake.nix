@@ -36,7 +36,8 @@
         pkgs = nixpkgs.legacyPackages.${system};
         inherit (pkgs) lib;
 
-        toolchains = versatus-nix.toolchains.${system};
+        versaLib = versatus-nix.lib.${system};
+        toolchains = versaLib.toolchains;
 
         rustToolchain = toolchains.mkRustToolchainFromTOML
           ./rust-toolchain.toml
@@ -145,9 +146,7 @@
         packages =
           let
             hostPkgs = pkgs;
-            # The linux virtual machine system architecture, derived from the host's environment
-            # Example: aarch64-darwin -> aarch64-linux
-            guest_system = builtins.replaceStrings [ "darwin" ] [ "linux" ] pkgs.stdenv.hostPlatform.system;
+            guest_system = versaLib.virtualisation.mkGuestSystem pkgs;
             # Build packages for the linux variant of the host architecture, but preserve the host's
             # version of nixpkgs to build the virtual machine with. This way, building and running a
             # linux virtual environment works for all supported system architectures.
@@ -158,7 +157,7 @@
                 # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
                 versatus-nix.nixosModules.deployments.debugVm
                 ({
-                  # macOS specific stuff
+                  # MacOS specific stuff
                   virtualisation.host.pkgs = hostPkgs;
                   nixpkgs.hostPlatform = guest_system;
                 })
@@ -172,6 +171,10 @@
                 })
               ];
             };
+            # This would under normal circumstances be made available through `self.nixosConfigurations`
+            # however, we want the darwin systems to build linux images since the `lasr_node` binary
+            # has linux-only dependencies. Using the `nix-darwin` linux builder, MacOS users can still
+            # build this image for deployment, and can use the `lasr-vm` for debugging.
             mkDigitalOceanImage = extraModules:
               nixpkgs.lib.nixosSystem {
                 system = guest_system;
@@ -311,30 +314,5 @@
         };
 
         formatter = pkgs.nixpkgs-fmt;
-      }) // {
-        # nixosConfigurations =
-        #   let
-        #     mkDigitalOceanImage = extraModules:
-        #       nixpkgs.lib.nixosSystem {
-        #         inherit guest_system;
-        #         modules = [
-        #           # ./nixos/modules/deployments/lasr_node/common.nix
-        #           # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
-        #           versatus-nix.nixosModules.deployments.digitalOcean.digitalOceanImage
-        #           ({
-        #             nixpkgs.overlays = [
-        #               # self.overlays.rust
-        #               # self.overlays.lasr_overlay
-        #             ];
-        #           })
-        #         ] ++ extraModules;
-        #       };
-        #     mkDebugDigitalOceanImage = mkDigitalOceanImage [
-        #       # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
-        #     ];
-        #   in
-        #   {
-        #     lasrDebugDigitalOceanImage = mkDebugDigitalOceanImage;
-        #   };
-      };
+      });
 }

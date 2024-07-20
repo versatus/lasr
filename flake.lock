@@ -65,11 +65,11 @@
         "rust-analyzer-src": []
       },
       "locked": {
-        "lastModified": 1721370560,
-        "narHash": "sha256-3GHNXsPZQRY4yPyov9vD6DAapdb4ZXJp8qpQY2u0lWQ=",
+        "lastModified": 1721456965,
+        "narHash": "sha256-AJjRiL2diAitpARbE9bUTlgtqHC8QS1ImXNaXMRhKoU=",
         "owner": "nix-community",
         "repo": "fenix",
-        "rev": "13b935cb8e697913298acca8309cf031336497f7",
+        "rev": "d3121c162a1fa4fabcb9af9642d50e8b05ddfe83",
         "type": "github"
       },
       "original": {
@@ -114,11 +114,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1721403608,
-        "narHash": "sha256-X5+QA5K3J2KA20YEaBJ+GKDj/XIb5PutHmphgYQUszA=",
+        "lastModified": 1721466660,
+        "narHash": "sha256-pFSxgSZqZ3h+5Du0KvEL1ccDZBwu4zvOil1zzrPNb3c=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "ad0111043c09f7d0f6b9f039882cbf350d4f7d49",
+        "rev": "6e14bbce7bea6c4efd7adfa88a40dac750d80100",
         "type": "github"
       },
       "original": {
@@ -185,11 +185,11 @@
         "versatus": "versatus"
       },
       "locked": {
-        "lastModified": 1721446288,
-        "narHash": "sha256-zcazy3N5m/YUoH1wIFyYqa8EclfAnYWeLLZk8WvDeXA=",
+        "lastModified": 1721516816,
+        "narHash": "sha256-t654VcPHl4nomp0gICEqU+F4/JdM1uY1tRhccO/hwy4=",
         "owner": "versatus",
         "repo": "versatus.nix",
-        "rev": "99546182b90b0d3b685946f8150cdabed085c9eb",
+        "rev": "18a1a24c78487189c9ce4b88fe76e0eff596094f",
         "type": "github"
       },
       "original": {
