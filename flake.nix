@@ -37,26 +37,28 @@
         inherit (pkgs) lib;
 
         versaLib = versatus-nix.lib.${system};
-        toolchains = versaLib.toolchains;
-
-        rustToolchain = toolchains.mkRustToolchainFromTOML
+        rustToolchain = versaLib.toolchains.mkRustToolchainFromTOML
           ./rust-toolchain.toml
           "sha256-SXRtAuO4IqNOQq+nLbrsDFbVk+3aVA8NNpSZsKlVH/8=";
 
         # Overrides the default crane rust-toolchain with fenix.
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain.fenix-pkgs;
-        src = craneLib.cleanCargoSource ./.;
+        workspace = rec {
+          # Inherit the workspace version from the node crate since the workspace is not a package.
+          inherit (craneLib.crateNameFromCargoToml { cargoToml = (root + "/crates/node/Cargo.toml"); }) version;
+          name = "lasr";
+          root = ./.;
+          src = craneLib.cleanCargoSource root;
+        };
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
-          inherit src;
-          version = "0.9.0";
+          inherit (workspace) version src;
+          pname = workspace.name;
           strictDeps = true;
 
           # Inputs that must be available at the time of the build
-          nativeBuildInputs = [
-            pkgs.pkg-config # necessary for linking OpenSSL
-          ];
+          nativeBuildInputs = [ pkgs.pkg-config ];
 
           buildInputs = [
             pkgs.openssl.dev
@@ -69,34 +71,37 @@
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
         individualCrateArgs = commonArgs // {
           inherit cargoArtifacts;
-          inherit (craneLib.crateNameFromCargoToml { inherit src; }) version;
           doCheck = false; # Use cargo-nextest below.
         };
 
         fileSetForCrate = crate: lib.fileset.toSource {
-          root = ./.;
+          root = workspace.root;
           fileset = lib.fileset.unions [
             ./Cargo.toml
             ./Cargo.lock
             ./crates
-            crate
+            (workspace.root + crate)
           ];
         };
 
         # Build the top-level crates of the workspace as individual derivations.
         # This allows consumers to only depend on (and build) only what they need.
         # Though it is possible to build the entire workspace as a single derivation,
-        # so this is left up to you on how to organize things
-        lasr_cli = craneLib.buildPackage (individualCrateArgs // {
-          pname = "lasr_cli";
-          cargoExtraArgs = "--locked --bin lasr_cli";
-          src = fileSetForCrate ./crates/cli;
-        });
-        lasr_node = craneLib.buildPackage (individualCrateArgs // {
-          pname = "lasr_node";
-          cargoExtraArgs = "--locked --bin lasr_node";
-          src = fileSetForCrate ./crates/node;
-        });
+        # in this case the workspace itself is not a package.
+        mkCrateDrv = crate:
+          let
+            manifest = craneLib.crateNameFromCargoToml {
+              cargoToml = (workspace.root + "${crate}/Cargo.toml");
+            };
+          in
+          craneLib.buildPackage (individualCrateArgs // {
+            inherit (manifest) version pname;
+            cargoExtraArgs = "--locked --bin ${manifest.pname}";
+            src = fileSetForCrate crate;
+          });
+
+        lasr_cli = mkCrateDrv "/crates/cli";
+        lasr_node = mkCrateDrv "/crates/node";
       in
       {
         checks = {
@@ -111,26 +116,32 @@
           # prevent downstream consumers from building our crate by itself.
           workspace-clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
+            pname = workspace.name;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           });
 
           workspace-doc = craneLib.cargoDoc (commonArgs // {
             inherit cargoArtifacts;
+            pname = workspace.name;
           });
 
           # Check formatting
           workspace-fmt = craneLib.cargoFmt {
-            inherit src;
+            inherit (workspace) version src;
+            pname = workspace.name;
           };
 
           # Audit dependencies
           workspace-audit = craneLib.cargoAudit {
-            inherit src advisory-db;
+            inherit (workspace) version src;
+            inherit advisory-db;
+            pname = workspace.name;
           };
 
           # Audit licenses
           workspace-deny = craneLib.cargoDeny {
-            inherit src;
+            inherit (workspace) version src;
+            pname = workspace.name;
           };
 
           # Run tests with cargo-nextest
@@ -138,6 +149,7 @@
           # if you do not want the tests to run twice
           workspace-nextest = craneLib.cargoNextest (commonArgs // {
             inherit cargoArtifacts;
+            pname = workspace.name;
             partitions = 1;
             partitionType = "count";
           });
@@ -153,8 +165,8 @@
             lasrGuestVM = nixpkgs.lib.nixosSystem {
               system = null;
               modules = [
-                # ./nixos/modules/deployments/lasr_node/common.nix
-                # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+                ./nixos/modules/deployments/common
+                ./nixos/modlues/deployments/debug/debug-options.nix
                 versatus-nix.nixosModules.deployments.debugVm
                 ({
                   # MacOS specific stuff
@@ -163,10 +175,8 @@
                 })
                 ({
                   nixpkgs.overlays = [
-                    # self.overlays.rust
-                    # self.overlays.lasr_overlay
-                    # what we actually want:
-                    #self.inputs.lasr.overlays.default
+                    self.overlays.lasr-overlay
+                    self.overlays.rust-overlay
                   ];
                 })
               ];
@@ -179,19 +189,18 @@
               nixpkgs.lib.nixosSystem {
                 system = guest_system;
                 modules = [
-                  # ./nixos/modules/deployments/lasr_node/common.nix
-                  # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+                  ./nixos/modules/deployments/common
                   versatus-nix.nixosModules.deployments.digitalOcean.digitalOceanImage
                   ({
                     nixpkgs.overlays = [
-                      # self.overlays.rust
-                      # self.overlays.lasr_overlay
+                      self.overlays.lasr-overlay
+                      self.overlays.rust-overlay
                     ];
                   })
                 ] ++ extraModules;
               };
             debugDigitalOceanImage = mkDigitalOceanImage [
-              # ./nixos/modules/deployments/lasr_node/nightly/nightly-options.nix
+              ./nixos/modules/deployments/debug/debug-options.nix
             ];
           in
           {
@@ -200,10 +209,11 @@
             lasr_debug_image =
               debugDigitalOceanImage.config.system.build.digitalOceanImage;
 
-            # Spin up a virtual machine with the lasr_nightly_image options
+            # Spin up a virtual machine with the lasr_debug_image options
             # Useful for quickly debugging or testing changes locally
             lasr_vm = lasrGuestVM.config.system.build.vm;
 
+            # TODO: Fix musl static linking
             # lasr_cli_cross = # this works on Linux only at the moment
             #   let
             #     archPrefix = builtins.elemAt (pkgs.lib.strings.split "-" system) 0;
@@ -314,5 +324,16 @@
         };
 
         formatter = pkgs.nixpkgs-fmt;
-      });
+      }) // {
+        overlays = {
+          lasr-overlay = import ./nixos/overlay.nix;
+          rust-overlay = final: prev: {
+            # This contains a lot of policy decisions which rust toolchain is used
+            craneLib = (self.inputs.crane.mkLib prev).overrideToolchain final.rustToolchain.fenix-pkgs;
+            rustToolchain = prev.versaLib.toolchains.mkRustToolchainFromTOML
+              ./rust-toolchain.toml
+              "sha256-SXRtAuO4IqNOQq+nLbrsDFbVk+3aVA8NNpSZsKlVH/8=";
+          };
+        };
+      };
 }

@@ -75,7 +75,7 @@ cargo test --workspace --features mock_storage
 ```sh
 nix flake update # updates flake inputs, see note above
 nix build .#lasr_vm
-./result/bin/run-lasr-nightly-server-vm
+./result/bin/run-lasr-debug-server-vm
 ```
 
 > Note: A qemu terminal should appear which you can either login as root, or ssh into.
