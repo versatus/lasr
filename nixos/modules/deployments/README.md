@@ -2,19 +2,18 @@
 
 ## Deployment Processes
 
-#### DigitalOcean Deployment Process
+Deployment processes vary between server providers.
 
-There are many ways to deploy NixOS images to server providers, but DigitalOcean is slightly more nuanced.
-The server identity must be maintained between operating system updates, e.g. an Ubuntu 24.04 installation
-cannot be converted to a NixOS 24.04 installation. This is not a problem for other server providers since
-they don't rely on the OS as part of their API. That said here is how we are deploying to DigitalOcean
-servers with NixOS:
+### DigitalOcean Deployment Process
 
 1. NixOS images are created for each server
 2. The images are uploaded to DigitalOcean via API, old images are deleted
 3. The existing servers are rebuilt with the new images
-4. A `systemd` startup script runs upon successful server start which deploys the `lasr_node`
-5. This process continues automatically, pulling the most recent changes from the `lasr` repository on a nightly and bi-weekly basis
+4. `systemd` startup scripts run upon successful server start which spin up the node
+5. This process continues automatically, pulling the most recent changes from the repository on a release cycle
+
+> Note: It is now also possible to push a NixOS deployment to a server, without the DigitalOcean API via [nixos-anywhere](https://nix-community.github.io/nixos-anywhere/).
+> Some configuration examples can be found at https://github.com/nix-community/nixos-anywhere-examples/.
 
 ## Local Development
 It's possible to test your changes to a server locally by starting a NixOS virtual machine environment.
@@ -30,7 +29,7 @@ There are two resources we recommend for getting started with `nix-darwin` which
 1. [nix-darwin setup](https://nixcademy.com/2024/01/15/nix-on-macos/#step-2-going-declarative-with-nix-darwin) 
 2. [nix-darwin linux builder](https://nixcademy.com/2024/02/12/macos-linux-builder/#the-nix-darwin-option)
 
-An example of a finalized `nix-darwin` flake, which enables the `linux-builder` functionality can be found at [nix-darwin-example](./nix-darwin).
+An example of a finalized `nix-darwin` flake, which enables the `linux-builder` functionality can be found at [nix-darwin-example](https://github.com/versatus/versatus.nix/tree/master/nix-darwin).
 From this point, the steps for running the virtual environment are [the same as Linux](#nixos-vm-linux)! 🎉
 ```sh
 nix build .#<nixos-vm>
