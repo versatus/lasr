@@ -1,5 +1,7 @@
 {
-  description = "Versatus rust-based project template.";
+  description = ''
+    A nix flake for development, and deployment of a LASR node.
+  '';
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
