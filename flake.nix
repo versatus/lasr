@@ -321,6 +321,7 @@
             # cargo-nextest
             packages = with pkgs; [
               # ripgrep
+              taplo
               nil # nix lsp
               nixpkgs-fmt # nix formatter
             ];
