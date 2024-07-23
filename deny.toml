@@ -1,0 +1,35 @@
+[bans]
+multiple-versions = 'allow' # allow multiple versions of the same license
+
+[licenses]
+private = { ignore = true } # ignore workspace crates that won't be published
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "MIT",
+  "Unicode-DFS-2016",
+  "CC0-1.0",
+  "ISC",
+  "OpenSSL",
+]
+
+# Copied from https://github.com/EmbarkStudios/cargo-deny/blob/6344cc566621410a0865632b4ef0e82a20408676/deny.toml#L63
+[[licenses.clarify]]
+crate = "ring"
+# SPDX considers OpenSSL to encompass both the OpenSSL and SSLeay licenses
+# https://spdx.org/licenses/OpenSSL.html
+# ISC - Both BoringSSL and ring use this for their new files
+# MIT - "Files in third_party/ have their own licenses, as described therein. The MIT
+# license, for third_party/fiat, which, unlike other third_party directories, is
+# compiled into non-test libraries, is included below."
+# OpenSSL - Obviously
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[advisories]
+version = 2
+ignore = [
+  { id = "RUSTSEC-2021-0141", reason = "may be valid, more research is necessary." },
+  { id = "RUSTSEC-2021-0145", reason = "may be valid, more research is necessary." },
+]

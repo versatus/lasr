@@ -1,5 +1,6 @@
 [package]
 name = "lasr_types"
+publish = false     # Consider publishing for SDKs
 version = "0.9.0"
 edition = "2021"
 
