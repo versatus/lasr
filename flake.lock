@@ -23,32 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1721322122,
-        "narHash": "sha256-a0G1NvyXGzdwgu6e1HQpmK5R5yLsfxeBe07nNDyYd+g=",
+        "lastModified": 1721699339,
+        "narHash": "sha256-UqtSwU13vpzzM6w8tGghEbA7ObM3NCDzSpz19QQo9XE=",
         "owner": "ipetkov",
         "repo": "crane",
-        "rev": "8a68b987c476a33e90f203f0927614a75c3f47ea",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ipetkov",
-        "repo": "crane",
-        "type": "github"
-      }
-    },
-    "crane_2": {
-      "inputs": {
-        "nixpkgs": [
-          "versatus-nix",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1721322122,
-        "narHash": "sha256-a0G1NvyXGzdwgu6e1HQpmK5R5yLsfxeBe07nNDyYd+g=",
-        "owner": "ipetkov",
-        "repo": "crane",
-        "rev": "8a68b987c476a33e90f203f0927614a75c3f47ea",
+        "rev": "0081e9c447f3b70822c142908f08ceeb436982b8",
         "type": "github"
       },
       "original": {
@@ -65,11 +44,11 @@
         "rust-analyzer-src": []
       },
       "locked": {
-        "lastModified": 1721543262,
-        "narHash": "sha256-6m2G2pGmFjPGeXDs0FqhDfdACCCcFN3XMWHEyTTyTXo=",
+        "lastModified": 1721629802,
+        "narHash": "sha256-GKlvM9M0mkKJrL6N1eMG4DrROO25Ds1apFw3/b8594w=",
         "owner": "nix-community",
         "repo": "fenix",
-        "rev": "a01667fc71674454dd9ec2669afc0b326a275796",
+        "rev": "1270fb024c6987dd825a20cd27319384a8d8569e",
         "type": "github"
       },
       "original": {
@@ -96,29 +75,13 @@
         "type": "github"
       }
     },
-    "lasr": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1721333030,
-        "narHash": "sha256-9ZOIw3JE8wPWo5+apNe0ks/iMBxTFYZ8bWBimsm8NTc=",
-        "owner": "versatus",
-        "repo": "lasr",
-        "rev": "8be70184898dc0278fcd098992dd6aee6fb71c2d",
-        "type": "github"
-      },
-      "original": {
-        "owner": "versatus",
-        "repo": "lasr",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1721559948,
-        "narHash": "sha256-cFgdjyK/VBM3hB1RfFHXcI/VOCBVAv813s1upHKX7bI=",
+        "lastModified": 1721622093,
+        "narHash": "sha256-iQ+quy3A1EKeFyLyAtjhgSvZHH7r+xybXZkxMhasN4I=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "c19d62ad2265b16e2199c5feb4650fe459ca1c46",
+        "rev": "453402b94f39f968a7c27df28e060f69e4a50c3b",
         "type": "github"
       },
       "original": {
@@ -153,43 +116,24 @@
         "type": "github"
       }
     },
-    "versatus": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1717000637,
-        "narHash": "sha256-oCKOYZPSGT+Hbp/IoyzeEzPwBkogkYIJA+Eu8IXhGMY=",
-        "owner": "versatus",
-        "repo": "versatus",
-        "rev": "217a0e73fa9284286e1482d50c2af260ada4f51c",
-        "type": "github"
-      },
-      "original": {
-        "owner": "versatus",
-        "repo": "versatus",
-        "type": "github"
-      }
-    },
     "versatus-nix": {
       "inputs": {
-        "crane": "crane_2",
         "fenix": [
           "fenix"
         ],
         "flake-utils": [
           "flake-utils"
         ],
-        "lasr": "lasr",
         "nixpkgs": [
           "nixpkgs"
-        ],
-        "versatus": "versatus"
+        ]
       },
       "locked": {
-        "lastModified": 1721604062,
-        "narHash": "sha256-RoXYpqqqypUM6UgjU/E8IgnXkL4x2/28AL2N+yiXPDw=",
+        "lastModified": 1721710791,
+        "narHash": "sha256-KReNG+uahuCl3SKws55uBV3kH+Hwn21YHp+HWS1lcrM=",
         "owner": "versatus",
         "repo": "versatus.nix",
-        "rev": "300aa128f1cfa19c493966e481dd839891fade33",
+        "rev": "98148ac5803dd9d257ce2df90ccefe0834a07654",
         "type": "github"
       },
       "original": {
