@@ -12,3 +12,4 @@
 /.lasr
 *.gz
 blocks_processed.dat
+result*
