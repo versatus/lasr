@@ -12,3 +12,7 @@ members = [
   "crates/types",
   "crates/wallet",
 ]
+
+
+[workspace.package]
+name = "lasr"
