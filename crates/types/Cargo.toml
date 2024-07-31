@@ -1,8 +1,14 @@
 [package]
 name = "lasr_types"
-publish = false     # Consider publishing for SDKs
 version = "0.9.0"
 edition = "2021"
+authors = ["Versatus Labs <info@versatus.io>"]
+description = "A crate to assist in development of programs in Rust for the LASR network"
+readme = "README.md"
+homepage = "https://versatus.io"
+repository = "https://github.com/versatus/lasr/tree/main/crates/types"
+license = "MIT AND BSD-2-Clause"
+license-file = "LICENSE.txt"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
