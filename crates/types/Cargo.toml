@@ -7,7 +7,6 @@ description = "A crate to assist in development of programs in Rust for the LASR
 readme = "README.md"
 homepage = "https://versatus.io"
 repository = "https://github.com/versatus/lasr/tree/main/crates/types"
-license = "MIT AND BSD-2-Clause"
 license-file = "LICENSE.txt"
 exclude = ["src/persistence.rs"]
 
